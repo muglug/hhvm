@@ -215,6 +215,26 @@ pub fn to_contextual_string(lint: &T<crate::pos::Absolute>) -> String {
     }
 }
 
+pub fn to_plain_highlighted_string(
+    source: Option<String>,
+    lint: &T<crate::pos::Absolute>,
+) -> String {
+    #[cfg(feature = "server")]
+    {
+        crate::plain_highlighted_diagnostic_formatter::to_string_with_source(
+            source,
+            &make_absolute_warning(lint),
+        )
+    }
+    #[cfg(not(feature = "server"))]
+    {
+        let _ = (source, lint);
+        todo!(
+            "Lints_core.to_plain_highlighted_string: Plain_highlighted_diagnostic_formatter is compiled with the feature `server` only"
+        )
+    }
+}
+
 pub fn to_highlighted_string(lint: &T<crate::pos::Absolute>) -> String {
     #[cfg(feature = "server")]
     {

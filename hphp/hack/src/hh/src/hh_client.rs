@@ -108,6 +108,27 @@ pub fn init_event_logger(
     // the OSS build (see the module documentation).
 }
 
+fn apply_agent_error_format(
+    local_config: &server_local_config::T,
+    check_env: client_env::ClientCheckEnv,
+) -> client_env::ClientCheckEnv {
+    use server_local_config::AgentErrorFormatConfig;
+    match (&check_env.error_format, local_config.use_agent_error_format) {
+        (None, AgentErrorFormatConfig::AgentErrorFormatDisabled) => {
+            server_local_config_qe::enable_agent_error_format_exposure();
+            check_env
+        }
+        (None, AgentErrorFormatConfig::AgentErrorFormatEnabled) => {
+            server_local_config_qe::enable_agent_error_format_exposure();
+            client_env::ClientCheckEnv {
+                error_format: Some(crate::diagnostics_state::Format::Agent),
+                ..check_env
+            }
+        }
+        _ => check_env,
+    }
+}
+
 pub fn log_qe_fetch(_fetch: &server_local_config_qe::Fetch) {
     // `Hack_event_logger.client_qe_fetch ~start_time ~end_time`: a no-op in
     // the OSS build.
@@ -354,6 +375,7 @@ pub fn exec_command_with_config(command: HeavyCommand, init_proc_stack: Vec<Stri
     let result = std::panic::catch_unwind(AssertUnwindSafe(|| -> Result<(), Exn> {
         let exit_status = match command {
             HeavyCommand::CCheck(check_env) => {
+                let check_env = apply_agent_error_format(&local_config, check_env);
                 client_check_main(check_env, &config, &local_config, init_proc_stack)?
                 // never returns; does [Exit.exit] itself
             }

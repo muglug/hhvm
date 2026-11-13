@@ -799,6 +799,11 @@ pub enum T {
     SAVENAMING(String),
     /// -> `unit`
     CHECKLIVENESS,
+    /// -> `unit`
+    ///
+    /// Pause automatic rechecks until the next client connection. This uses
+    /// the default pipe so that ongoing typechecking finishes first.
+    PAUSE,
     /// -> `Server_lint_types.result`
     LINT(Vec<String>),
     /// -> `Server_lint_types.result`
@@ -878,6 +883,7 @@ pub enum CommandResult {
     INMEMORYDEPTABLESIZE(std::result::Result<isize, String>),
     SAVENAMING(std::result::Result<save_state_service_types::SaveNamingResult, String>),
     CHECKLIVENESS(()),
+    PAUSE(()),
     LINT(#[serde(with = "crate::rt::protocol::wire::port_only")] server_lint_types::Result),
     LINTSTDIN(#[serde(with = "crate::rt::protocol::wire::port_only")] server_lint_types::Result),
     LINTALL(#[serde(with = "crate::rt::protocol::wire::port_only")] server_lint_types::Result),
@@ -939,6 +945,7 @@ pub fn command_result_name(r: &CommandResult) -> &'static str {
         CommandResult::INMEMORYDEPTABLESIZE(_) => "IN_MEMORY_DEP_TABLE_SIZE",
         CommandResult::SAVENAMING(_) => "SAVE_NAMING",
         CommandResult::CHECKLIVENESS(_) => "CHECK_LIVENESS",
+        CommandResult::PAUSE(_) => "PAUSE",
         CommandResult::LINT(_) => "LINT",
         CommandResult::LINTSTDIN(_) => "LINT_STDIN",
         CommandResult::LINTALL(_) => "LINT_ALL",
@@ -986,6 +993,7 @@ result_of!(
     (),
     LOGERRORS,
     CHECKLIVENESS,
+    PAUSE,
     NOPRECHECKEDFILES,
     VERBOSE
 );
@@ -1150,6 +1158,7 @@ pub fn rpc_command_needs_full_check(msg: &T) -> bool {
         T::RAGE => false,
         T::CSTSEARCH(_) => false,
         T::CHECKLIVENESS => false,
+        T::PAUSE => true,
         T::FUNDEPSBATCH(_) => false,
         T::DEPSOUTBATCH(_) => false,
         T::FILEDEPENDENTS(_) => true,

@@ -171,9 +171,14 @@ fn of_decl_ty(ty: &DeclTy) -> String {
                     // Closed shape
                     fields
                 } else {
-                    // Open shape TODO akenn non-mixed open
+                    let kind = of_decl_ty(kind);
+                    let tail = if kind == "mixed" {
+                        "...".to_string()
+                    } else {
+                        format!("{}...", kind)
+                    };
                     let mut fields = fields;
-                    fields.push("...".to_string());
+                    fields.push(tail);
                     fields
                 };
                 format!("shape({})", fields_with_ellipsis.join(", "))

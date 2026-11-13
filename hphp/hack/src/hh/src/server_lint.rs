@@ -213,8 +213,35 @@ pub fn hh_single_lint(
     }
     if !json {
         if !lint_errors.is_empty() {
-            let lint_errors = prepare_errors_for_output(lint_errors);
-            crate::server_lint_types::output_text(oc, &lint_errors, error_format);
+            match error_format {
+                crate::diagnostics_state::Format::PlainHighlighted => {
+                    // `List.sort` is stable.
+                    let mut lint_errors = lint_errors;
+                    lint_errors.sort_by(|x, y| {
+                        crate::pos::compare(&lints_core::get_pos(x), &lints_core::get_pos(y))
+                    });
+                    for lint in lint_errors {
+                        // `Relative_path.Map.find_opt files_contents
+                        // (Pos.filename (Lints_core.get_pos lint))`
+                        let lint_file = crate::pos::filename(&lints_core::get_pos(&lint));
+                        let source = files_contents
+                            .iter()
+                            .find(|(fn_, _)| *fn_ == lint_file)
+                            .map(|(_, content)| String::from_utf8_lossy(content).into_owned());
+                        let text = lints_core::to_plain_highlighted_string(
+                            source,
+                            &lints_core::to_absolute(lint),
+                        );
+                        let _ = oc.write_all(text.as_bytes());
+                        let _ = oc.write_all(b"\n");
+                        let _ = oc.flush();
+                    }
+                }
+                format => {
+                    let lint_errors = prepare_errors_for_output(lint_errors);
+                    crate::server_lint_types::output_text(oc, &lint_errors, format);
+                }
+            }
             2
         } else {
             let _ = oc.write_all(b"No lint errors\n");

@@ -185,11 +185,15 @@ mod tests {
                 FeatureName::ShapeSplatTypeParameters,
             ),
             ("shape_splat_expression", FeatureName::ShapeSplatExpression),
+            (
+                "named_parameters_meth_caller",
+                FeatureName::NamedParametersMethCaller,
+            ),
         ];
         for (name, feature) in names {
             assert_eq!(feature_name_from_string(name), Some(feature), "{}", name);
         }
-        assert_eq!(names.len(), 51);
+        assert_eq!(names.len(), 52);
         for (name, status) in [
             ("Unstable", FeatureStatus::Unstable),
             ("Preview", FeatureStatus::Preview),

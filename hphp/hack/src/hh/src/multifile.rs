@@ -34,16 +34,33 @@ pub fn strip_multifile_prefix(path: &str) -> String {
 ///   to `DIR/NAME` (`DIR/<path>` without `@file`), without its first line.
 /// - Any other file is itself.
 pub fn file_to_file_list(path: &str, content: &[u8]) -> Vec<(String, Vec<u8>)> {
+    file_to_file_list_rooted(path, content)
+        .into_iter()
+        .map(|(_rooted, sub, c)| (sub, c))
+        .collect()
+}
+
+/// [`file_to_file_list`], with whether each part is a `~root/` one: the
+/// OCaml names those `Relative_path.from_root ~suffix` (a path under the
+/// root), and the others by the path of the file.
+pub fn file_to_file_list_rooted(path: &str, content: &[u8]) -> Vec<(bool, String, Vec<u8>)> {
     // `Str.string_match (Str.regexp "////.*\n") content 0`.
     if content.starts_with(b"////") && content[4..].contains(&b'\n') {
         return split_multifile_content(content)
             .into_iter()
             .map(|(sub, c)| match sub.strip_prefix("~root/") {
-                Some(suffix) => (suffix.to_string(), c),
-                None => (format!("{path}--{sub}"), c),
+                Some(suffix) => (true, suffix.to_string(), c),
+                None => (false, format!("{path}--{sub}"), c),
             })
             .collect();
     }
+    file_to_file_list_unrooted(path, content)
+        .into_iter()
+        .map(|(sub, c)| (false, sub, c))
+        .collect()
+}
+
+fn file_to_file_list_unrooted(path: &str, content: &[u8]) -> Vec<(String, Vec<u8>)> {
     if content.starts_with(b"// @directory ") {
         let first_end = content.iter().position(|&c| c == b'\n');
         let first_line = &content[..first_end.unwrap_or(content.len())];

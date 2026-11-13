@@ -152,10 +152,13 @@ fn get_minor_change_fanout(
             // We don't bother to test whether the class is an enum type because
             // non-enum classes will have no AllMembers dependents anyway.
             match change {
-                MemberChange::Added | MemberChange::Removed => {
+                MemberChange::Added
+                | MemberChange::Removed
+                | MemberChange::ChangedInheritance
+                | MemberChange::Modified(_) => {
                     recheck_descendants_and_their_member_dependents(acc, &dep::member::all)
                 }
-                _ => acc,
+                MemberChange::PrivateChangeNotInTrait => acc,
             }
         };
         acc = add_member_fanout(true, &dep::member::const_(name), change, acc1);
@@ -498,7 +501,9 @@ mod tests {
             &edges(),
             || {
                 let ctx = ctx();
-                // A modified constant always takes the descendants.
+                // A modified constant always takes the descendants, and (as an
+                // added or removed one) `AllMembers` of the descendants: its
+                // type may have changed, which exhaustive switches depend on.
                 let a = changed_class(
                     &ctx,
                     &c("A"),
@@ -517,6 +522,7 @@ mod tests {
                         &dep::Variant::Type(c("B")),
                         &fun("i"),
                         &fun("j"),
+                        &fun("k"),
                     ])
                 );
                 // An added or removed constant also takes `AllMembers` of

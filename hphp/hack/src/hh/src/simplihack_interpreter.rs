@@ -595,19 +595,55 @@ pub mod call {
     ) -> Result<Context<'a>, EvalError> {
         let eval = |arg| expr::eval(ctx, arg);
         let mut new_ctx = context::push_stack_frame(ctx, name, pos);
-        let mut args = args.iter();
-        let mut params = params.iter();
-        loop {
-            match (args.next(), params.next()) {
-                (Some(aast::Argument::Anormal(arg)), Some(aast::FunParam { name: param_name, .. })) => {
-                    let v = eval(arg)?;
-                    new_ctx = context::store(new_ctx, local_id::make_unscoped(param_name), v);
+        let mut named_params: std::collections::BTreeMap<&str, &String> =
+            std::collections::BTreeMap::new();
+        for param in params {
+            match (&param.named, &param.info) {
+                (Some(_), aast::FunParamInfo::ParamVariadic) => {}
+                (Some(_), _) => {
+                    // `String.chop_prefix_if_exists ~prefix:"$" param_name`
+                    let key = param.name.strip_prefix('$').unwrap_or(&param.name);
+                    named_params.insert(key, &param.name);
                 }
-                // TODO(named_params): Better handling needed here or delete simplihack
-                (Some(aast::Argument::Anamed(_, _)), _) => return Ok(new_ctx),
-                _ => return Ok(new_ctx),
+                (None, _) => {}
             }
         }
+        let mut positional_params = params.iter().filter(|param| param.named.is_none());
+        // `let rec go args positional_params ctx = ...`
+        for arg in args {
+            match arg {
+                aast::Argument::Anormal(arg) | aast::Argument::Ainout(_, arg) => {
+                    match positional_params.next() {
+                        Some(aast::FunParam {
+                            name: param_name, ..
+                        }) => {
+                            let v = eval(arg)?;
+                            new_ctx =
+                                context::store(new_ctx, local_id::make_unscoped(param_name), v);
+                        }
+                        None => {
+                            let _ = eval(arg)?;
+                        }
+                    }
+                }
+                aast::Argument::Anamed(ast_defs::Id(_, name), arg) => {
+                    match named_params.get(name.as_str()) {
+                        Some(param_name) => {
+                            let v = eval(arg)?;
+                            new_ctx = context::store(
+                                new_ctx,
+                                local_id::make_unscoped(param_name.as_str()),
+                                v,
+                            );
+                        }
+                        None => {
+                            let _ = eval(arg)?;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(new_ctx)
     }
 
     fn invoke<'a, Ex, En, PEx, PEn>(
@@ -656,7 +692,7 @@ pub mod call {
                 let path = expr::eval_str(ctx, arg)?;
                 let path = crate::relative_path::from_root(&path.to_string());
                 context::add_file_dep(ctx, &path);
-                let contents = match crate::file_provider::get_contents(None, &path) {
+                let contents = match crate::file_provider::rust_provider_backend::file::get_contents(context::provider(ctx), &path) {
                     Some(contents) => contents,
                     None => {
                         return context::eval_error(

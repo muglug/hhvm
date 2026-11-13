@@ -72,6 +72,35 @@ pub fn sub(source_text: &T, start: isize, length: isize) -> BString {
     }
 }
 
+/// The text of the line `line_number` (one-based), without its newline;
+/// empty if the line (or the start of the next one) is outside the file.
+pub fn line_text(source_text: &T, line_number: isize) -> BString {
+    let bolmap = line_break_map_make(&source_text.text);
+    let len = bolmap.len() as isize;
+    // `OffsetMap.position_to_offset (line, 1)`, `Not_found` outside the map
+    let line_start = |line: isize| -> Option<isize> {
+        if line - 1 >= 0 && line - 1 < len {
+            Some(bolmap[(line - 1) as usize])
+        } else {
+            None
+        }
+    };
+    match (line_start(line_number), line_start(line_number + 1)) {
+        (Some(offset_start), Some(offset_end)) => {
+            // Strip off the newline if one exists. If we're getting the very last line of the file, and
+            // the very last line doesn't end in a newline, this won't be a \n char.
+            let offset_end = if offset_end >= 1 && source_text.text.get((offset_end - 1) as usize) == Some(&b'\n') {
+                offset_end - 1
+            } else {
+                offset_end
+            };
+            sub(source_text, offset_start, offset_end - offset_start)
+        }
+        // If the line was outside the boundaries of the file, just return a blank string
+        _ => BString::from(""),
+    }
+}
+
 /// Create a Pos.t from two offsets in a source_text (given a path)
 pub fn relative_pos(
     pos_file: &RelativePath,

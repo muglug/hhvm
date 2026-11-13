@@ -59,6 +59,7 @@ use crate::rt::ocaml_filename;
 use crate::rt::ocaml_printf::sprintf_S;
 use crate::rt::ocaml_unix;
 use crate::saved_state_rollouts;
+use crate::server_local_config::AgentErrorFormatConfig;
 use crate::server_local_config::Quantile;
 use crate::server_local_config::T;
 use crate::server_local_config::edenfs_file_watcher;
@@ -86,6 +87,7 @@ pub fn default() -> T {
         log_categories: vec![],
         log_large_fanouts_threshold: None,
         log_init_proc_stack_also_on_absent_from: false,
+        art_cli_lite_exit_status_enabled: false,
         log_inference_constraints: false,
         experiments: vec![],
         experiments_config_meta: "".to_string(),
@@ -124,6 +126,7 @@ pub fn default() -> T {
         longlived_workers: false,
         block_client_connections_while_deferring: true,
         hg_aware: false,
+        allow_restart_from_precomputed_saved_state: false,
         hg_aware_parsing_restart_threshold: 0,
         hg_aware_redecl_restart_threshold: 0,
         hg_aware_recheck_restart_threshold: 0,
@@ -144,7 +147,10 @@ pub fn default() -> T {
         prefetch_decls_threshold: 0,
         produce_streaming_errors: true,
         consume_streaming_errors: false,
+        use_agent_error_format: AgentErrorFormatConfig::AgentErrorFormatUnconfigured,
         rust_provider_backend: true,
+        set_global_provider_backend_in_workers: true,
+        isolation_allow_decl_repackaging: false,
         naming_sqlite_path: None,
         enable_naming_table_fallback: false,
         ide_symbolindex_search_provider: "LocalIndex".to_string(),
@@ -157,6 +163,9 @@ pub fn default() -> T {
         allow_unstable_features: false,
         watchman: watchman::default(),
         edenfs_file_watcher: edenfs_file_watcher::default(),
+        eden_prefetch_enabled: false,
+        eden_prefetch_fanout_threshold: 1000,
+        eden_prefetch_workers: 4,
         workload_quantile: None,
         rollout_group: None,
         status_single_use_cached_diagnostics: false,
@@ -168,6 +177,8 @@ pub fn default() -> T {
         hh_distc_fanout_threshold: 250_000,
         hh_distc_fanout_full_init_threshold: 250_000,
         hh_distc_exponential_backoff_num_retries: 10,
+        ide_file_watcher_enabled: false,
+        ide_file_watcher_max_changed_files: 1000,
         ide_load_naming_table_on_disk: true,
         ide_naming_table_update_threshold: 1000,
         dump_tast_hashes: false,
@@ -630,6 +641,11 @@ fn load_(
         default.log_init_proc_stack_also_on_absent_from,
         &config,
     );
+    let art_cli_lite_exit_status_enabled = bool_(
+        config_keys::hhconf::art_cli_lite_exit_status_enabled,
+        default.art_cli_lite_exit_status_enabled,
+        &config,
+    );
     let log_inference_constraints = bool_(
         config_keys::hhconf::log_inference_constraints,
         default.log_inference_constraints,
@@ -857,6 +873,12 @@ fn load_(
         current_version,
         &config,
     );
+    let allow_restart_from_precomputed_saved_state = bool_if_min_version(
+        config_keys::hhconf::allow_restart_from_precomputed_saved_state,
+        default.allow_restart_from_precomputed_saved_state,
+        current_version,
+        &config,
+    );
     let store_decls_in_saved_state = bool_if_min_version(
         config_keys::hhconf::store_decls_in_saved_state,
         default.store_decls_in_saved_state,
@@ -959,9 +981,31 @@ fn load_(
         default.consume_streaming_errors,
         &config,
     );
+    let use_agent_error_format =
+        match bool_opt(config_keys::hhconf::use_agent_error_format, &config) {
+            None => AgentErrorFormatConfig::AgentErrorFormatUnconfigured,
+            Some(false) => AgentErrorFormatConfig::AgentErrorFormatDisabled,
+            Some(true) => AgentErrorFormatConfig::AgentErrorFormatEnabled,
+        };
     let watchman = watchman::load(current_version, &default.watchman, &config);
     let edenfs_file_watcher =
         edenfs_file_watcher::load(current_version, &default.edenfs_file_watcher, &config);
+    let eden_prefetch_enabled = bool_if_min_version(
+        config_keys::hhconf::eden_prefetch_enabled,
+        default.eden_prefetch_enabled,
+        current_version,
+        &config,
+    );
+    let eden_prefetch_fanout_threshold = int_(
+        config_keys::hhconf::eden_prefetch_fanout_threshold,
+        default.eden_prefetch_fanout_threshold,
+        &config,
+    );
+    let eden_prefetch_workers = int_(
+        config_keys::hhconf::eden_prefetch_workers,
+        default.eden_prefetch_workers,
+        &config,
+    );
     let enable_naming_table_fallback = bool_if_min_version(
         config_keys::hhconf::enable_naming_table_fallback,
         default.enable_naming_table_fallback,
@@ -1124,6 +1168,18 @@ fn load_(
         current_version,
         &config,
     );
+    let set_global_provider_backend_in_workers = bool_if_min_version(
+        config_keys::hhconf::set_global_provider_backend_in_workers,
+        default.set_global_provider_backend_in_workers,
+        current_version,
+        &config,
+    );
+    let isolation_allow_decl_repackaging = bool_if_min_version(
+        config_keys::hhconf::isolation_allow_decl_repackaging,
+        default.isolation_allow_decl_repackaging,
+        current_version,
+        &config,
+    );
     let rust_provider_backend = if rust_provider_backend && !shm_use_sharded_hashtbl {
         hh_logger::warn(
             None,
@@ -1181,6 +1237,17 @@ fn load_(
     let hh_distc_exponential_backoff_num_retries = int_(
         config_keys::hhconfig::hh_distc_exponential_backoff_num_retries,
         default.hh_distc_exponential_backoff_num_retries,
+        &config,
+    );
+    let ide_file_watcher_enabled = bool_if_min_version(
+        config_keys::hhconf::ide_file_watcher_enabled,
+        default.ide_file_watcher_enabled,
+        current_version,
+        &config,
+    );
+    let ide_file_watcher_max_changed_files = int_(
+        config_keys::hhconf::ide_file_watcher_max_changed_files,
+        default.ide_file_watcher_max_changed_files,
         &config,
     );
     let ide_load_naming_table_on_disk = bool_if_min_version(
@@ -1330,6 +1397,7 @@ fn load_(
         log_categories,
         log_large_fanouts_threshold,
         log_init_proc_stack_also_on_absent_from,
+        art_cli_lite_exit_status_enabled,
         log_inference_constraints,
         experiments,
         experiments_config_meta,
@@ -1366,6 +1434,7 @@ fn load_(
         longlived_workers,
         block_client_connections_while_deferring,
         hg_aware,
+        allow_restart_from_precomputed_saved_state,
         hg_aware_parsing_restart_threshold,
         hg_aware_redecl_restart_threshold,
         hg_aware_recheck_restart_threshold,
@@ -1386,7 +1455,10 @@ fn load_(
         prefetch_decls_threshold,
         produce_streaming_errors,
         consume_streaming_errors,
+        use_agent_error_format,
         rust_provider_backend,
+        set_global_provider_backend_in_workers,
+        isolation_allow_decl_repackaging,
         naming_sqlite_path,
         enable_naming_table_fallback,
         symbolindex_quiet,
@@ -1407,6 +1479,9 @@ fn load_(
         allow_unstable_features,
         watchman,
         edenfs_file_watcher,
+        eden_prefetch_enabled,
+        eden_prefetch_fanout_threshold,
+        eden_prefetch_workers,
         workload_quantile,
         rollout_group,
         status_single_use_cached_diagnostics,
@@ -1418,6 +1493,8 @@ fn load_(
         hh_distc_fanout_threshold,
         hh_distc_fanout_full_init_threshold,
         hh_distc_exponential_backoff_num_retries,
+        ide_file_watcher_enabled,
+        ide_file_watcher_max_changed_files,
         ide_load_naming_table_on_disk,
         ide_naming_table_update_threshold,
         dump_tast_hashes,

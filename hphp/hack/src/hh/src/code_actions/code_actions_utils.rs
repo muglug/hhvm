@@ -37,6 +37,15 @@ pub fn sub_of_pos(st: &source_text::T, pos: &Pos) -> BString {
     source_text::sub(st, offset, length)
 }
 
+/// `Full_fidelity_source_text.sub_of_pos source_text ~length pos`, as text
+pub fn sub_of_pos_length(st: &source_text::T, length: isize, pos: &Pos) -> String {
+    let offset = {
+        let (first_line, first_col) = crate::pos::line_column(pos);
+        source_text::position_to_offset(st, (first_line, first_col + 1))
+    };
+    to_string(source_text::sub(st, offset, length))
+}
+
 /// `Full_fidelity_source_text.offset_to_position`: (line, column), both
 /// one-based.
 pub fn offset_to_position(st: &source_text::T, offset: isize) -> (isize, isize) {

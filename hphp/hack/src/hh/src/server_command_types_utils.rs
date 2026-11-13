@@ -42,6 +42,7 @@ pub fn debug_describe_t(t: &T) -> &'static str {
         T::REMOVEDEADUNSAFECASTS => "REMOVE_DEAD_UNSAFE_CASTS",
         T::REWRITELAMBDAPARAMETERS(_) => "REWRITE_LAMBDA_PARAMETERS",
         T::CHECKLIVENESS => "CHECK_LIVENESS",
+        T::PAUSE => "PAUSE",
         T::LINT(_) => "LINT",
         T::LINTSTDIN(_) => "LINT_STDIN",
         T::LINTALL(_) => "LINT_ALL",

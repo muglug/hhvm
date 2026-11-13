@@ -10,8 +10,6 @@
 //! the paths of multifile tests); this module has the functions of
 //! `package_info.ml` that look a package up by its name.
 //!
-//! Not here: `get_package_with_override_for_file_no_env` (for the services
-//! that cannot access decls).
 
 use oxidized::package::Package;
 use oxidized::package::PosId;
@@ -104,6 +102,34 @@ pub fn get_package(info: &T, pkg: &str) -> Option<Package> {
 
 pub fn package_exists(info: &T, pkg: &str) -> bool {
     get_package(info, pkg).is_some()
+}
+
+pub fn add_package(info: &T, pkg: Package) -> T {
+    let name = crate::package::get_package_name(&pkg);
+    // Replacing a configured package would drop it from resolution for as long as
+    // the caller holds this [t], which is never what adding one is meant to do.
+    if info.existing_packages.contains_key(&name) {
+        panic!("package {} is already configured", name);
+    }
+    let pkg_entries: Vec<(String, Package)> = pkg
+        .include_paths
+        .iter()
+        .map(|PosId(_, path)| (path.clone(), pkg.clone()))
+        .collect();
+    let mut existing_packages = info.existing_packages.clone();
+    existing_packages.insert(name, pkg);
+    T {
+        existing_packages,
+        // Order is precedence: [get_package_for_file] returns the first entry whose
+        // include path prefixes the path, and looks no further. So [pkg] goes at
+        // the head — a configured package whose include path is a directory would
+        // otherwise match first for a path [pkg] names, and [pkg] would never be
+        // reached.
+        include_path_to_package_map: pkg_entries
+            .into_iter()
+            .chain(info.include_path_to_package_map.iter().cloned())
+            .collect(),
+    }
 }
 
 /// The get_package_for_file returns the package a file path belongs to;

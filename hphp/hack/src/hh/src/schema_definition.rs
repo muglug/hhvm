@@ -35,6 +35,7 @@ pub enum AggregateType {
     TODO,
     Name,
     ShapeElement,
+    ShapeExpressionField,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -137,7 +138,7 @@ pub static schema: &[SchemaNode] = &[
         func_name: "variable_expression",
         description: "variable",
         prefix: "variable",
-        aggregates: &[AggregateType::Expression, AggregateType::ConstructorExpression, AggregateType::LambdaBody],
+        aggregates: &[AggregateType::Expression, AggregateType::ConstructorExpression, AggregateType::LambdaBody, AggregateType::ShapeExpressionField],
         fields: &[("expression", ChildSpec::Token)],
     },
     SchemaNode {
@@ -938,7 +939,7 @@ pub static schema: &[SchemaNode] = &[
         func_name: "prefix_unary_expression",
         description: "prefix_unary_expression",
         prefix: "prefix_unary",
-        aggregates: &[AggregateType::Expression, AggregateType::ConstructorExpression, AggregateType::LambdaBody],
+        aggregates: &[AggregateType::Expression, AggregateType::ConstructorExpression, AggregateType::LambdaBody, AggregateType::ShapeExpressionField],
         fields: &[("operator", ChildSpec::Token), ("operand", ChildSpec::Aggregate(AggregateType::Expression))],
     },
     SchemaNode {
@@ -1523,7 +1524,7 @@ pub static schema: &[SchemaNode] = &[
         func_name: "field_initializer",
         description: "field_initializer",
         prefix: "field_initializer",
-        aggregates: &[],
+        aggregates: &[AggregateType::ShapeExpressionField],
         fields: &[("name", ChildSpec::Aggregate(AggregateType::Expression)), ("arrow", ChildSpec::Token), ("value", ChildSpec::Aggregate(AggregateType::Expression))],
     },
     SchemaNode {
@@ -1545,13 +1546,22 @@ pub static schema: &[SchemaNode] = &[
         fields: &[("ellipsis", ChildSpec::Token), ("type", ChildSpec::Aggregate(AggregateType::Specifier))],
     },
     SchemaNode {
+        kind_name: "ShapeSplatExpression",
+        type_name: "shape_splat_expression",
+        func_name: "shape_splat_expression",
+        description: "shape_splat_expression",
+        prefix: "shape_splat",
+        aggregates: &[AggregateType::ShapeExpressionField],
+        fields: &[("ellipsis", ChildSpec::Token), ("expression", ChildSpec::Aggregate(AggregateType::Expression))],
+    },
+    SchemaNode {
         kind_name: "ShapeExpression",
         type_name: "shape_expression",
         func_name: "shape_expression",
         description: "shape_expression",
         prefix: "shape_expression",
         aggregates: &[AggregateType::Expression, AggregateType::ConstructorExpression, AggregateType::LambdaBody],
-        fields: &[("keyword", ChildSpec::Token), ("left_paren", ChildSpec::Token), ("fields", ChildSpec::ZeroOrMore(&ChildSpec::Just("FieldInitializer"))), ("ellipsis", ChildSpec::ZeroOrOne(&ChildSpec::Token)), ("right_paren", ChildSpec::Token)],
+        fields: &[("keyword", ChildSpec::Token), ("left_paren", ChildSpec::Token), ("fields", ChildSpec::ZeroOrMore(&ChildSpec::Aggregate(AggregateType::ShapeExpressionField))), ("ellipsis", ChildSpec::ZeroOrOne(&ChildSpec::Token)), ("right_paren", ChildSpec::Token)],
     },
     SchemaNode {
         kind_name: "TupleExpression",

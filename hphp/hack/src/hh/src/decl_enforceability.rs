@@ -380,7 +380,8 @@ pub mod enforce {
                 match &tyl[..] {
                     [ty1, ty2]
                         if top_enforced
-                            && name == sn::collections::DICT
+                            && (name == sn::collections::DICT
+                                || name == sn::collections::KEYED_CONTAINER)
                             && is_arraykey(ty1)
                             && is_mixed(ty2) =>
                     {
@@ -391,7 +392,13 @@ pub mod enforce {
                     {
                         Enf::Enforced(ty.clone())
                     }
-                    [ty1] if top_enforced && name == sn::collections::VEC && is_mixed(ty1) => {
+                    [ty1]
+                        if top_enforced
+                            && (name == sn::collections::VEC
+                                || name == sn::collections::TRAVERSABLE
+                                || name == sn::collections::CONTAINER)
+                            && is_mixed(ty1) =>
+                    {
                         Enf::Enforced(ty.clone())
                     }
                     /* Look through supportdyn, just as we look through ~ */

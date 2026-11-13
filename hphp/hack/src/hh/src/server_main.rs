@@ -717,10 +717,18 @@ pub fn recheck_until_no_changes_left(
         // to start another type-check: After a complete type-check (i.e., env.needs_recheck is empty,
         // and env.full_check_status is Full_check_done), we may have that env.disk_needs_parsing is
         // non-empty due to the interrupt handlers adding files there.
+        // (Read below, after `updates` is consumed.)
+        let updates_is_empty = updates.is_empty();
         let disk_needs_parsing = updates.union(env.disk_needs_parsing.clone());
         if !disk_needs_parsing.is_empty() {
+            let full_check_status = match env.full_check_status {
+                FullCheckStatus::FullCheckPaused => FullCheckStatus::FullCheckPaused,
+                FullCheckStatus::FullCheckNeeded
+                | FullCheckStatus::FullCheckStarted
+                | FullCheckStatus::FullCheckDone => FullCheckStatus::FullCheckStarted,
+            };
             env.disk_needs_parsing = disk_needs_parsing;
-            env.full_check_status = FullCheckStatus::FullCheckStarted;
+            env.full_check_status = full_check_status;
         }
         let telemetry = telemetry::duration(Some("got_updates"), start_time, None, telemetry);
         // If the client went away (e.g. user pressed Ctrl+C while waiting for the typecheck),
@@ -745,6 +753,23 @@ pub fn recheck_until_no_changes_left(
         }
         // Same as above, but for persistent clients
         let telemetry = telemetry::duration(Some("sorted_out_client"), start_time, None, telemetry);
+        match env.full_check_status {
+            FullCheckStatus::FullCheckPaused => {
+                if !updates_is_empty {
+                    hh_logger::log_with(
+                        Some(hh_logger::level::T::Debug),
+                        None,
+                        &format!(
+                            "Queued file changes while paused: {} files awaiting parsing",
+                            env.disk_needs_parsing.len()
+                        ),
+                    )
+                }
+            }
+            FullCheckStatus::FullCheckNeeded
+            | FullCheckStatus::FullCheckStarted
+            | FullCheckStatus::FullCheckDone => {}
+        }
         // We have some new, or previously un-processed updates
         let full_check = server_env::is_full_check_started(env.full_check_status);
         let telemetry = telemetry::bool_("full_check", full_check, telemetry);
@@ -955,6 +980,25 @@ pub fn serve_one_iteration(
         }
         (_, selected_client) => selected_client,
     };
+    let mut env = env;
+    match &selected_client {
+        SelectOutcome::SelectNew(_) => match env.full_check_status {
+            FullCheckStatus::FullCheckPaused => {
+                // We can unconditionally switch to [Full_check_done] here: The invariant for
+                // [Full_check_paused] tells us that [env.needs_recheck] is empty.
+                // [recheck_until_no_changes_left] will switch to [Full_check_started] later if
+                // [env.disk_needs_parsing] is non-empty.
+                env.full_check_status = FullCheckStatus::FullCheckDone
+            }
+            FullCheckStatus::FullCheckNeeded
+            | FullCheckStatus::FullCheckStarted
+            | FullCheckStatus::FullCheckDone => {}
+        },
+        SelectOutcome::SelectNothing
+        | SelectOutcome::SelectException(_)
+        | SelectOutcome::NotSelectingDeferring(_) => {}
+    }
+
     // Server_progress: By updating status now at the start of the serve_one_iteration,
     // it means there's no obligation on the "doing work" part of the previous
     // iteration to clean up its own status-reporting once done.
@@ -975,6 +1019,10 @@ pub fn serve_one_iteration(
                     (server_progress::Disposition::DWorking, "typechecking")
                 }
                 FullCheckStatus::FullCheckDone => (server_progress::Disposition::DReady, "ready"),
+                FullCheckStatus::FullCheckPaused => (
+                    server_progress::Disposition::DReady,
+                    "paused until the next client request (e.g., hh --stats)",
+                ),
             };
             server_progress::write(Some(false), Some(disposition), msg)
         }

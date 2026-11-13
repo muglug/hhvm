@@ -3,19 +3,27 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the "hack" directory of this source tree.
 
-//! Port of
-//! `client/ide_service/code_actions_services/refactors/inline_method/inline_method.ml`
-//! (helpers: as for `extract_method`).
-//!
-//! Owned by **F8** (plan §7.3). Created empty by W0b.
+//! Port of `refactors/inline_method/inline_method.ml`. See
+//! `hh/PORTING.md`.
 
-// ---- stand-in written by F7 (F8: replace with the port) ----
-// `Code_actions_refactors.find` calls this `find`, which returns no
-// refactor until F8 ports `inline_method.ml`.
+use std::sync::Arc;
+
+use super::code_action_types as cat;
+use super::inline_method_find_candidate;
+use super::inline_method_to_refactor;
+use crate::ast_provider;
+use crate::pos::Pos;
+use crate::provider_context;
+
 pub fn find<'a>(
-    _entry: &'a std::sync::Arc<crate::provider_context::Entry>,
-    _pos: &crate::pos::Pos,
-    _ctx: &'a crate::provider_context::T,
-) -> Vec<super::code_action_types::Refactor<'a>> {
-    vec![]
+    entry: &'a Arc<provider_context::Entry>,
+    cursor: &Pos,
+    ctx: &'a provider_context::T,
+) -> Vec<cat::Refactor<'a>> {
+    let source_text = ast_provider::compute_source_text(entry);
+    let path = entry.path.clone();
+    inline_method_find_candidate::find_candidate(cursor, entry, ctx)
+        .and_then(|candidate| inline_method_to_refactor::to_refactor(source_text, path, candidate))
+        .into_iter()
+        .collect()
 }

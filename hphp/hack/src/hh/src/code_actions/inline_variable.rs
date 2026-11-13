@@ -244,10 +244,13 @@ impl<'a> Reducer<'a, IterParams, var_info::T> for V<'_> {
         let aast::Stmt(pos, stmt_) = stmt;
         if let aast::Stmt_::Expr(e) = stmt_ {
             if let aast::Expr_::Assign(a) = &e.2 {
-                let (lhs, _, rhs) = &**a;
-                if let aast::Expr_::Lvar(lid) = &lhs.2 {
+                let (lhs, bop, rhs) = &**a;
+                if let (aast::Expr_::Lvar(lid), None) = (&lhs.2, bop) {
                     let name = crate::local_id::get_name(&lid.1).to_string();
-                    let def_needs_grouping = matches!(rhs.2, aast::Expr_::Binop(_) | aast::Expr_::Pipe(_));
+                    let def_needs_grouping = matches!(
+                        rhs.2,
+                        aast::Expr_::Binop(_) | aast::Expr_::Pipe(_) | aast::Expr_::Eif(_)
+                    );
                     let rhs_acc = self.visit_expr(env, rhs);
                     let def = Def {
                         def_pos: pos.clone(),
@@ -270,6 +273,15 @@ impl<'a> Reducer<'a, IterParams, var_info::T> for V<'_> {
 
     fn visit_expr(&mut self, env: &mut Env, expr: &'a tast::Expr) -> var_info::T {
         match &expr.2 {
+            aast::Expr_::Assign(a)
+                if a.1.is_some() && matches!(&a.0.2, aast::Expr_::Lvar(_)) =>
+            {
+                let name = match &a.0.2 {
+                    aast::Expr_::Lvar(lid) => crate::local_id::get_name(&lid.1).to_string(),
+                    _ => unreachable!(),
+                };
+                var_info::mark_ineligible(expr.srecurse(env, self), name)
+            }
             aast::Expr_::Lvar(lid) if !self.in_lvalue => {
                 let aast::Lid(use_pos, lid) = &**lid;
                 let name = crate::local_id::get_name(lid).to_string();

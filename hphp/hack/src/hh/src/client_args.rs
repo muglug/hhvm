@@ -1385,6 +1385,12 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
             " <target_file> <file1,file2,...> Package-aware find-refs lint",
             ArgNonUserFacing,
         ),
+        opt(
+            "--pause",
+            Spec::Unit(Box::new(move || set_mode(None, MODEPAUSE))),
+            " pause automatic rechecks after current work finishes; the next client request resumes them",
+            ArgNonUserFacing,
+        ),
         tuple_3_append(common_argspecs::prechecked(&prechecked), ArgNonUserFacing),
         tuple_3_append(common_argspecs::no_prechecked(&prechecked), ArgNonUserFacing),
         tuple_3_append(

@@ -154,6 +154,12 @@ pub enum FullCheckStatus {
     FullCheckStarted,
     /// All the changes have been fully processed.
     FullCheckDone,
+    /// Automatic checks are paused by [hh --pause] until the next accepted client connection.
+    /// Invariants:
+    ///   - When transitioning to this state, [disk_needs_parsing] and [needs_recheck] are empty.
+    ///   - While paused, [needs_recheck] remains empty, but new file changes
+    ///     accumulate in [disk_needs_parsing].
+    FullCheckPaused,
 }
 
 /// `show_full_check_status` (`[@@deriving show]`)
@@ -162,6 +168,7 @@ pub fn show_full_check_status(s: FullCheckStatus) -> &'static str {
         FullCheckStatus::FullCheckNeeded => "Server_env.Full_check_needed",
         FullCheckStatus::FullCheckStarted => "Server_env.Full_check_started",
         FullCheckStatus::FullCheckDone => "Server_env.Full_check_done",
+        FullCheckStatus::FullCheckPaused => "Server_env.Full_check_paused",
     }
 }
 

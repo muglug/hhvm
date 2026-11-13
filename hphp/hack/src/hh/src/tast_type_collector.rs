@@ -124,6 +124,12 @@ impl<'a> Visitor<'a> for TypeCollector {
         reduce::add(self, r);
         Ok(())
     }
+
+    /// Coeffects are irrelevant to this collector's consumers (CST search
+    /// and the lambda parameter rewriter), so don't traverse them.
+    fn visit_contexts(&mut self, _env: &mut Env, _ctxs: &'a tast::Contexts) -> Res {
+        Ok(())
+    }
 }
 
 /// `type_collector#go`

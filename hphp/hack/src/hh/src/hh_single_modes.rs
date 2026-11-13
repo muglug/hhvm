@@ -750,6 +750,144 @@ pub fn handle_mode(mode: &Mode, input: Input) -> anyhow::Result<u8> {
             Ok(OK)
         }
         // ---- end E3 ----
+        Mode::RefactorSoundDynamic(analysis_mode, refactor_mode, element_name) => {
+            use crate::refactor_sd;
+            let opts = match (
+                refactor_sd::options::parse_analysis_mode(analysis_mode),
+                refactor_sd::options::parse_refactor_mode(refactor_mode),
+            ) {
+                (Some(analysis_mode), Some(refactor_mode)) => refactor_sd::options::mk(analysis_mode, refactor_mode),
+                (None, _) => anyhow::bail!("invalid refactor_sd analysis mode"),
+                (_, None) => anyhow::bail!("invalid refactor_sd refactor mode"),
+            };
+            handle_constraint_mode(
+                |opts, ctx, tast| refactor_sd::do_(element_name, opts, ctx, tast),
+                "Sound Dynamic",
+                &opts,
+                ctx,
+                error_format,
+                filenames,
+            )?;
+            Ok(OK)
+        }
+        #[cfg(feature = "server")]
+        Mode::MapReduceMode => {
+            if crate::map_reduce::not_ported(&provider_context::get_tcopt(ctx)).is_some() {
+                return Err(mode_not_ported(mode));
+            }
+            // `compute_tasts_by_name ctx files_info files_contents`
+            let (nast_errors, nasts) =
+                diagnostics_state::do_(Some(true), || compute_nasts(ctx, files_info, files_contents));
+            let mut errors = nast_errors;
+            let mut tasts = vec![];
+            for (fn_, full_ast) in nasts {
+                let (tast_errors, by_names) =
+                    crate::typing_check_job::calc_errors_and_tast(ctx, Some(true), &fn_, full_ast);
+                errors = diagnostics_state::merge(errors, tast_errors);
+                tasts.push((fn_, by_names));
+            }
+            print_errors_if_present(diagnostics_state::merge(parse_errors.clone(), errors));
+            let reduced = tasts
+                .iter()
+                .map(|(fn_, tasts)| crate::map_reduce::map(ctx, fn_, tasts))
+                .fold(crate::map_reduce::empty(), crate::map_reduce::reduce);
+            let json = crate::map_reduce::yojson_of_t(&reduced);
+            print!("{}", crate::rt::yojson_ext::pretty_to_string(&json));
+            Ok(OK)
+        }
+        Mode::DumpDeps => {
+            for fn_ in files_info {
+                let full_ast = crate::ast_provider::get_ast(true, ctx, fn_);
+                let _ = crate::typing_check_job::calc_errors_and_tast(ctx, None, fn_, full_ast);
+            }
+            let is_empty = DBG_DEPS.lock().unwrap_or_else(|e| e.into_inner()).is_empty();
+            if !is_empty {
+                dump_debug_deps()
+            }
+            Ok(OK)
+        }
+        #[cfg(feature = "server")]
+        Mode::RemoveDeadUnsafeCasts => {
+            let ctx = provider_context::map_tcopt(ctx, |mut tcopt| {
+                tcopt.tco_populate_dead_unsafe_cast_heap = true;
+                tcopt
+            });
+            codemod(files_info, files_contents, &ctx, |ctx, files_info| {
+                crate::remove_dead_unsafe_casts::get_patches(ctx, Some(true), files_info)
+            });
+            Ok(OK)
+        }
+        #[cfg(feature = "server")]
+        Mode::IdeDiagnostics => {
+            let path = input.expect_single_file()?;
+            let (ctx, entry) = provider_context::add_entry_if_missing(ctx, path);
+            let (errors, _tasts) = compute_tasts_expand_types(&ctx, files_info, files_contents);
+            crate::ide_diagnostics_cli_lib::run(&ctx, &entry, errors);
+            Ok(OK)
+        }
+        #[cfg(feature = "server")]
+        Mode::DumpSymbolInfo => {
+            for filename in filenames {
+                // `Relative_path.Map.find_opt files_info filename`
+                if files_info.contains(filename) {
+                    let raw_result =
+                        crate::symbol_info_service_utils::helper(ctx, vec![], std::slice::from_ref(filename));
+                    let result = crate::symbol_info_service_utils::format_result(raw_result);
+                    let result_json = crate::server_command_types::symbol_info_service::to_json(&result);
+                    println!("{}", crate::rt::yojson_ext::pretty_to_string(&result_json));
+                }
+            }
+            Ok(OK)
+        }
+        #[cfg(feature = "server")]
+        Mode::CountImpreciseTypes => {
+            let (errors, tasts) = compute_tasts_expand_types(ctx, files_info, files_contents);
+            if diagnostics_state::has_errors(None, &errors) {
+                // `print_errors error_format errors max_errors`
+                crate::hh_single_type_check::write_error_list(
+                    error_format,
+                    errors,
+                    &mut std::io::stdout().lock(),
+                    input.max_errors,
+                );
+                print!("Did not count imprecise types because there are typing errors.");
+                Ok(2)
+            } else {
+                let results = tasts
+                    .iter()
+                    .map(|(_, tast)| crate::count_imprecise_types::count(ctx, tast))
+                    .fold(crate::count_imprecise_types::Results::new(), |acc, r| {
+                        crate::count_imprecise_types::union(acc, r, "Clash at ")
+                    });
+                let json = crate::count_imprecise_types::json_of_results(&results);
+                print!("{}", crate::yojson::safe::to_string(&json));
+                Ok(OK)
+            }
+        }
+        #[cfg(feature = "server")]
+        Mode::RunSimpliHack => {
+            let (errors, tasts) = compute_tasts(None, ctx, files_info, files_contents);
+            // `print_error_list error_format errors max_errors`
+            crate::hh_single_type_check::write_error_list(
+                error_format,
+                errors,
+                &mut std::io::stdout().lock(),
+                input.max_errors,
+            );
+            for (fn_, tast) in &tasts {
+                let prompts = crate::simplihack_prompt::find(ctx, tast);
+                println!("{}", relative_path::to_absolute(fn_));
+                for prompt in prompts {
+                    let msg = match (prompt.derive_prompt)() {
+                        Some(p) => p,
+                        None => "<no prompt derived>".to_string(),
+                    };
+                    let result = format!("{} {}", crate::ast_show::show_pos(&prompt.param_pos), msg);
+                    println!("  {}", result);
+                }
+            }
+            Ok(OK)
+        }
         _ => Err(mode_not_ported(mode)),
     }
 }
@@ -806,6 +944,292 @@ fn do_enforcement_batch(
         print_enforcement(oc, &result)?;
     }
     Ok(())
+}
+
+/// `decl_parse_typecheck_and_then ctx files_contents f`: whether there was
+/// no error (`f` is then applied to the files that were declared).
+///
+/// (`parse_name_and_decl`: the files are declared in the context first, as
+/// `hh_single_cli` does for the files of the command line.)
+#[cfg(feature = "server")]
+fn decl_parse_typecheck_and_then(
+    ctx: &provider_context::T,
+    files_contents: &[(relative_path::T, bstr::BString)],
+) -> Option<Vec<relative_path::T>> {
+    let files_info: Vec<relative_path::T> = files_contents.iter().map(|(p, _)| p.clone()).collect();
+    let decl_paths: Vec<pos::RelativePath> = files_info.iter().map(pos::RelativePath::from).collect();
+    let mut stats = crate::check::Stats::default();
+    crate::check::declare_files(ctx, &decl_paths, &mut stats);
+    let parse_errors = crate::hh_single_type_check::parse_name_and_decl(ctx, &files_info);
+    let (errors, _tasts) = compute_tasts_expand_types(ctx, &files_info, files_contents);
+    let errors = diagnostics_state::merge(parse_errors, errors);
+    if diagnostics_state::has_no_errors(None, &errors) {
+        Some(files_info)
+    } else {
+        print_errors_if_present(errors);
+        None
+    }
+}
+
+/// `Server_rename_types.apply_patches_to_file_contents`
+#[cfg(feature = "server")]
+fn apply_patches_to_file_contents(
+    file_contents: &[(relative_path::T, bstr::BString)],
+    patches: &[crate::remove_dead_unsafe_casts::Patch],
+) -> Vec<(relative_path::T, bstr::BString)> {
+    use crate::code_actions::code_actions_utils as cu;
+    file_contents
+        .iter()
+        .map(|(fn_, old_contents)| {
+            // `map_patches_to_filename`: `patch :: lst`, the last patch first
+            let file_patches: Vec<cu::Patch> = patches
+                .iter()
+                .rev()
+                .filter(|(pos, _)| pos.filename() == fn_)
+                .map(|(pos, text)| cu::Patch::Replace {
+                    pos: pos.clone(),
+                    text: text.clone(),
+                })
+                .collect();
+            if file_patches.is_empty() {
+                (fn_.clone(), old_contents.clone())
+            } else {
+                (
+                    fn_.clone(),
+                    bstr::BString::from(cu::apply_patches_to_string(old_contents, file_patches)),
+                )
+            }
+        })
+        .collect()
+}
+
+/// `Multifile.print_files_as_multifile`
+#[cfg(feature = "server")]
+fn print_files_as_multifile(files: &[(relative_path::T, bstr::BString)]) {
+    use std::io::Write;
+    let mut stdout = std::io::stdout().lock();
+    if files.len() == 1 {
+        let _ = stdout.write_all(&files[0].1);
+    } else {
+        let mut parts: Vec<Vec<u8>> = vec![];
+        for (fn_, content) in files {
+            parts.push(format!("//// {}", relative_path::to_absolute(fn_)).into_bytes());
+            parts.push(content.to_vec());
+        }
+        let _ = stdout.write_all(&parts.join(&b"\n"[..]));
+    }
+    let _ = stdout.flush();
+}
+
+/// `codemod ~files_info ~files_contents ctx get_patches`
+#[cfg(feature = "server")]
+fn codemod(
+    files_info: &[relative_path::T],
+    files_contents: &[(relative_path::T, bstr::BString)],
+    ctx: &provider_context::T,
+    get_patches: impl Fn(&provider_context::T, &[relative_path::T]) -> crate::remove_dead_unsafe_casts::Patches,
+) {
+    // Because we repeatedly apply the codemod, positions change. So we need to
+    // re-parse, decl, and typecheck the file to generated accurate patches as
+    // well as amend the patched test files in memory. This involves
+    // invalidating a number of shared heaps and providing in memory
+    // replacements after patching files.
+    let invalidate_heaps_and_update_files =
+        |files_info: &[relative_path::T], files_contents: &[(relative_path::T, bstr::BString)]| {
+            let paths_to_purge: relative_path::set::T = files_contents.iter().map(|(p, _)| p.clone()).collect();
+            // (`file_info.ids`: the names the file defines, from its AST.)
+            let mut names_to_purge = crate::file_info::empty_names();
+            let mut ids_to_purge = vec![];
+            for path in files_info {
+                // Don't invalidate builtins, otherwise, we can't find them.
+                if !relative_path::is_hhi(path.prefix()) {
+                    let ast = diagnostics_state::ignore_(|| crate::ast_provider::get_ast(true, ctx, path));
+                    let ids = crate::nast::get_def_names(&ast);
+                    names_to_purge =
+                        crate::file_info::merge_names(&names_to_purge, &crate::file_info::ids_to_names(&ids));
+                    ids_to_purge.push(ids);
+                }
+            }
+            ctx.remove_defs(&names_to_purge);
+            // (The decls a thread has read are cached: the OCaml heaps drop
+            // theirs from their local caches when they are removed.)
+            crate::rt::decl_epoch::invalidate_local_caches();
+            // Purge the file, then provide its replacement, otherwise the
+            // replacement is dropped on the floor.
+            for (path, contents) in files_contents {
+                crate::file_provider::rust_provider_backend::file::provide_file_for_tests(ctx, path, contents.clone())
+            }
+            crate::ast_provider::remove_batch(&paths_to_purge);
+            for ids in &ids_to_purge {
+                crate::naming_global::remove_decls_using_file_info(ctx, ids)
+            }
+        };
+    let mut final_files_info = files_info.to_vec();
+    let mut final_files_contents = files_contents.to_vec();
+    // `go files_info files_contents`
+    let mut files_info = files_info.to_vec();
+    let mut files_contents = files_contents.to_vec();
+    loop {
+        invalidate_heaps_and_update_files(&files_info, &files_contents);
+        match decl_parse_typecheck_and_then(ctx, &files_contents) {
+            None => break,
+            Some(new_files_info) => {
+                let patches = get_patches(ctx, &new_files_info);
+                let new_files_contents = apply_patches_to_file_contents(&files_contents, &patches);
+                if patches.is_empty() {
+                    print_files_as_multifile(&new_files_contents);
+                    final_files_info = new_files_info;
+                    final_files_contents = new_files_contents;
+                    break;
+                } else {
+                    files_info = new_files_info;
+                    files_contents = new_files_contents;
+                }
+            }
+        }
+    }
+
+    // Typecheck after the codemod is fully applied to confirm that what we
+    // produce is not garbage.
+    print!("\nTypechecking after the codemod... (no output after this is good news)\n");
+    invalidate_heaps_and_update_files(&final_files_info, &final_files_contents);
+    let _ = decl_parse_typecheck_and_then(ctx, &final_files_contents);
+}
+
+/// `handle_constraint_mode ~do_ name opts ctx error_format ~iter_over_files`
+/// (without the profiling and the memory trace).
+fn handle_constraint_mode<O>(
+    do_: impl Fn(&O, &provider_context::T, &[crate::tast::Def]),
+    name: &str,
+    opts: &O,
+    ctx: &provider_context::T,
+    error_format: diagnostics_state::Format,
+    filenames: &[relative_path::T],
+) -> anyhow::Result<()> {
+    // Process a single typechecked file
+    let process_file = |path: &relative_path::T, file_mode: Option<crate::file_info::Mode>| {
+        match file_mode {
+            Some(crate::file_info::Mode::Mstrict) => {
+                let (ctx, entry) = provider_context::add_entry_if_missing(ctx, path.clone());
+                let crate::tast_provider::ComputeTastResult { tast, .. } =
+                    crate::tast_provider::compute_tast_unquarantined(&ctx, &entry);
+                let tast = crate::tast_with_dynamic::all(tast).concat();
+                do_(opts, &ctx, &tast)
+            }
+            // We are not interested in partial files and there is nothing in HHI
+            // files to analyse
+            _ => {}
+        }
+    };
+    // Process a multifile that is not typechecked
+    for filename in filenames {
+        crate::provider_utils::respect_but_quarantine_unsaved_changes(ctx, || -> anyhow::Result<()> {
+            println!(
+                "=== {} analysis results for {}",
+                name,
+                relative_path::to_absolute(filename)
+            );
+            // `Multifile.file_to_files filename`: the parts are files of the
+            // context already (`hh_single_cli` declared them).
+            let abs = relative_path::to_absolute(filename);
+            let content = std::fs::read(&abs)?;
+            let files: Vec<relative_path::T> = crate::multifile::file_to_file_list_rooted(&abs, &content)
+                .into_iter()
+                .map(|(rooted, part, _)| {
+                    if rooted {
+                        relative_path::from_root(&part)
+                    } else {
+                        relative_path::create(filename.prefix(), &part)
+                    }
+                })
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect();
+            let parse_errors = crate::hh_single_type_check::parse_name_and_decl(ctx, &files);
+            let check_errors = crate::hh_single_type_check::check_file(ctx, parse_errors, &files);
+            if !diagnostics_state::has_no_errors_or_warnings(None, &check_errors) {
+                let mut stdout = std::io::stdout().lock();
+                for e in diagnostics_state::get_sorted_diagnostic_list(None, check_errors) {
+                    crate::hh_single_type_check::print_error(error_format, &mut stdout, &e)
+                }
+            } else {
+                for path in &files {
+                    let contents = crate::file_provider::rust_provider_backend::file::get_contents(ctx, path)
+                        .unwrap_or_default();
+                    let popt = provider_context::get_popt(ctx).clone();
+                    let file_mode =
+                        crate::full_fidelity_ast::defensive_program(None, None, None, None, popt, path, &contents)
+                            .file_mode;
+                    process_file(path, file_mode)
+                }
+            }
+            Ok(())
+        })?
+    }
+    Ok(())
+}
+
+/// `dbg_deps`: for each dependency, its dependents (`--dump-deps`).
+static DBG_DEPS: std::sync::Mutex<std::collections::BTreeMap<String, std::collections::BTreeSet<String>>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// In addition to actually recording the dependencies in shared memory,
+/// we build a non-hashed respresentation of the dependency graph
+/// for printing.
+pub fn add_debug_trace_callback() {
+    let get_debug_trace = |root: &crate::typing_deps::dep::Variant, obj: &crate::typing_deps::dep::Variant| {
+        let root = crate::typing_deps::dep::variant_to_string(root);
+        let obj = crate::typing_deps::dep::variant_to_string(obj);
+        DBG_DEPS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(obj)
+            .or_default()
+            .insert(root);
+    };
+    crate::typing_deps::add_dependency_callback("get_debug_trace", get_debug_trace)
+}
+
+/// `pp_debug_deps`
+fn pp_debug_deps(fmt: &mut crate::format::Formatter, entries: &[(String, Vec<String>)]) {
+    use crate::format;
+    format::pp_open_vbox(fmt, 0);
+    let mut sep = false;
+    for (obj, roots) in entries {
+        if sep {
+            format::pp_print_cut(fmt)
+        }
+        format::pp_print_string(fmt, &format!("{} -> ", obj));
+        format::pp_open_hvbox(fmt, 0);
+        let mut root_sep = false;
+        for root in roots {
+            if root_sep {
+                format::pp_print_string(fmt, ",");
+                format::pp_print_space(fmt)
+            }
+            format::pp_print_string(fmt, root);
+            root_sep = true
+        }
+        format::pp_close_box(fmt);
+        sep = true
+    }
+    format::pp_close_box(fmt)
+}
+
+/// `dump_debug_deps dbg_deps` (`sort_debug_deps`, `show_debug_deps`).
+///
+/// Note: this prints dependency graph edges in the same direction as the mapping
+/// which is actually stored in the shared memory table. The line "X -> Y" can be
+/// read, "X is used by Y", or "X is a dependency of Y", or "when X changes, Y
+/// must be rechecked".
+fn dump_debug_deps() {
+    let entries: Vec<(String, Vec<String>)> = DBG_DEPS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .map(|(obj, roots)| (obj.clone(), roots.iter().cloned().collect()))
+        .collect();
+    println!("{}", crate::format::asprintf(|fmt| pp_debug_deps(fmt, &entries)))
 }
 
 /// `print_errors_if_present`

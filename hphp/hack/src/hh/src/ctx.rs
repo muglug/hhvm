@@ -2108,7 +2108,14 @@ impl Ctx {
     /// lowercase forms (`canon_hash`), whatever their spelling, then the
     /// positions.
     pub fn naming_types_remove_batch(&self, names: &[String]) {
-        let table = self.reverse_naming_table();
+        // (`hh single` has no reverse naming table: its names are bound by
+        // `declare_file` only, and are unbound there.)
+        let Some(table) = self.reverse_naming_table_opt() else {
+            for name in names {
+                self.type_canon_names.remove(&name.to_ascii_lowercase());
+            }
+            return;
+        };
         for name in names {
             let lower = name.to_ascii_lowercase();
             if table.type_canon.active() {
@@ -2158,7 +2165,14 @@ impl Ctx {
 
     /// `Naming_heap.Funs.remove_batch`
     pub fn naming_funs_remove_batch(&self, names: &[String]) {
-        let table = self.reverse_naming_table();
+        // (`hh single` has no reverse naming table: its names are bound by
+        // `declare_file` only, and are unbound there.)
+        let Some(table) = self.reverse_naming_table_opt() else {
+            for name in names {
+                self.fun_canon_names.remove(&name.to_ascii_lowercase());
+            }
+            return;
+        };
         for name in names {
             let lower = name.to_ascii_lowercase();
             if table.fun_canon.active() {
@@ -2262,7 +2276,14 @@ impl Ctx {
 
     /// `Naming_heap.Consts.remove_batch`
     pub fn naming_consts_remove_batch(&self, names: &[String]) {
-        let table = self.reverse_naming_table();
+        // (`hh single` has no reverse naming table: its names are bound by
+        // `declare_file` only, and are unbound there.)
+        let Some(table) = self.reverse_naming_table_opt() else {
+            for name in names {
+                self.decl_stores.const_names.remove(&ConstName(symbol(name)));
+            }
+            return;
+        };
         for name in names {
             table.remove_const(name);
         }
@@ -2284,7 +2305,14 @@ impl Ctx {
 
     /// `Naming_heap.Modules.remove_batch`
     pub fn naming_modules_remove_batch(&self, names: &[String]) {
-        let table = self.reverse_naming_table();
+        // (`hh single` has no reverse naming table: its names are bound by
+        // `declare_file` only, and are unbound there.)
+        let Some(table) = self.reverse_naming_table_opt() else {
+            for name in names {
+                self.decl_stores.module_names.remove(&ModuleName(symbol(name)));
+            }
+            return;
+        };
         for name in names {
             table.remove_module(name);
         }

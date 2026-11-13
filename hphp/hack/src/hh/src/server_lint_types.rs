@@ -65,9 +65,8 @@ pub fn output_text(
         let _ = oc.write_all(b"No lint errors!\n");
     } else {
         let f: fn(&crate::lints_core::T<crate::pos::Absolute>) -> String = match format {
-            Format::Extended | Format::Context | Format::PlainHighlighted => {
-                lint::to_contextual_string
-            }
+            Format::Extended | Format::Context => lint::to_contextual_string,
+            Format::PlainHighlighted => |lint| lint::to_plain_highlighted_string(None, lint),
             Format::Raw | Format::Agent | Format::Plain => lint::to_string,
             Format::Highlighted => lint::to_highlighted_string,
         };

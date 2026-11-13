@@ -197,6 +197,10 @@ mod shallow_decl_defs {
         sp.flags.is_abstract()
     }
 
+    pub fn sp_lsb(sp: &ShallowProp<R>) -> bool {
+        sp.flags.is_lsb()
+    }
+
     pub fn sp_tests_bypass_visibility(sp: &ShallowProp<R>) -> bool {
         sp.flags.tests_bypass_visibility()
     }
@@ -537,6 +541,18 @@ trait MemberS {
     fn constructor_is_changed_inheritance_when_modified(old: &Self::T, new_: &Self::T) -> bool;
 }
 
+/// A module change can alter an internal member's accessibility even if its
+/// declaration is unchanged.
+fn diff_member<M: MemberS>(module_changed: bool, old: &M::T, new_: &M::T) -> Option<MemberChange> {
+    let diff = M::diff(old, new_);
+    match diff {
+        None if module_changed && M::is_internal(old) && M::is_internal(new_) => {
+            Some(MemberChange::Modified(member_modification::T::Other))
+        }
+        None | Some(_) => diff,
+    }
+}
+
 /// Returns the diff of two member lists, plus a diff on the constructor if the
 /// member changes impact the constructor.
 ///
@@ -546,14 +562,6 @@ fn diff_members<M: MemberS>(
     classish_kind: ClassishKind,
     module_changed: bool,
 ) -> (s_map::T<MemberChange>, ConstructorChange) {
-    // If both members are internal and the module changed, we have to treat it as a Modified change
-    let check_module_change_internal = |m1: &M::T, m2: &M::T, diff: Option<MemberChange>| match diff
-    {
-        None if module_changed && M::is_internal(m1) && M::is_internal(m2) => {
-            Some(MemberChange::Modified(member_modification::T::Other))
-        }
-        None | Some(_) => diff,
-    };
     let mut diff: s_map::T<MemberChange> = s_map::T::new();
     let mut constructor_change: ConstructorChange = None;
     for (name, old_and_new) in members_left_right.iter() {
@@ -579,11 +587,7 @@ fn diff_members<M: MemberS>(
                 diff.insert(name.clone(), MemberChange::Added);
             }
             (Some(old_member), Some(new_member)) => {
-                if let Some(ch) = check_module_change_internal(
-                    old_member,
-                    new_member,
-                    M::diff(old_member, new_member),
-                ) {
+                if let Some(ch) = diff_member::<M>(module_changed, old_member, new_member) {
                     diff.insert(name.clone(), ch);
                 }
                 constructor_change = class_diff::max_constructor_change(
@@ -746,6 +750,7 @@ mod prop {
             None
         } else if (p1.visibility != p2.visibility)
             || shallow_decl_defs::sp_abstract(&p1) != shallow_decl_defs::sp_abstract(&p2)
+            || shallow_decl_defs::sp_lsb(&p1) != shallow_decl_defs::sp_lsb(&p2)
             || shallow_decl_defs::sp_tests_bypass_visibility(&p1)
                 != shallow_decl_defs::sp_tests_bypass_visibility(&p2)
         {
@@ -760,7 +765,7 @@ mod prop {
     }
 
     pub fn is_internal(p: &ShallowProp<R>) -> bool {
-        p.visibility == Visibility::Internal
+        p.visibility == Visibility::Internal || p.visibility == Visibility::ProtectedInternal
     }
 
     pub fn constructor_is_changed_inheritance_when_added(p: &ShallowProp<R>) -> bool {
@@ -843,7 +848,7 @@ mod method {
     }
 
     pub fn is_internal(m: &ShallowMethod<R>) -> bool {
-        m.visibility == Visibility::Internal
+        m.visibility == Visibility::Internal || m.visibility == Visibility::ProtectedInternal
     }
 
     pub fn constructor_is_changed_inheritance_when_added(_: &ShallowMethod<R>) -> bool {
@@ -888,6 +893,7 @@ mod method {
 fn diff_constructor(
     old_cls: &ShallowClass<R>,
     new_cls: &ShallowClass<R>,
+    module_changed: bool,
     old_cstr: Option<&ShallowMethod<R>>,
     new_cstr: Option<&ShallowMethod<R>>,
 ) -> Option<MemberChange> {
@@ -900,7 +906,9 @@ fn diff_constructor(
             (None, None) => None,
             (Some(_), None) => Some(MemberChange::Removed),
             (None, Some(_)) => Some(MemberChange::Added),
-            (Some(old_method), Some(new_method)) => method::diff(old_method, new_method),
+            (Some(old_method), Some(new_method)) => {
+                diff_member::<method::Member>(module_changed, old_method, new_method)
+            }
         }
     }
 }
@@ -981,7 +989,13 @@ fn diff_class_members(c1: &ShallowClass<R>, c2: &ShallowClass<R>) -> MemberDiff 
     };
     let diff = {
         let constructor =
-            diff_constructor(c1, c2, c1.constructor.as_ref(), c2.constructor.as_ref());
+            diff_constructor(
+                c1,
+                c2,
+                module_changed,
+                c1.constructor.as_ref(),
+                c2.constructor.as_ref(),
+            );
         MemberDiff {
             constructor: class_diff::max_constructor_change(diff.constructor, constructor),
             ..diff

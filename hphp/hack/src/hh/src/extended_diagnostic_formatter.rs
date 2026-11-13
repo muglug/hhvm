@@ -260,8 +260,17 @@ fn render_pos(buf: &mut String, pos: &Absolute) {
     let filename = {
         let fn_ = relative_path(&crate::pos::filename(pos));
         if fn_.ends_with(".hhi") {
-            match fn_.split('/').collect::<Vec<_>>().as_slice() {
-                [_, "tmp", _, rest @ ..] => rest.join("/"),
+            // (The OCaml's hhi files are in a directory of `/tmp`; the
+            // port's hhi root is not, so it is recognised by its prefix.)
+            let hhi_root = relative_path::path_of_prefix(relative_path::Prefix::Hhi).ok();
+            let under_hhi_root = hhi_root
+                .as_deref()
+                .filter(|root| !root.is_empty())
+                .and_then(|root| fn_.strip_prefix(root))
+                .map(|rest| rest.trim_start_matches('/').to_string());
+            match (under_hhi_root, fn_.split('/').collect::<Vec<_>>().as_slice()) {
+                (_, [_, "tmp", _, rest @ ..]) => rest.join("/"),
+                (Some(rest), _) => rest,
                 _ => fn_,
             }
         } else {

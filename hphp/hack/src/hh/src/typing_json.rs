@@ -461,10 +461,24 @@ fn from_type(env: &Env, show_like_ty: bool, ty: &Ty) -> J {
             })),
         ) => {
             let fields_known = is_nothing(shape_kind);
+            let unknown_fields_type = if fields_known
+                || crate::typing_defs_core::ty_equal(
+                    None,
+                    shape_kind,
+                    &typing_make_type::mixed(reason::none()),
+                ) {
+                vec![]
+            } else {
+                vec![(
+                    "unknown_fields_type".to_string(),
+                    from_type(env, show_like_ty, shape_kind),
+                )]
+            };
             obj(cat(vec![
                 kind(&p, "shape"),
                 is_array(false),
                 vec![("fields_known".to_string(), J::Bool(fields_known))],
+                unknown_fields_type,
                 fields(fl.iter().collect()),
             ]))
         }
@@ -944,6 +958,7 @@ pub fn to_locl_ty(keytrace: Option<Keytrace>, ctx: &Arc<Ctx>, json: &J) -> Deser
                 let (name, keytrace) = get_string("name", (json, keytrace))?;
                 let prim_ty = match name.as_str() {
                     "void" => Ok(Ty_::Tprim(Tprim::Tvoid)),
+                    "null" => Ok(Ty_::Tprim(Tprim::Tnull)),
                     "int" => Ok(Ty_::Tprim(Tprim::Tint)),
                     "bool" => Ok(Ty_::Tprim(Tprim::Tbool)),
                     "float" => Ok(Ty_::Tprim(Tprim::Tfloat)),
@@ -1062,10 +1077,18 @@ pub fn to_locl_ty(keytrace: Option<Keytrace>, ctx: &Arc<Ctx>, json: &J) -> Deser
                 } else {
                     let (fields_known, _fields_known_keytrace) =
                         get_bool("fields_known", (json, keytrace))?;
-                    let shape_kind = if fields_known {
-                        typing_make_type::nothing(reason::none())
-                    } else {
-                        typing_make_type::mixed(reason::none())
+                    let unknown_fields_type = get_obj_opt("unknown_fields_type", (json, keytrace))?;
+                    let shape_kind = match unknown_fields_type {
+                        Some((unknown_fields_type, keytrace)) => {
+                            aux(ctx, &unknown_fields_type, &keytrace)?
+                        }
+                        None => {
+                            if fields_known {
+                                typing_make_type::nothing(reason::none())
+                            } else {
+                                typing_make_type::mixed(reason::none())
+                            }
+                        }
                     };
                     let mut shape_map = TShapeMap::new();
                     for (k, v) in fields {
@@ -1077,6 +1100,11 @@ pub fn to_locl_ty(keytrace: Option<Keytrace>, ctx: &Arc<Ctx>, json: &J) -> Deser
                         unknown_value: shape_kind,
                     })))
                 }
+            }
+            "shape_splat" => {
+                let (elems, elems_keytrace) = get_array("elems", (json, keytrace))?;
+                let ss_elems = aux_args(ctx, &elems, &elems_keytrace)?;
+                ty(Ty_::Tshape(ShapeType::ShapeSplat(ShapeTypeSplat { ss_elems })))
             }
             "union" => {
                 let (args, keytrace) = get_array("args", (json, keytrace))?;

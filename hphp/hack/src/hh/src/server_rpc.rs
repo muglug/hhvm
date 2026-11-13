@@ -175,6 +175,11 @@ pub fn handle(
             // This is for the client to know "is the server available to process requests?"
             (env, CommandResult::CHECKLIVENESS(()))
         }
+        T::PAUSE => {
+            let mut env = env;
+            env.full_check_status = server_env::FullCheckStatus::FullCheckPaused;
+            (env, CommandResult::PAUSE(()))
+        }
         cmd @ T::LINT(_) => not_ported(&cmd),
         cmd @ T::LINTSTDIN(_) => not_ported(&cmd),
         cmd @ T::LINTALL(_) => not_ported(&cmd),

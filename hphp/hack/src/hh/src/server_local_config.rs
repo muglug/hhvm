@@ -202,6 +202,14 @@ pub mod edenfs_file_watcher {
     }
 }
 
+/// `type agent_error_format_config`
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AgentErrorFormatConfig {
+    AgentErrorFormatUnconfigured,
+    AgentErrorFormatDisabled,
+    AgentErrorFormatEnabled,
+}
+
 /// Allows to typecheck only a certain quantile of the workload.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Quantile {
@@ -232,6 +240,7 @@ pub struct T {
     /// The default behavior is to log init_proc_stack only when "--from" is absent.
     /// This flag lets us log it also when "--from" is present.
     pub log_init_proc_stack_also_on_absent_from: bool,
+    pub art_cli_lite_exit_status_enabled: bool,
     /// log type inference constraints into HackEventLogger
     pub log_inference_constraints: bool,
     /// the list of experiments from the experiments config
@@ -296,6 +305,10 @@ pub struct T {
     /// block when [hg_aware] is also enabled.
     pub block_client_connections_while_deferring: bool,
     pub hg_aware: bool,
+    /// Allow restarting a server started with a precomputed saved state.
+    /// For example, restarts may be triggered by the Informant or
+    /// [Server_revision_tracker].
+    pub allow_restart_from_precomputed_saved_state: bool,
     pub hg_aware_parsing_restart_threshold: isize,
     pub hg_aware_redecl_restart_threshold: isize,
     pub hg_aware_recheck_restart_threshold: isize,
@@ -340,10 +353,22 @@ pub struct T {
     pub produce_streaming_errors: bool,
     /// whether hh_client should read errors from errors.bin file
     pub consume_streaming_errors: bool,
+    /// Whether hh_client should use the agent-oriented diagnostic format.
+    /// [Agent_error_format_unconfigured] means the config value was not
+    /// provided.
+    pub use_agent_error_format: AgentErrorFormatConfig,
     /// Use Provider_backend.Rust_provider_backend as the global provider
     /// backend, servicing File_provider, Naming_provider, and Decl_provider
     /// using the hackrs implementation.
     pub rust_provider_backend: bool,
+    /// This just exists to safely roll out a fix: If true, we transfer the current value of
+    /// Provider_backend.get () over from the main process when launching workers
+    pub set_global_provider_backend_in_workers: bool,
+    /// Allow --validate-isolation to rebuild decls under a synthesized
+    /// package. While it runs, the candidate's symbols are absent from the
+    /// shared heaps or carry a package no repository declares, so only set
+    /// this on a server dedicated to the analysis.
+    pub isolation_allow_decl_repackaging: bool,
     /// Enables the reverse naming table to fall back to SQLite for queries.
     pub naming_sqlite_path: Option<String>,
     pub enable_naming_table_fallback: bool,
@@ -361,6 +386,12 @@ pub struct T {
     pub allow_unstable_features: bool,
     pub watchman: watchman::T,
     pub edenfs_file_watcher: edenfs_file_watcher::T,
+    /// Prefetch the type-checking fanout from the controller.
+    pub eden_prefetch_enabled: bool,
+    /// Minimum number of files in the fanout to enable prefetching.
+    pub eden_prefetch_fanout_threshold: isize,
+    /// Maximum number of concurrent Sapling file fetch workers.
+    pub eden_prefetch_workers: isize,
     /// Allows to typecheck only a certain quantile of the workload.
     pub workload_quantile: Option<Quantile>,
     /// A string from hh.conf, written to HackEventLogger telemetry. Before it got
@@ -384,6 +415,10 @@ pub struct T {
     /// fanout threshold above which full-init hh_distc is triggered
     pub hh_distc_fanout_full_init_threshold: isize,
     pub hh_distc_exponential_backoff_num_retries: isize,
+    /// Enable the IDE daemon's built-in watcher in addition to LSP file-change notifications.
+    pub ide_file_watcher_enabled: bool,
+    /// Maximum number of relevant paths in a commit transition to process incrementally.
+    pub ide_file_watcher_max_changed_files: isize,
     /// POC: @nzthomas - allow ClientIdeDaemon to grab any naming table from disk before trying Watchman / Manifold
     pub ide_load_naming_table_on_disk: bool,
     /// POC: @nzthomas, if clientIDEDaemon is loading a naming table from disk instead of Manifold, set a globalrev distance threshold

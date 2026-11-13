@@ -3,20 +3,55 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the "hack" directory of this source tree.
 
-//! Port of
-//! `client/ide_service/code_actions_services/refactors/extract_method/extract_method.ml`
-//! (its helper modules go next to it, in F8's block of
-//! `code_actions/mod.rs`).
-//!
-//! Owned by **F8** (plan §7.3). Created empty by W0b.
+//! Port of `refactors/extract_method/extract_method.ml`. See
+//! `hh/PORTING.md`.
 
-// ---- stand-in written by F7 (F8: replace with the port) ----
-// `Code_actions_refactors.find` calls this `find`, which returns no
-// refactor until F8 ports `extract_method.ml`.
+use std::sync::Arc;
+
+use super::code_action_types as cat;
+use super::extract_method_to_refactor;
+use super::extract_method_traverse;
+use super::extract_method_types as t;
+use crate::ast_provider;
+use crate::pos::Pos;
+use crate::provider_context;
+use crate::relative_path::RelativePath;
+
+/// `Extract_method_plugins.find` of `stubs/extract_method_plugins.ml`: the
+/// open-source build has no plugin.
+mod extract_method_plugins {
+    use super::*;
+
+    pub fn find<'a>(
+        _ctx: &provider_context::T,
+        _entry: &Arc<provider_context::Entry>,
+        _path: &RelativePath,
+        _pos: &Pos,
+        _candidate: &t::Candidate,
+    ) -> Vec<cat::Refactor<'a>> {
+        vec![]
+    }
+}
+
 pub fn find<'a>(
-    _entry: &'a std::sync::Arc<crate::provider_context::Entry>,
-    _pos: &crate::pos::Pos,
-    _ctx: &'a crate::provider_context::T,
-) -> Vec<super::code_action_types::Refactor<'a>> {
-    vec![]
+    entry: &'a Arc<provider_context::Entry>,
+    pos: &Pos,
+    ctx: &'a provider_context::T,
+) -> Vec<cat::Refactor<'a>> {
+    if crate::pos::length(pos) > 0 {
+        let source_text = ast_provider::compute_source_text(entry);
+        let path = entry.path.clone();
+        match extract_method_traverse::find_candidate(pos, entry, ctx) {
+            Some(candidate) => {
+                let mut refactors_from_plugins: Vec<cat::Refactor<'a>> =
+                    extract_method_plugins::find(ctx, entry, &path, pos, &candidate);
+                let refactor = extract_method_to_refactor::of_candidate(source_text, path, candidate);
+                refactors_from_plugins.push(refactor);
+                refactors_from_plugins
+            }
+            None => vec![],
+        }
+    } else {
+        vec![]
+    }
 }

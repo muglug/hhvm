@@ -54,11 +54,6 @@ fn strip(s: &[u8]) -> &[u8] {
     &s[start..end.max(start)]
 }
 
-/// `String.is_substring ~substring`
-fn is_substring(s: &[u8], substring: &[u8]) -> bool {
-    substring.is_empty() || s.windows(substring.len()).any(|w| w == substring)
-}
-
 /// Include preceding doc comments, but not regular comments
 fn line_range(src: &Src<'_>, node: &Syn) -> (isize, isize) {
     let trivia_list = match node.leading_token() {
@@ -99,8 +94,8 @@ fn to_line_range_annotation((start_line, end_line): (isize, isize)) -> String {
     }
 }
 
-fn is_private(src: &Src<'_>, modifiers: &Syn) -> bool {
-    is_substring(&node_text(src, modifiers), b"private")
+fn has_modifier(is_kind: fn(&Syn) -> bool, modifiers: &Syn) -> bool {
+    modifiers.syntax_node_to_list().any(is_kind)
 }
 
 /// Extract just the names from a list of declarators, stripping initializers.
@@ -142,7 +137,7 @@ fn write_member(buf: &mut Vec<u8>, indent: &str, src: &Src<'_>, node: &Syn) {
     match &node.syntax {
         SyntaxVariant::MethodishDeclaration(c) => match &c.methodish_function_decl_header.syntax {
             SyntaxVariant::FunctionDeclarationHeader(h) => {
-                if !is_private(src, &h.function_modifiers) {
+                if !has_modifier(Syn::is_private, &h.function_modifiers) {
                     bprintf(
                         buf,
                         &[indent, b"function ", &stripped_text(src, &h.function_name), suffix],
@@ -152,7 +147,7 @@ fn write_member(buf: &mut Vec<u8>, indent: &str, src: &Src<'_>, node: &Syn) {
             _ => {}
         },
         SyntaxVariant::PropertyDeclaration(c) => {
-            if !is_private(src, &c.property_modifiers) {
+            if !has_modifier(Syn::is_private, &c.property_modifiers) {
                 bprintf(
                     buf,
                     &[indent, &declarator_names(src, &c.property_declarators), suffix],
@@ -160,7 +155,7 @@ fn write_member(buf: &mut Vec<u8>, indent: &str, src: &Src<'_>, node: &Syn) {
             }
         }
         SyntaxVariant::ConstDeclaration(c) => {
-            if !is_private(src, &c.const_modifiers) {
+            if !has_modifier(Syn::is_private, &c.const_modifiers) {
                 bprintf(
                     buf,
                     &[indent, b"const ", &declarator_names(src, &c.const_declarators), suffix],
@@ -168,7 +163,7 @@ fn write_member(buf: &mut Vec<u8>, indent: &str, src: &Src<'_>, node: &Syn) {
             }
         }
         SyntaxVariant::TypeConstDeclaration(c) => {
-            if !is_private(src, &c.type_const_modifiers) {
+            if !has_modifier(Syn::is_private, &c.type_const_modifiers) {
                 bprintf(
                     buf,
                     &[indent, b"const type ", &stripped_text(src, &c.type_const_name), suffix],
@@ -208,9 +203,8 @@ fn write_top_level(buf: &mut Vec<u8>, indent: &str, src: &Src<'_>, node: &Syn) {
             _ => {}
         },
         SyntaxVariant::ClassishDeclaration(c) => {
-            let mods = node_text(src, &c.classish_modifiers);
             let kw = stripped_text(src, &c.classish_keyword);
-            let kind = if is_substring(&mods, b"abstract") {
+            let kind = if has_modifier(Syn::is_abstract, &c.classish_modifiers) {
                 [&b"abstract "[..], &kw].concat()
             } else {
                 kw

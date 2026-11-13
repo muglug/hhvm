@@ -300,6 +300,11 @@ pub fn main_internal(
         mode @ ClientMode::MODESERVERRAGE => not_ported(mode),
         mode @ ClientMode::MODELINTSTDIN(_) => not_ported(mode),
         mode @ ClientMode::MODELINTALL(_) => not_ported(mode),
+        ClientMode::MODEPAUSE => {
+            let ((), telemetry): ((), _) = rpc(args, server_command_types::T::PAUSE)?;
+            println!("Paused automatic rechecks. The next client request resumes them.");
+            Ok((exit_status::T::NoError, telemetry))
+        }
         ClientMode::MODESTATS => {
             let (stats, telemetry): (stats::T, _) = rpc(args, server_command_types::T::STATS)?;
             print!(

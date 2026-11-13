@@ -25,3 +25,9 @@ pub fn apply_qe_overrides(
 ) -> (config_file_common::T, Vec<Fetch>) {
     (config, vec![])
 }
+
+/// Does nothing.
+pub fn enable_agent_error_format_exposure() {}
+
+/// Does nothing.
+pub fn log_agent_error_format_exposure() {}

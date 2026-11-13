@@ -554,6 +554,12 @@ pub mod shape_field_check;
 #[cfg(feature = "port")]
 pub mod simplihack_check;
 #[cfg(feature = "port")]
+pub mod aast_names_utils;
+#[cfg(feature = "port")]
+pub mod refactor_sd;
+#[cfg(feature = "port")]
+pub mod remove_dead_unsafe_casts;
+#[cfg(feature = "port")]
 pub mod simplihack_interpreter;
 #[cfg(feature = "port")]
 pub mod simplihack_intf;
@@ -1155,6 +1161,23 @@ pub mod method_jumps;
 // `server`-only.)
 #[cfg(feature = "server")]
 pub mod code_actions;
+// (They use the reducer of the code actions.)
+#[cfg(feature = "server")]
+pub mod count_imprecise_types;
+#[cfg(feature = "server")]
+pub mod simplihack_prompt;
+#[cfg(feature = "server")]
+pub mod map_reduce;
+#[cfg(feature = "server")]
+pub mod refinement_counter;
+#[cfg(feature = "server")]
+pub mod type_counter;
+#[cfg(feature = "server")]
+pub mod symbol_fun_call_service;
+#[cfg(feature = "server")]
+pub mod symbol_info_service_utils;
+#[cfg(feature = "server")]
+pub mod symbol_type_service;
 #[cfg(feature = "server")]
 pub mod lsp_extra_commands;
 #[cfg(feature = "port")]

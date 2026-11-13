@@ -33,7 +33,15 @@ mod aast_reduce_gen;
 // ---- F8: code actions II ----
 pub mod code_actions_commands;
 pub mod code_actions_cli_lib;
+pub mod extract_method_types;
+pub mod extract_method_traverse;
+pub mod extract_method_to_refactor;
 pub mod extract_method;
+pub mod inline_method_types;
+pub mod inline_method_rename;
+pub mod inline_method_rewrite_block;
+pub mod inline_method_find_candidate;
+pub mod inline_method_to_refactor;
 pub mod inline_method;
 pub mod extract_classish;
 // ---- end F8 ----

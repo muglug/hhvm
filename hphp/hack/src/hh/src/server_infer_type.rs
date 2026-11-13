@@ -267,45 +267,80 @@ impl<'c> BaseVisitor<'c> {
         // expression so that it gets picked up by the call to super#on_Call.
         let (patched_func, ty) = match typing_defs::deref(&ty) {
             (r, typing_defs::Ty_::Tfun(ft)) => {
-                let mut new_params = Vec::with_capacity(ft.params.len());
-                let mut args_it = args.iter();
-                for fp in ft.params.iter() {
-                    match args_it.next() {
-                        Some(arg) => {
-                            let aast::Expr(arg_type, p, expr_) = aast_utils::arg_to_expr(arg);
-                            let label = match (expr_, typing_defs::get_node(arg_type)) {
-                                (aast::Expr_::EnumClassLabel(x), _) if x.0.is_none() => Some(x.1.clone()),
-                                (_, typing_defs::Ty_::Tlabel(label)) => Some(label.clone()),
-                                _ => None,
-                            };
-                            let fp = match label {
-                                Some(label) => {
-                                    let label_ty = typing_defs::mk((
-                                        typing_reason::witness(p.clone()),
-                                        typing_defs::Ty_::Tlabel(label),
-                                    ));
-                                    // If function supports dynamic then allow a like-type
-                                    let fp_type = if sd {
-                                        typing_make_type::locl_like(r.clone(), fp.type_.clone())
-                                    } else {
-                                        fp.type_.clone()
-                                    };
-                                    if tast_env::is_sub_type(env, &label_ty, &fp_type) {
-                                        typing_defs::FunParam {
-                                            type_: label_ty,
-                                            ..fp.clone()
-                                        }
-                                    } else {
-                                        fp.clone()
+                let refine_fp_with_arg =
+                    |fp: &typing_defs::FunParam, arg: &tast::Argument| -> typing_defs::FunParam {
+                        let aast::Expr(arg_type, p, expr_) = aast_utils::arg_to_expr(arg);
+                        let label = match (expr_, typing_defs::get_node(arg_type)) {
+                            (aast::Expr_::EnumClassLabel(x), _) if x.0.is_none() => {
+                                Some(x.1.clone())
+                            }
+                            (_, typing_defs::Ty_::Tlabel(label)) => Some(label.clone()),
+                            _ => None,
+                        };
+                        match label {
+                            Some(label) => {
+                                let label_ty = typing_defs::mk((
+                                    typing_reason::witness(p.clone()),
+                                    typing_defs::Ty_::Tlabel(label),
+                                ));
+                                // If function supports dynamic then allow a like-type
+                                let fp_type = if sd {
+                                    typing_make_type::locl_like(r.clone(), fp.type_.clone())
+                                } else {
+                                    fp.type_.clone()
+                                };
+                                if tast_env::is_sub_type(env, &label_ty, &fp_type) {
+                                    typing_defs::FunParam {
+                                        type_: label_ty,
+                                        ..fp.clone()
                                     }
+                                } else {
+                                    fp.clone()
                                 }
-                                None => fp.clone(),
-                            };
-                            new_params.push(fp);
+                            }
+                            None => fp.clone(),
                         }
-                        None => new_params.push(fp.clone()),
+                    };
+                // `List.fold_right`: of the arguments of one name, the first
+                // is kept.
+                let mut positional_args: Vec<&tast::Argument> = vec![];
+                let mut named_args: std::collections::BTreeMap<&str, &tast::Argument> =
+                    std::collections::BTreeMap::new();
+                for arg in args.iter().rev() {
+                    match arg {
+                        aast::Argument::Anamed(id, _) => {
+                            named_args.insert(id.1.as_str(), arg);
+                        }
+                        _ => positional_args.push(arg),
                     }
                 }
+                positional_args.reverse();
+                let params_without_named_variadic =
+                    typing_defs::ft_params_without_named_variadic(&ft);
+                let named_variadic = typing_defs::ft_named_variadic_param(&ft);
+                // `replace_label_params_rec positional_args ft_params`
+                let mut positional_args = positional_args.into_iter();
+                let mut new_params = Vec::with_capacity(ft.params.len());
+                for fp in params_without_named_variadic.iter() {
+                    if typing_defs::get_fp_splat(fp) {
+                        new_params.push(fp.clone())
+                    } else {
+                        match typing_defs::named_params::name_of_named_param(fp) {
+                            Some(name) => {
+                                let fp = match named_args.get(name.as_str()) {
+                                    Some(arg) => refine_fp_with_arg(fp, arg),
+                                    None => fp.clone(),
+                                };
+                                new_params.push(fp)
+                            }
+                            None => match positional_args.next() {
+                                Some(arg) => new_params.push(refine_fp_with_arg(fp, arg)),
+                                None => new_params.push(fp.clone()),
+                            },
+                        }
+                    }
+                }
+                new_params.extend(named_variadic.cloned());
                 // This is an instantiated signature, it makes no sense to include generic parameters
                 let ty = typing_defs::mk((
                     r,

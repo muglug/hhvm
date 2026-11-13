@@ -80,9 +80,7 @@ type Handler<'a> = Box<dyn tast_visitor::Handler<'a> + 'a>;
 
 /// `Remove_dead_unsafe_casts.patch_location_collection_handler`
 fn remove_dead_unsafe_casts_patch_location_collection_handler<'a>() -> Handler<'a> {
-    todo!(
-        "Remove_dead_unsafe_casts.patch_location_collection_handler: remove_dead_unsafe_casts/ (and its shared-memory PatchHeap) is not ported"
-    )
+    crate::remove_dead_unsafe_casts::patch_location_collection_handler()
 }
 
 pub fn logger_handlers<'a>() -> Vec<(&'static str, fn(&Arc<Ctx>) -> Handler<'a>)> {

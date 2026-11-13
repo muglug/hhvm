@@ -122,6 +122,7 @@ pub fn check_single(args: &[String]) -> Result<ExitCode> {
     let mut get_some_file_deps_full_hierarchy = false;
     let mut flags = hh::hh_single_type_check_flags::Flags::default();
     let mut extra_builtins = vec![];
+    let mut no_builtins = false;
     let mut error_format_args: Vec<String> = vec![];
     let mut max_errors: Option<usize> = None;
     let mut it = args.iter();
@@ -144,6 +145,7 @@ pub fn check_single(args: &[String]) -> Result<ExitCode> {
         match arg {
             "--config" => flags.config_overrides.push(next("key=value")?),
             "--extra-builtin" => extra_builtins.push(PathBuf::from(next("a path")?)),
+            "--no-builtins" => no_builtins = true,
             "--deregister-attributes" => flags.deregister_attributes = Some(true),
             "--auto-namespace-map" => {
                 #[cfg(feature = "port")]
@@ -451,7 +453,13 @@ pub fn check_single(args: &[String]) -> Result<ExitCode> {
         tco
     };
     let mut ctx = Ctx::new(&ctx_root, tco)?;
-    ctx.add_magic_builtins();
+    // `--no-builtins`: `builtins` is empty (no hhi file, no magic builtin, no
+    // extra builtin is declared).
+    if no_builtins {
+        extra_builtins.clear();
+    } else {
+        ctx.add_magic_builtins();
+    }
     // Error messages show the source of positions in the magic builtins.
     {
         let (name, contents) = hh::ctx::MAGIC_BUILTINS;
@@ -461,7 +469,7 @@ pub fn check_single(args: &[String]) -> Result<ExitCode> {
         );
     }
 
-    let mut decl_paths = ctx.hhi_paths.clone();
+    let mut decl_paths = if no_builtins { vec![] } else { ctx.hhi_paths.clone() };
     for builtin in &extra_builtins {
         // Extra builtins are declared like hhi files.
         let path = RelativePath::new(Prefix::Hhi, builtin.file_name().context("not a file")?);
@@ -488,8 +496,9 @@ pub fn check_single(args: &[String]) -> Result<ExitCode> {
     #[cfg(feature = "port")]
     let mut files_contents = vec![];
     for ((file_prefix, name), contents) in names.iter().zip(contents_of_files.iter()) {
-        for (part, text) in hh::multifile::file_to_file_list(&name.to_string_lossy(), contents) {
-            let path = RelativePath::new(*file_prefix, &part);
+        for (rooted, part, text) in hh::multifile::file_to_file_list_rooted(&name.to_string_lossy(), contents) {
+            // (`~root/` parts: `Relative_path.from_root ~suffix`.)
+            let path = RelativePath::new(if rooted { Prefix::Root } else { *file_prefix }, &part);
             #[cfg(feature = "port")]
             files_contents.push((path, bstr::BString::from(text.clone())));
             ctx.files.set(path, text);
@@ -509,6 +518,9 @@ pub fn check_single(args: &[String]) -> Result<ExitCode> {
         let to_ox = |paths: &[RelativePath]| -> Vec<relative_path::RelativePath> {
             paths.iter().map(|&p| p.into()).collect()
         };
+        if mode == Mode::DumpDeps {
+            hh::hh_single_modes::add_debug_trace_callback();
+        }
         let errors = hh::diagnostics_state::merge(
             package_config_errors,
             hstc::parse_name_and_decl(&ctx, &to_ox(&decl_paths)),

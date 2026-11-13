@@ -88,6 +88,8 @@ pub enum T {
     WatchmanInvalidResult,
     /// The EdenFS watcher failed in a way that we cannot recover from
     EdenfsWatcherFailed,
+    /// Eden reported that it is intentionally shutting down.
+    EdenfsWatcherEdenShuttingDown,
     /// Similar to Watchman_fresh_instance (and some instances of Watchman_failed):
     /// Eden told us that it may have lost track of changes (e.g., due to an Eden restart),
     /// so we cannot be sure what files need to be re-checked.
@@ -219,6 +221,7 @@ pub(crate) fn constructor_name(t: &T) -> &'static str {
         T::WatchmanFreshInstance => "Watchman_fresh_instance",
         T::WatchmanInvalidResult => "Watchman_invalid_result",
         T::EdenfsWatcherFailed => "Edenfs_watcher_failed",
+        T::EdenfsWatcherEdenShuttingDown => "Edenfs_watcher_eden_shutting_down",
         T::EdenfsWatcherLostChanges => "Edenfs_watcher_lost_changes",
         T::DistcFailed => "Distc_failed",
         T::FileProviderStale => "File_provider_stale",
@@ -298,6 +301,7 @@ pub(crate) fn constant_constructor_of_name(name: &str) -> Option<T> {
         "Watchman_fresh_instance" => T::WatchmanFreshInstance,
         "Watchman_invalid_result" => T::WatchmanInvalidResult,
         "Edenfs_watcher_failed" => T::EdenfsWatcherFailed,
+        "Edenfs_watcher_eden_shutting_down" => T::EdenfsWatcherEdenShuttingDown,
         "Edenfs_watcher_lost_changes" => T::EdenfsWatcherLostChanges,
         "Distc_failed" => T::DistcFailed,
         "File_provider_stale" => T::FileProviderStale,
@@ -536,6 +540,8 @@ pub fn exit_code(t: &T) -> isize {
         T::NotRestartingServerWithPrecomputedSavedState => 223,
         T::ConfigError => 224,
         T::EdenfsWatcherFailed => 225,
+        // Zoncolan uses 231.
+        T::EdenfsWatcherEdenShuttingDown => 232,
         // Zoncolan uses 226 and 227, skipping
         T::EdenfsWatcherLostChanges => 228,
         T::DistcFailed => 229,
@@ -575,6 +581,8 @@ pub fn exit_code_to_string(code: isize) -> String {
         T::FailedToLoadShouldAbort,
         T::ServerHungUpShouldAbort(None),
         T::WatchmanFailed,
+        T::EdenfsWatcherFailed,
+        T::EdenfsWatcherEdenShuttingDown,
         T::ServerNonOptBuildMode,
         T::DistcFailed,
         T::ClientBadArgs,
@@ -714,6 +722,7 @@ pub(crate) mod tests {
             T::WatchmanFreshInstance,
             T::WatchmanInvalidResult,
             T::EdenfsWatcherFailed,
+            T::EdenfsWatcherEdenShuttingDown,
             T::EdenfsWatcherLostChanges,
             T::DistcFailed,
             T::FileProviderStale,
@@ -758,8 +767,8 @@ pub(crate) mod tests {
     #[test]
     fn constructors_round_trip_through_their_names() {
         let all = constant_constructors();
-        // 73 constructors, 3 of them with an argument.
-        assert_eq!(all.len(), 70);
+        // 74 constructors, 3 of them with an argument.
+        assert_eq!(all.len(), 71);
         for t in &all {
             let name = constructor_name(t);
             let back = constant_constructor_of_name(name).unwrap();
