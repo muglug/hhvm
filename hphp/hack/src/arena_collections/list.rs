@@ -11,15 +11,13 @@ use arena_deserializer::DeserializeInArena;
 use arena_trait::Arena;
 use arena_trait::TrivialDrop;
 use bumpalo::Bump;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Serialize;
 use serde::de::Deserializer;
 use serde::de::SeqAccess;
 use serde::de::Visitor;
 
 #[derive(Eq, Hash, PartialEq, PartialOrd, Ord)]
-#[derive(FromOcamlRepIn, ToOcamlRep)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum List<'a, T> {
     Nil,
     Cons(&'a (T, List<'a, T>)),

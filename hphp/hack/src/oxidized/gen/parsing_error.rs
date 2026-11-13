@@ -10,8 +10,6 @@
 
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -25,30 +23,24 @@ use crate::*;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum ParsingError {
-    #[rust_to_ocaml(name = "Fixme_format")]
     FixmeFormat(pos::Pos),
-    #[rust_to_ocaml(name = "Hh_ignore_comment")]
     HhIgnoreComment(pos::Pos),
-    #[rust_to_ocaml(name = "Parsing_error")]
     ParsingError {
         pos: pos::Pos,
         msg: String,
         quickfixes: Vec<quickfix::Quickfix<pos::Pos>>,
     },
-    #[rust_to_ocaml(name = "Xhp_parsing_error")]
     XhpParsingError { pos: pos::Pos, msg: String },
-    #[rust_to_ocaml(name = "Package_config_error")]
     PackageConfigError {
         pos: pos::Pos,
         msg: String,

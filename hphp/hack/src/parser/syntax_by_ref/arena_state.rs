@@ -4,8 +4,6 @@
 // LICENSE file in the "hack" directory of this source tree.
 
 use bumpalo::Bump;
-use ocamlrep::Allocator;
-use ocamlrep::ToOcamlRep;
 
 use super::has_arena::HasArena;
 
@@ -20,8 +18,19 @@ impl<'a> HasArena<'a> for State<'a> {
     }
 }
 
-impl ToOcamlRep for State<'_> {
-    fn to_ocamlrep<'a, A: Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
-        ().to_ocamlrep(alloc)
+// ---- OCaml interop (feature "ocamlrep") ----
+#[cfg(feature = "ocamlrep")]
+mod ocamlrep_impls {
+    #[allow(unused_imports)]
+    use super::*;
+    #[allow(unused_imports)]
+    use ocamlrep::Allocator;
+    #[allow(unused_imports)]
+    use ocamlrep::ToOcamlRep;
+
+    impl ToOcamlRep for State<'_> {
+        fn to_ocamlrep<'a, A: Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
+            ().to_ocamlrep(alloc)
+        }
     }
 }

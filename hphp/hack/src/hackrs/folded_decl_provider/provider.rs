@@ -3,10 +3,10 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the "hack" directory of this source tree.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use datastore::Store;
-use hash::IndexMap;
 use hash::IndexSet;
 use oxidized::decl_fold_options::DeclFoldOptions;
 use oxidized::naming_types::KindOfType;
@@ -16,6 +16,7 @@ use shallow_decl_provider::ShallowDeclProvider;
 use ty::decl::FoldedClass;
 use ty::decl::ShallowClass;
 use ty::decl::Ty;
+use ty::decl::Ty_;
 use ty::decl_error::DeclError;
 use ty::reason::Reason;
 
@@ -23,6 +24,7 @@ use super::Error;
 use super::Result;
 use super::TypeDecl;
 use super::fold::DeclFolder;
+use super::fold::Parents;
 
 // note(sf, 2022-02-03): c.f. hphp/hack/src/decl/decl_folded_class.ml
 
@@ -60,9 +62,10 @@ impl<R: Reason> super::FoldedDeclProvider<R> for LazyFoldedDeclProvider<R> {
                 .get_typedef(name)?
                 .map(TypeDecl::Typedef)),
             Some(KindOfType::TClass) => {
-                let mut stack = Default::default();
+                // `Decl_folded_class.class_decl_if_missing ~sh ctx name`,
+                // which declares the class with an empty stack.
                 Ok(self
-                    .get_folded_class_impl(&mut stack, name)?
+                    .class_decl_if_missing(&IndexSet::default(), name)?
                     .map(TypeDecl::Class))
             }
         }
@@ -70,52 +73,38 @@ impl<R: Reason> super::FoldedDeclProvider<R> for LazyFoldedDeclProvider<R> {
 }
 
 impl<R: Reason> LazyFoldedDeclProvider<R> {
-    fn detect_cycle(
-        &self,
-        stack: &mut IndexSet<TypeName>,
-        errors: &mut Vec<DeclError<R::Pos>>,
+    // note(sf, 2022-03-02): c.f. Decl_folded_class.check_if_cyclic
+    //
+    // `class_env.stack` is `stack`.
+    fn check_if_cyclic(
+        stack: &IndexSet<TypeName>,
         pos_id: &Positioned<TypeName, R::Pos>,
-    ) -> bool {
-        if stack.contains(&pos_id.id()) {
-            errors.push(DeclError::CyclicClassDef(
-                pos_id.pos().clone(),
-                stack.iter().copied().collect(),
-            ));
-            true
+    ) -> Option<DeclError<R::Pos>> {
+        let is_cyclic = stack.contains(&pos_id.id());
+        if is_cyclic {
+            // (`stack` is an `S_set.t`: its elements in increasing order.)
+            let mut stack: Vec<TypeName> = stack.iter().copied().collect();
+            stack.sort_by(|x, y| x.as_str().cmp(y.as_str()));
+            // `Pos_or_decl.unsafe_to_raw_pos pos`
+            Some(DeclError::CyclicClassDef(pos_id.pos().clone(), stack))
         } else {
-            false
+            None
         }
     }
 
-    fn decl_class_type(
-        &self,
-        stack: &mut IndexSet<TypeName>,
-        errors: &mut Vec<DeclError<R::Pos>>,
-        ty: &Ty<R>,
-    ) -> Result<Option<(TypeName, Arc<FoldedClass<R>>)>> {
-        let (_, pos_id, _) = ty.unwrap_class_type();
-        if !self.detect_cycle(stack, errors, &pos_id) {
-            if let Some(folded_decl) = self.get_folded_class_impl(stack, pos_id.id())? {
-                return Ok(Some((pos_id.id(), folded_decl)));
-            }
-        }
-        Ok(None)
-    }
-
-    fn parent_error(sc: &ShallowClass<R>, parent: &Ty<R>, err: Error) -> Error {
+    fn parent_error(sc: &ShallowClass<R>, parent_name: TypeName, err: Error) -> Error {
         // We tried to produce a decl of the parent of the given class but
         // failed. We capture this chain of events as a `Parent` error. The has
         // the effect of explaining that "we couldn't decl 'class' because we
         // couldn't decl 'parent' because ... x" ( where 'x' is the underlying
         // error like, the parent's php file is missing).
-        let (_, parent_name, _) = parent.unwrap_class_type();
         match err {
             Error::Parent {
                 class: _,
                 mut parents,
                 error,
             } => {
-                parents.push(parent_name.id());
+                parents.push(parent_name);
                 Error::Parent {
                     class: sc.name.id(),
                     parents,
@@ -124,80 +113,109 @@ impl<R: Reason> LazyFoldedDeclProvider<R> {
             }
             _ => Error::Parent {
                 class: sc.name.id(),
-                parents: vec![parent_name.id()],
+                parents: vec![parent_name],
                 error: Box::new(err),
             },
         }
     }
 
-    /// Produce a stream of a class's parent types that will be folded
-    /// recursively before folding the class itself.
-    pub fn parents_to_fold(sc: &ShallowClass<R>) -> impl Iterator<Item = &Ty<R>> {
-        (sc.extends.iter())
-            .chain(sc.implements.iter())
-            .chain(sc.uses.iter())
-            .chain(sc.xhp_attr_uses.iter())
-            .chain(sc.req_extends.iter())
-            .chain(sc.req_implements.iter())
-            .chain(
-                (sc.enum_type.as_ref())
-                    .map_or([].as_slice(), |et| &et.includes)
-                    .iter(),
-            )
+    // note(sf, 2022-03-02): c.f. Decl_folded_class.declare_class_and_parents
+    //
+    // The OCaml also returns the members of the class for the member heaps,
+    // which do not exist here.
+    fn declare_class_and_parents(
+        &self,
+        stack: &IndexSet<TypeName>,
+        shallow_class: &ShallowClass<R>,
+    ) -> Result<Arc<FoldedClass<R>>> {
+        let name = shallow_class.name.id();
+        let mut stack = stack.clone();
+        stack.insert(name);
+        let (parents, errors) = self.class_parents_decl(&stack, shallow_class)?;
+        // `class_decl` declares `StringishObject` with an empty stack.
+        let mut class_decl_if_missing = |class_name: TypeName| {
+            self.class_decl_if_missing(&IndexSet::default(), class_name)
+                .map_err(|err| Self::parent_error(shallow_class, class_name, err))
+        };
+        DeclFolder::decl_class(
+            &self.opts,
+            shallow_class,
+            &parents,
+            errors,
+            &mut class_decl_if_missing,
+        )
     }
 
     // note(sf, 2022-03-02): c.f. Decl_folded_class.class_parents_decl
-    fn decl_class_parents(
+    //
+    // The errors are in the order of the OCaml list (the last one first).
+    fn class_parents_decl(
         &self,
-        stack: &mut IndexSet<TypeName>,
-        errors: &mut Vec<DeclError<R::Pos>>,
-        sc: &ShallowClass<R>,
-    ) -> Result<IndexMap<TypeName, Arc<FoldedClass<R>>>> {
-        Self::parents_to_fold(sc)
-            .chain(DeclFolder::stringish_object_parent(sc).iter())
-            .map(|ty| {
-                self.decl_class_type(stack, errors, ty)
-                    .map_err(|err| Self::parent_error(sc, ty, err))
-            })
-            .filter_map(Result::transpose)
-            .collect()
-    }
-
-    fn decl_class(
-        &self,
-        stack: &mut IndexSet<TypeName>,
-        name: TypeName,
-    ) -> Result<Option<Arc<FoldedClass<R>>>> {
-        let mut errors = vec![];
-        let shallow_class = match self.shallow_decl_provider.get_class(name)? {
-            None => return Ok(None),
-            Some(c) => c,
+        stack: &IndexSet<TypeName>,
+        c: &ShallowClass<R>,
+    ) -> Result<(Parents<R>, Vec<DeclError<R::Pos>>)> {
+        let class_type_decl = |(mut parents, mut errs): (Parents<R>, VecDeque<_>),
+                               class_ty: &Ty<R>|
+         -> Result<(Parents<R>, VecDeque<_>)> {
+            match class_ty.node_ref() {
+                Ty_::Tapply(id_and_args) => {
+                    let (pos_id, _) = &**id_and_args;
+                    let class_name = pos_id.id();
+                    match Self::check_if_cyclic(stack, pos_id) {
+                        Some(err) => {
+                            errs.push_front(err);
+                            Ok((parents, errs))
+                        }
+                        None => match self
+                            .class_decl_if_missing(stack, class_name)
+                            .map_err(|err| Self::parent_error(c, class_name, err))?
+                        {
+                            None => Ok((parents, errs)),
+                            Some(decls) => {
+                                parents.insert(class_name, decls);
+                                Ok((parents, errs))
+                            }
+                        },
+                    }
+                }
+                _ => Ok((parents, errs)),
+            }
         };
-        stack.insert(name);
-        let parents = self.decl_class_parents(stack, &mut errors, &shallow_class)?;
-        stack.swap_remove(&name);
-        Ok(Some(DeclFolder::decl_class(
-            &self.opts,
-            &shallow_class,
-            &parents,
-            errors,
-        )?))
+        let acc = (Parents::default(), VecDeque::new());
+        let acc = (c.extends.iter()).try_fold(acc, class_type_decl)?;
+        let acc = (c.implements.iter()).try_fold(acc, class_type_decl)?;
+        let acc = (c.uses.iter()).try_fold(acc, class_type_decl)?;
+        let acc = (c.xhp_attr_uses.iter()).try_fold(acc, class_type_decl)?;
+        let acc = (c.req_extends.iter()).try_fold(acc, class_type_decl)?;
+        let acc = (c.req_implements.iter()).try_fold(acc, class_type_decl)?;
+        // Aast.enum_includes_map ~f:(fun et -> et.te_includes) c.sc_enum_type
+        let enum_includes: &[Ty<R>] = match &c.enum_type {
+            None => &[],
+            Some(et) => &et.includes,
+        };
+        let (parents, errs) = (enum_includes.iter()).try_fold(acc, class_type_decl)?;
+        Ok((parents, errs.into()))
     }
 
-    fn get_folded_class_impl(
+    // note(sf, 2022-03-02): c.f. Decl_folded_class.class_decl_if_missing
+    //
+    // `self.store` is the store of folded classes (`Decl_store`), whose
+    // member heaps do not exist here.
+    fn class_decl_if_missing(
         &self,
-        stack: &mut IndexSet<TypeName>,
-        name: TypeName,
+        stack: &IndexSet<TypeName>,
+        class_name: TypeName,
     ) -> Result<Option<Arc<FoldedClass<R>>>> {
-        match self.store.get(name).map_err(Error::Store)? {
-            Some(rc) => Ok(Some(rc)),
-            None => match self.decl_class(stack, name)? {
+        match self.store.get(class_name).map_err(Error::Store)? {
+            Some(decl) => Ok(Some(decl)),
+            None => match self.shallow_decl_provider.get_class(class_name)? {
                 None => Ok(None),
-                Some(rc) => {
+                Some(shallow_class) => {
+                    let class_ = self.declare_class_and_parents(stack, &shallow_class)?;
                     self.store
-                        .insert(name, Arc::clone(&rc))
+                        .insert(class_name, Arc::clone(&class_))
                         .map_err(Error::Store)?;
-                    Ok(Some(rc))
+                    Ok(Some(class_))
                 }
             },
         }

@@ -10,5 +10,8 @@ license = "MIT"
 [lib]
 path = "../line_break_map.rs"
 
+[dependencies]
+memchr = "2"
+
 [dev-dependencies]
 test-case = "3.4.1"

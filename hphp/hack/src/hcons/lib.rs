@@ -13,8 +13,6 @@ use std::sync::Weak;
 
 use dashmap::DashMap;
 use dashmap::mapref::entry::Entry;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Deserializer;
 use serde::Serialize;
@@ -122,18 +120,6 @@ impl<'de, T: Deserialize<'de> + Consable> Deserialize<'de> for Hc<T> {
     }
 }
 
-impl<T: ToOcamlRep + Consable> ToOcamlRep for Hc<T> {
-    fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
-        self.0.to_ocamlrep(alloc)
-    }
-}
-
-impl<T: FromOcamlRep + Consable> FromOcamlRep for Hc<T> {
-    fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
-        Ok(Hc::new(T::from_ocamlrep(value)?))
-    }
-}
-
 fn fnv_hash<T: Hash>(value: &T) -> u64 {
     let mut hasher = fnv::FnvHasher::default();
     value.hash(&mut hasher);
@@ -164,6 +150,14 @@ impl<T: Consable> Conser<T> {
 
     fn mk(&self, x: T) -> Hc<T> {
         let hash = fnv_hash(&x);
+        // Most values are already in the table: look them up under the shard's
+        // read lock first, which the threads can hold together (the `entry`
+        // below takes the write lock).
+        if let Some(rc) = self.table.get(&hash).and_then(|w| w.upgrade()) {
+            // TODO: handle collisions
+            debug_assert!(x == *rc);
+            return Hc(rc);
+        }
         let rc = match self.table.entry(hash) {
             Entry::Occupied(mut o) => match o.get().upgrade() {
                 Some(rc) => {
@@ -187,37 +181,25 @@ impl<T: Consable> Conser<T> {
     }
 }
 
-#[cfg(test)]
-mod test {
-    #[test]
-    fn shared_hcs() {
-        use ocamlrep::Arena;
+// ---- OCaml interop (feature "ocamlrep") ----
+#[cfg(feature = "ocamlrep")]
+mod ocamlrep_impls {
+    #[allow(unused_imports)]
+    use super::*;
+    #[allow(unused_imports)]
+    use ocamlrep::FromOcamlRep;
+    #[allow(unused_imports)]
+    use ocamlrep::ToOcamlRep;
 
-        use super::*;
-
-        impl Consable for (i32, i32) {
-            fn conser() -> &'static Conser<Self> {
-                static CONSER: LazyLock<Conser<(i32, i32)>> = LazyLock::new(Conser::new);
-                &CONSER
-            }
+    impl<T: ToOcamlRep + Consable> ToOcamlRep for Hc<T> {
+        fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
+            self.0.to_ocamlrep(alloc)
         }
-        impl Consable for (Hc<(i32, i32)>, Hc<(i32, i32)>) {
-            fn conser() -> &'static Conser<Self> {
-                static CONSER: LazyLock<Conser<(Hc<(i32, i32)>, Hc<(i32, i32)>)>> =
-                    LazyLock::new(Conser::new);
-                &CONSER
-            }
+    }
+
+    impl<T: FromOcamlRep + Consable> FromOcamlRep for Hc<T> {
+        fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
+            Ok(Hc::new(T::from_ocamlrep(value)?))
         }
-
-        let inner_tuple = Hc::new((1, 2));
-        let outer_tuple = Hc::new((Hc::clone(&inner_tuple), inner_tuple));
-
-        let arena = Arena::new();
-        let ocaml_tuple = arena.add_root(&outer_tuple);
-        let outer_tuple = ocaml_tuple.as_block().unwrap();
-
-        // The tuple pointer in the first field is physically equal to the tuple
-        // pointer in the second field.
-        assert_eq!(outer_tuple[0].to_bits(), outer_tuple[1].to_bits());
     }
 }

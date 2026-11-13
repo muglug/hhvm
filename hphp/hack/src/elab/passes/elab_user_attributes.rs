@@ -4,6 +4,7 @@
 // LICENSE file in the "hack" directory of this source tree.
 
 use hash::HashMap;
+use nast::Expr_;
 use nast::Id;
 use nast::Pos;
 use nast::UserAttributes;
@@ -19,12 +20,14 @@ impl Pass for ElabUserAttributesPass {
         env: &Env,
         elem: &mut UserAttributes,
     ) -> ControlFlow<()> {
+        // Complain on duplicates, e.g. <<Foo, Bar, Foo>>.
         let mut seen: HashMap<String, Pos> = HashMap::default();
+        let mut errs = vec![];
         let UserAttributes(uas) = elem;
         uas.retain(|ua| {
             let Id(pos, attr_name) = &ua.name;
             if let Some(prev_pos) = seen.get(attr_name) {
-                env.emit_error(NamingError::DuplicateUserAttribute {
+                errs.push(NamingError::DuplicateUserAttribute {
                     pos: pos.clone(),
                     attr_name: attr_name.clone(),
                     prev_pos: prev_pos.clone(),
@@ -35,6 +38,36 @@ impl Pass for ElabUserAttributesPass {
                 true
             }
         });
+        // The OCaml pass accumulates these errors in reverse
+        errs.into_iter().rev().for_each(|err| env.emit_error(err));
+
+        // Fully qualify arguments to __Memoize with enum class syntax.
+        // E.g. <<__Memoize(#KeyedByIC)>> becomes <<__Memoize(\HH\MemoizeOption#KeyedByIC)>>
+        for ua in uas.iter_mut() {
+            let attr_name = &ua.name.1;
+            if attr_name == sn::user_attributes::MEMOIZE
+                || attr_name == sn::user_attributes::MEMOIZE_LSB
+            {
+                for expr in ua.params.iter_mut() {
+                    if let Expr_::EnumClassLabel(box (cid_opt, _)) = &mut expr.2 {
+                        match cid_opt {
+                            None => {
+                                *cid_opt =
+                                    Some(Id(Pos::NONE, sn::hh::MEMOIZE_OPTION.to_string()))
+                            }
+                            Some(Id(class_pos, class_name)) => {
+                                if class_name != sn::hh::MEMOIZE_OPTION {
+                                    env.emit_error(NamingError::InvalidMemoizeLabel {
+                                        pos: class_pos.clone(),
+                                        attr_name: attr_name.clone(),
+                                    })
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         Continue(())
     }
 }

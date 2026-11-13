@@ -9,8 +9,6 @@ use std::hash::Hasher;
 
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -19,7 +17,8 @@ use crate::typing_defs_core::PosString;
 use crate::typing_defs_core::TshapeFieldName;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[derive(FromOcamlRep, EqModuloPos, NoPosHash, ToOcamlRep)]
+#[derive(EqModuloPos, NoPosHash)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct TShapeField(pub TshapeFieldName);
 
 /// Ord implementation that ignores pos

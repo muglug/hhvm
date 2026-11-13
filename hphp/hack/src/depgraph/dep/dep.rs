@@ -6,12 +6,6 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::LowerHex;
 
-use ocamlrep::Allocator;
-use ocamlrep::FromError;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
-use ocamlrep::Value;
-use ocamlrep::from;
 use serde::Deserialize;
 use serde::Serialize;
 use typing_deps_hash::DepType;
@@ -87,28 +81,47 @@ impl From<Dep> for u64 {
     }
 }
 
-impl FromOcamlRep for Dep {
-    fn from_ocamlrep(value: Value<'_>) -> Result<Self, FromError> {
-        let x: isize = from::expect_int(value)?;
-        // In Rust, a numeric cast between two integers of the same size
-        // is a no-op. We require a 64-bit word size.
-        let x = x as u64;
-        // The conversion from an OCaml integer to a Rust integer involves a
-        // right arithmetic bitshift. Due to sign extension, if the OCaml
-        // integer was negative, the resulting Rust integer's MSB will be set.
-        // We don't want that, because we are disguising unsigned 63-bit Rust
-        // integers as signed 63-bit integers in OCaml.
-        let x = x & !(1 << 63);
-        Ok(Dep(x))
-    }
-}
+// ---- OCaml interop (feature "ocamlrep") ----
+#[cfg(feature = "ocamlrep")]
+mod ocamlrep_impls {
+    #[allow(unused_imports)]
+    use super::*;
+    #[allow(unused_imports)]
+    use ocamlrep::Allocator;
+    #[allow(unused_imports)]
+    use ocamlrep::FromError;
+    #[allow(unused_imports)]
+    use ocamlrep::FromOcamlRep;
+    #[allow(unused_imports)]
+    use ocamlrep::ToOcamlRep;
+    #[allow(unused_imports)]
+    use ocamlrep::Value;
+    #[allow(unused_imports)]
+    use ocamlrep::from;
 
-impl ToOcamlRep for Dep {
-    fn to_ocamlrep<'a, A: Allocator>(&'a self, _alloc: &'a A) -> Value<'a> {
-        let x: u64 = self.0;
-        // In Rust, a numeric cast between two integers of the same size
-        // is a no-op. We require a 64-bit word size.
-        let x = x as isize;
-        Value::int(x)
+    impl FromOcamlRep for Dep {
+        fn from_ocamlrep(value: Value<'_>) -> Result<Self, FromError> {
+            let x: isize = from::expect_int(value)?;
+            // In Rust, a numeric cast between two integers of the same size
+            // is a no-op. We require a 64-bit word size.
+            let x = x as u64;
+            // The conversion from an OCaml integer to a Rust integer involves a
+            // right arithmetic bitshift. Due to sign extension, if the OCaml
+            // integer was negative, the resulting Rust integer's MSB will be set.
+            // We don't want that, because we are disguising unsigned 63-bit Rust
+            // integers as signed 63-bit integers in OCaml.
+            let x = x & !(1 << 63);
+            Ok(Dep(x))
+        }
+    }
+
+    impl ToOcamlRep for Dep {
+        fn to_ocamlrep<'a, A: Allocator>(&'a self, _alloc: &'a A) -> Value<'a> {
+            let x: u64 = self.0;
+            // In Rust, a numeric cast between two integers of the same size
+            // is a no-op. We require a 64-bit word size.
+            let x = x as isize;
+            Value::int(x)
+        }
     }
 }

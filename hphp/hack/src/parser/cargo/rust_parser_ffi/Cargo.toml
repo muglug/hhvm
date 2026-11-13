@@ -18,8 +18,8 @@ bumpalo = { version = "3.20.3", features = ["allocator_api", "collections"] }
 mode_parser = { path = "../mode_parser" }
 ocamlrep = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main" }
 ocamlrep_ocamlpool = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main" }
-operator = { path = "../operator" }
-oxidized = { path = "../../../oxidized" }
-parser_core_types = { path = "../core_types" }
+operator = { path = "../operator", features = ["ocamlrep"] }
+oxidized = { path = "../../../oxidized", features = ["ocamlrep"] }
+parser_core_types = { path = "../core_types", features = ["ocamlrep"] }
 positioned_by_ref_parser = { path = "../../api/cargo/positioned_by_ref_parser" }
 to_ocaml_impl = { path = "../to_ocaml_impl" }

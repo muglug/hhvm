@@ -9,9 +9,6 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 use std::path::PathBuf;
 
-use ocamlrep::FromOcamlRep;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 pub use relative_path::Prefix;
 pub use relative_path::RelativePathCtx;
 
@@ -20,7 +17,6 @@ use crate::ToOxidized;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[derive(serde::Serialize, serde::Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 pub struct RelativePath {
     prefix: Prefix,
     suffix: Bytes,
@@ -104,16 +100,6 @@ impl ToOxidized for RelativePath {
             self.prefix,
             PathBuf::from(OsStr::from_bytes(self.suffix.as_bytes())),
         )
-    }
-}
-
-impl<'a> FromOcamlRepIn<'a> for RelativePath {
-    fn from_ocamlrep_in(
-        value: ocamlrep::Value<'_>,
-        _arena: &'a bumpalo::Bump,
-    ) -> Result<Self, ocamlrep::FromError> {
-        let path = relative_path::RelativePath::from_ocamlrep(value)?;
-        Ok(Self::from(&path))
     }
 }
 

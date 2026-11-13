@@ -17,4 +17,4 @@ crate-type = ["lib", "staticlib"]
 config_file = { path = ".." }
 ocamlrep_custom = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main" }
 ocamlrep_ocamlpool = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main" }
-oxidized = { path = "../../../../oxidized" }
+oxidized = { path = "../../../../oxidized", features = ["ocamlrep"] }

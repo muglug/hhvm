@@ -16,6 +16,11 @@ bumpalo = { version = "3.20.3", features = ["allocator_api", "collections"] }
 itertools = "0.15.0"
 line_break_map = { path = "../../../utils/line_break_map" }
 ocaml_helper = { path = "../../../utils/ocaml_helper" }
-ocamlrep = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main" }
 relative_path = { path = "../../../utils/rust/relative_path" }
 serde = { version = "1.0.229", features = ["derive", "rc"] }
+ocamlrep = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main", optional = true }
+
+[features]
+# The conversions to and from OCaml values, for the crates that the OCaml
+# typechecker links, which turn the feature on.
+ocamlrep = ["dep:ocamlrep", "relative_path/ocamlrep"]

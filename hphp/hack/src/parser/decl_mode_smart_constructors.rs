@@ -7,8 +7,6 @@
 mod decl_mode_smart_constructors_generated;
 
 use bumpalo::Bump;
-use ocamlrep::Allocator;
-use ocamlrep::ToOcamlRep;
 use parser_core_types::lexable_token::LexableToken;
 use parser_core_types::source_text::SourceText;
 use parser_core_types::syntax::SyntaxTypeBase;
@@ -254,8 +252,19 @@ where
     }
 }
 
-impl<S> ToOcamlRep for State<'_, '_, S> {
-    fn to_ocamlrep<'a, A: Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
-        self.stack().to_ocamlrep(alloc)
+// ---- OCaml interop (feature "ocamlrep") ----
+#[cfg(feature = "ocamlrep")]
+mod ocamlrep_impls {
+    #[allow(unused_imports)]
+    use super::*;
+    #[allow(unused_imports)]
+    use ocamlrep::Allocator;
+    #[allow(unused_imports)]
+    use ocamlrep::ToOcamlRep;
+
+    impl<S> ToOcamlRep for State<'_, '_, S> {
+        fn to_ocamlrep<'a, A: Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
+            self.stack().to_ocamlrep(alloc)
+        }
     }
 }

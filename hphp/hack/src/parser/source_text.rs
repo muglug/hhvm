@@ -7,9 +7,6 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
-use ocamlrep::ptr::UnsafeOcamlPtr;
 use relative_path::RelativePath;
 
 pub const INVALID: char = '\x00';
@@ -27,16 +24,23 @@ struct SourceTextImpl<'a> {
 
     file_path: Arc<RelativePath>,
 
-    ocaml_source_text: Option<UnsafeOcamlPtr>,
+    #[cfg(feature = "ocamlrep")]
+    ocaml_source_text: Option<ocamlrep::ptr::UnsafeOcamlPtr>,
 }
 #[derive(Debug, Clone)]
 pub struct SourceText<'a>(Rc<SourceTextImpl<'a>>);
 
 impl<'a> SourceText<'a> {
     pub fn make(file_path: Arc<RelativePath>, text: &'a [u8]) -> Self {
-        Self::make_with_raw(file_path, text, 0)
+        Self(Rc::new(SourceTextImpl {
+            file_path,
+            text,
+            #[cfg(feature = "ocamlrep")]
+            ocaml_source_text: None,
+        }))
     }
 
+    #[cfg(feature = "ocamlrep")]
     pub fn make_with_raw(
         file_path: Arc<RelativePath>,
         text: &'a [u8],
@@ -48,9 +52,14 @@ impl<'a> SourceText<'a> {
             ocaml_source_text: if ocaml_source_text == 0 {
                 None
             } else {
-                unsafe { Some(UnsafeOcamlPtr::new(ocaml_source_text)) }
+                unsafe { Some(ocamlrep::ptr::UnsafeOcamlPtr::new(ocaml_source_text)) }
             },
         }))
+    }
+
+    #[cfg(feature = "ocamlrep")]
+    pub fn ocaml_source_text(&self) -> Option<ocamlrep::ptr::UnsafeOcamlPtr> {
+        self.0.ocaml_source_text
     }
 
     pub fn file_path(&self) -> &RelativePath {
@@ -61,6 +70,7 @@ impl<'a> SourceText<'a> {
         Arc::clone(&self.0.file_path)
     }
 
+    #[inline]
     pub fn text(&self) -> &'a [u8] {
         self.0.text
     }
@@ -69,18 +79,17 @@ impl<'a> SourceText<'a> {
         unsafe { std::str::from_utf8_unchecked(self.0.text) }
     }
 
+    #[inline]
     pub fn length(&self) -> usize {
         self.text().len()
     }
 
-    pub fn ocaml_source_text(&self) -> Option<UnsafeOcamlPtr> {
-        self.0.ocaml_source_text
-    }
-
+    #[inline]
     pub fn get(&self, index: usize) -> char {
         self.text().get(index).map_or(INVALID, |x| *x as char)
     }
 
+    #[inline]
     pub fn sub(&self, start: usize, length: usize) -> &'a [u8] {
         let len = self.length();
 
@@ -98,36 +107,49 @@ impl<'a> SourceText<'a> {
     }
 }
 
-impl<'content> ToOcamlRep for SourceText<'content> {
-    fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
-        // A SourceText with no associated ocaml_source_text cannot be converted
-        // to OCaml yet (we'd need to construct the OffsetMap). We still
-        // construct some in test cases, so just panic upon attempts to convert.
-        alloc.add_copy(self.0.ocaml_source_text.unwrap())
-    }
-}
+// ---- OCaml interop (feature "ocamlrep") ----
+#[cfg(feature = "ocamlrep")]
+mod ocamlrep_impls {
+    #[allow(unused_imports)]
+    use super::*;
+    #[allow(unused_imports)]
+    use ocamlrep::FromOcamlRep;
+    #[allow(unused_imports)]
+    use ocamlrep::ToOcamlRep;
+    #[allow(unused_imports)]
+    use ocamlrep::ptr::UnsafeOcamlPtr;
 
-impl<'content> FromOcamlRep for SourceText<'content> {
-    fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
-        let block = ocamlrep::from::expect_tuple(value, 4)?;
-        let file_path: Arc<RelativePath> = ocamlrep::from::field(block, 0)?;
-        // Unsafely transmute away the lifetime of `value` and allow the caller
-        // to choose the lifetime. This is no more unsafe than what we already
-        // do by storing the ocaml_source_text pointer--if the OCaml source text
-        // is collected, our text field and ocaml_source_text field will both be
-        // invalid. The caller must take care not to let the OCaml source text
-        // be collected while a Rust SourceText exists.
-        let text: &'content [u8] = unsafe {
-            std::mem::transmute(
-                ocamlrep::bytes_from_ocamlrep(block[2])
-                    .map_err(|e| ocamlrep::FromError::ErrorInField(2, Box::new(e)))?,
-            )
-        };
-        let ocaml_source_text = Some(UnsafeOcamlPtr::from_ocamlrep(value)?);
-        Ok(Self(Rc::new(SourceTextImpl {
-            file_path,
-            text,
-            ocaml_source_text,
-        })))
+    impl<'content> ToOcamlRep for SourceText<'content> {
+        fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
+            // A SourceText with no associated ocaml_source_text cannot be converted
+            // to OCaml yet (we'd need to construct the OffsetMap). We still
+            // construct some in test cases, so just panic upon attempts to convert.
+            alloc.add_copy(self.0.ocaml_source_text.unwrap())
+        }
+    }
+
+    impl<'content> FromOcamlRep for SourceText<'content> {
+        fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
+            let block = ocamlrep::from::expect_tuple(value, 4)?;
+            let file_path: Arc<RelativePath> = ocamlrep::from::field(block, 0)?;
+            // Unsafely transmute away the lifetime of `value` and allow the caller
+            // to choose the lifetime. This is no more unsafe than what we already
+            // do by storing the ocaml_source_text pointer--if the OCaml source text
+            // is collected, our text field and ocaml_source_text field will both be
+            // invalid. The caller must take care not to let the OCaml source text
+            // be collected while a Rust SourceText exists.
+            let text: &'content [u8] = unsafe {
+                std::mem::transmute(
+                    ocamlrep::bytes_from_ocamlrep(block[2])
+                        .map_err(|e| ocamlrep::FromError::ErrorInField(2, Box::new(e)))?,
+                )
+            };
+            let ocaml_source_text = Some(UnsafeOcamlPtr::from_ocamlrep(value)?);
+            Ok(Self(Rc::new(SourceTextImpl {
+                file_path,
+                text,
+                ocaml_source_text,
+            })))
+        }
     }
 }

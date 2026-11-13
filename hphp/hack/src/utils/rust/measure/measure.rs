@@ -62,7 +62,6 @@
 
 use std::sync::LazyLock;
 
-use ocamlrep::ToOcamlRep;
 use parking_lot::RwLock;
 
 #[derive(Clone, Debug, Default)]
@@ -231,7 +230,8 @@ fn pretty_num(f: f64) -> String {
     }
 }
 
-#[derive(Copy, Clone, Debug, ToOcamlRep)]
+#[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::ToOcamlRep))]
 struct RecordEntry {
     count: f64,
     mean: f64,
@@ -280,28 +280,48 @@ impl std::fmt::Debug for RecordName {
 // concatenation pattern without needing to do any allocation or memcpys at
 // sample-time; we just have to do the concatenation when converting to OCaml
 // instead.
-impl ToOcamlRep for RecordName {
-    fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
-        use std::io::Write;
-        let mut str = alloc.byte_string_with_len(self.0.len() + self.1.map_or(0, |s| s.len() + 3));
-        write!(&mut str, "{self}").unwrap();
-        str.build()
-    }
-}
 
 // Implemented manually because the OCaml version contains a sorted map rather
 // than a hash map.
-impl ToOcamlRep for Record {
-    fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
-        let mut entries: Vec<_> = (self.entries.iter())
-            .map(|kv| (*kv.key(), *kv.value()))
-            .collect();
-        entries.sort_unstable_by_key(|&(name, _)| name);
-        let len = entries.len();
-        let mut iter = entries
-            .into_iter()
-            .map(|(name, entry)| (alloc.add_copy(name), alloc.add_copy(entry)));
-        let (res, _) = ocamlrep::sorted_iter_to_ocaml_map(&mut iter, alloc, len);
-        res
+
+// ---- OCaml interop (feature "ocamlrep") ----
+#[cfg(feature = "ocamlrep")]
+mod ocamlrep_impls {
+    #[allow(unused_imports)]
+    use super::*;
+    #[allow(unused_imports)]
+    use ocamlrep::ToOcamlRep;
+
+    // Implemented manually instead of derived because in OCaml, records are keyed
+    // by a single string, and invokers of `Measure.sample` concatenate categories
+    // with parenthesized subcategories (since string concatenation can be done
+    // inexpensively in the minor heap). `RecordName` supports the same
+    // concatenation pattern without needing to do any allocation or memcpys at
+    // sample-time; we just have to do the concatenation when converting to OCaml
+    // instead.
+    impl ToOcamlRep for RecordName {
+        fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
+            use std::io::Write;
+            let mut str = alloc.byte_string_with_len(self.0.len() + self.1.map_or(0, |s| s.len() + 3));
+            write!(&mut str, "{self}").unwrap();
+            str.build()
+        }
+    }
+
+    // Implemented manually because the OCaml version contains a sorted map rather
+    // than a hash map.
+    impl ToOcamlRep for Record {
+        fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
+            let mut entries: Vec<_> = (self.entries.iter())
+                .map(|kv| (*kv.key(), *kv.value()))
+                .collect();
+            entries.sort_unstable_by_key(|&(name, _)| name);
+            let len = entries.len();
+            let mut iter = entries
+                .into_iter()
+                .map(|(name, entry)| (alloc.add_copy(name), alloc.add_copy(entry)));
+            let (res, _) = ocamlrep::sorted_iter_to_ocaml_map(&mut iter, alloc, len);
+            res
+        }
     }
 }

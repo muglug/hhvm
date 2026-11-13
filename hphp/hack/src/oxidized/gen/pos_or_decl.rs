@@ -9,8 +9,6 @@
 //   buck run @fbcode//mode/dev-nosan-lg fbcode//hphp/hack/src:oxidized_regen
 
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -28,26 +26,12 @@ use crate::*;
 /// This type is for either of these positions.
 /// It's used in the decl heap and in places that can take any kind of positions,
 /// e.g. error secondary positions.
-#[rust_to_ocaml(attr = "deriving (eq, ord, show)")]
 pub type PosOrDecl = pos::Pos;
 
 /// The decl and file of a position.
-#[derive(
-    Clone,
-    Debug,
-    Deserialize,
-    Eq,
-    FromOcamlRep,
-    Hash,
-    NoPosHash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-    Serialize,
-    ToOcamlRep
-)]
-#[rust_to_ocaml(attr = "deriving show")]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, NoPosHash, Ord, PartialEq, PartialOrd, Serialize)]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct Ctx {
     pub decl: Option<decl_reference::DeclReference>,
     pub file: relative_path::RelativePath,

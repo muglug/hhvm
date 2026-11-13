@@ -11,7 +11,7 @@ pub use file_info::*;
 pub mod prim_defs;
 
 pub mod decl_hash {
-    pub type DeclHash = ocamlrep_caml_builtins::Int64;
+    pub type DeclHash = i64;
 }
 
 mod s_set {

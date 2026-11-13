@@ -17,9 +17,7 @@
  *
  */
 
-use ocamlrep::{FromOcamlRep, ToOcamlRep};
-
-#[derive(FromOcamlRep, ToOcamlRep)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum Operator {
     DollarOperator,
     ScopeResolutionOperator,

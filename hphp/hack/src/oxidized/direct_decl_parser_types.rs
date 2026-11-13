@@ -9,8 +9,6 @@
 //   buck run @fbcode//mode/dev-nosan-lg fbcode//hphp/hack/src:oxidized_regen
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -23,17 +21,15 @@ use crate::*;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep,
 )]
-#[rust_to_ocaml(attr = "deriving show")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct Decls(pub Vec<(String, shallow_decl_defs::Decl)>);
 
 /// WARNING: This type has not undergone the processing that you often expect in the typechecker,
@@ -46,17 +42,15 @@ pub struct Decls(pub Vec<(String, shallow_decl_defs::Decl)>);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep,
 )]
-#[rust_to_ocaml(prefix = "pf_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ParsedFile {
     /// Was the file Hack or HHI?
     pub mode: Option<file_info::Mode>,

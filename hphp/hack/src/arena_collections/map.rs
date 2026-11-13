@@ -11,8 +11,6 @@ use std::hash::Hasher;
 use arena_deserializer::impl_deserialize_in_arena;
 use arena_trait::Arena;
 use arena_trait::TrivialDrop;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -100,39 +98,11 @@ impl<K, V> Default for Map<'_, K, V> {
     }
 }
 
-impl<K: ToOcamlRep, V: ToOcamlRep> ToOcamlRep for Map<'_, K, V> {
-    fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
-        match self.0 {
-            None => alloc.add(&()),
-            Some(val) => alloc.add(val),
-        }
-    }
-}
-
-impl<'a, K, V> FromOcamlRepIn<'a> for Map<'a, K, V>
-where
-    K: FromOcamlRepIn<'a> + TrivialDrop,
-    V: FromOcamlRepIn<'a> + TrivialDrop,
-{
-    fn from_ocamlrep_in(
-        value: ocamlrep::Value<'_>,
-        alloc: &'a bumpalo::Bump,
-    ) -> Result<Self, ocamlrep::FromError> {
-        if value.is_int() {
-            let _ = ocamlrep::from::expect_nullary_variant(value, 0)?;
-            Ok(Map(None))
-        } else {
-            Ok(Map(Some(
-                alloc.alloc(<Node<'a, K, V>>::from_ocamlrep_in(value, alloc)?),
-            )))
-        }
-    }
-}
-
-#[derive(Deserialize, Serialize, ToOcamlRep)]
+#[derive(Deserialize, Serialize)]
 #[serde(bound(
     deserialize = "K: 'de + arena_deserializer::DeserializeInArena<'de>, V: 'de + arena_deserializer::DeserializeInArena<'de>"
 ))]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::ToOcamlRep))]
 struct Node<'a, K, V>(
     #[serde(deserialize_with = "arena_deserializer::arena", borrow)] Map<'a, K, V>,
     #[serde(deserialize_with = "arena_deserializer::arena")] K,
@@ -142,26 +112,6 @@ struct Node<'a, K, V>(
 );
 
 impl_deserialize_in_arena!(Node<'arena, K, V>);
-
-impl<'a, K, V> FromOcamlRepIn<'a> for Node<'a, K, V>
-where
-    K: FromOcamlRepIn<'a> + TrivialDrop,
-    V: FromOcamlRepIn<'a> + TrivialDrop,
-{
-    fn from_ocamlrep_in(
-        value: ocamlrep::Value<'_>,
-        alloc: &'a bumpalo::Bump,
-    ) -> std::result::Result<Self, ocamlrep::FromError> {
-        let block = ocamlrep::from::expect_tuple(value, 5)?;
-        Ok(Node(
-            ocamlrep::from::field_in(block, 0, alloc)?,
-            ocamlrep::from::field_in(block, 1, alloc)?,
-            ocamlrep::from::field_in(block, 2, alloc)?,
-            ocamlrep::from::field_in(block, 3, alloc)?,
-            ocamlrep::from::field_in(block, 4, alloc)?,
-        ))
-    }
-}
 
 impl<'a, K: TrivialDrop, V: TrivialDrop> TrivialDrop for Node<'a, K, V> {}
 
@@ -759,5 +709,65 @@ mod tests_iter {
             map.into_iter().map(|(k, ())| *k).collect::<Vec<i64>>(),
             vec![1, 2, 3, 4, 5, 6, 7]
         );
+    }
+}
+
+// ---- OCaml interop (feature "ocamlrep") ----
+#[cfg(feature = "ocamlrep")]
+mod ocamlrep_impls {
+    #[allow(unused_imports)]
+    use super::*;
+    #[allow(unused_imports)]
+    use ocamlrep::FromOcamlRepIn;
+    #[allow(unused_imports)]
+    use ocamlrep::ToOcamlRep;
+
+    impl<K: ToOcamlRep, V: ToOcamlRep> ToOcamlRep for Map<'_, K, V> {
+        fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
+            match self.0 {
+                None => alloc.add(&()),
+                Some(val) => alloc.add(val),
+            }
+        }
+    }
+
+    impl<'a, K, V> FromOcamlRepIn<'a> for Map<'a, K, V>
+    where
+        K: FromOcamlRepIn<'a> + TrivialDrop,
+        V: FromOcamlRepIn<'a> + TrivialDrop,
+    {
+        fn from_ocamlrep_in(
+            value: ocamlrep::Value<'_>,
+            alloc: &'a bumpalo::Bump,
+        ) -> Result<Self, ocamlrep::FromError> {
+            if value.is_int() {
+                let _ = ocamlrep::from::expect_nullary_variant(value, 0)?;
+                Ok(Map(None))
+            } else {
+                Ok(Map(Some(
+                    alloc.alloc(<Node<'a, K, V>>::from_ocamlrep_in(value, alloc)?),
+                )))
+            }
+        }
+    }
+
+    impl<'a, K, V> FromOcamlRepIn<'a> for Node<'a, K, V>
+    where
+        K: FromOcamlRepIn<'a> + TrivialDrop,
+        V: FromOcamlRepIn<'a> + TrivialDrop,
+    {
+        fn from_ocamlrep_in(
+            value: ocamlrep::Value<'_>,
+            alloc: &'a bumpalo::Bump,
+        ) -> std::result::Result<Self, ocamlrep::FromError> {
+            let block = ocamlrep::from::expect_tuple(value, 5)?;
+            Ok(Node(
+                ocamlrep::from::field_in(block, 0, alloc)?,
+                ocamlrep::from::field_in(block, 1, alloc)?,
+                ocamlrep::from::field_in(block, 2, alloc)?,
+                ocamlrep::from::field_in(block, 3, alloc)?,
+                ocamlrep::from::field_in(block, 4, alloc)?,
+            ))
+        }
     }
 }

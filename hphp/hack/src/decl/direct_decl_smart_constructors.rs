@@ -173,7 +173,7 @@ impl<'o, 't> DirectDeclSmartConstructors<'o, 't> {
                 function_attributes: Default::default(),
                 const_refs: None,
                 namespace_builder: Rc::new(NamespaceBuilder::new(
-                    opts.auto_namespace_map.clone(),
+                    &opts.auto_namespace_map,
                     opts.disable_xhp_element_mangling,
                     elaborate_xhp_namespaces_for_facts,
                 )),
@@ -559,18 +559,64 @@ fn read_member_modifiers<'b>(modifiers: impl Iterator<Item = &'b Node>) -> Modif
     ret
 }
 
+/// The environments are shared (`Rc`): a copy of the builder (the smart
+/// constructors are cloned for every lookahead of the parser) copies an
+/// environment only when it changes it, and the environment of the start of a
+/// file is made once per thread (`base_env`).
 #[derive(Clone, Debug)]
 struct NamespaceBuilder {
-    stack: Vec<NamespaceEnv>,
+    stack: Vec<Rc<NamespaceEnv>>,
     elaborate_xhp_namespaces_for_facts: bool,
 }
 
 impl NamespaceBuilder {
     fn new(
-        auto_ns_map: Vec<(String, String)>,
+        auto_ns_map: &[(String, String)],
         disable_xhp_element_mangling: bool,
         elaborate_xhp_namespaces_for_facts: bool,
     ) -> Self {
+        Self {
+            stack: vec![Self::base_env(auto_ns_map, disable_xhp_element_mangling)],
+            elaborate_xhp_namespaces_for_facts,
+        }
+    }
+
+    /// The environment of the start of a file, as `make_base_env` makes it:
+    /// the last one made by this thread when it was made from the same
+    /// arguments.
+    fn base_env(
+        auto_ns_map: &[(String, String)],
+        disable_xhp_element_mangling: bool,
+    ) -> Rc<NamespaceEnv> {
+        type Base = (Vec<(String, String)>, bool, Rc<NamespaceEnv>);
+        thread_local! {
+            static BASE: std::cell::RefCell<Option<Base>> = const { std::cell::RefCell::new(None) };
+        }
+        BASE.with_borrow_mut(|base| match base {
+            Some((map, disable, env))
+                if map.as_slice() == auto_ns_map && *disable == disable_xhp_element_mangling =>
+            {
+                Rc::clone(env)
+            }
+            _ => {
+                let env = Rc::new(Self::make_base_env(
+                    auto_ns_map,
+                    disable_xhp_element_mangling,
+                ));
+                *base = Some((
+                    auto_ns_map.to_vec(),
+                    disable_xhp_element_mangling,
+                    Rc::clone(&env),
+                ));
+                env
+            }
+        })
+    }
+
+    fn make_base_env(
+        auto_ns_map: &[(String, String)],
+        disable_xhp_element_mangling: bool,
+    ) -> NamespaceEnv {
         let mut ns_uses = SMap::new();
         for &alias in hh_autoimport::NAMESPACES {
             ns_uses.insert(alias.to_owned(), format!("HH\\{}", alias));
@@ -584,23 +630,20 @@ impl NamespaceBuilder {
             class_uses.insert(class.to_owned(), format!("HH\\{}", class));
         }
 
-        Self {
-            stack: vec![NamespaceEnv {
-                ns_uses,
-                class_uses,
-                fun_uses: SMap::new(),
-                const_uses: SMap::new(),
-                name: None,
-                mode: NamespaceMode::ForTypecheck,
-                disable_xhp_element_mangling,
-            }],
-            elaborate_xhp_namespaces_for_facts,
+        NamespaceEnv {
+            ns_uses,
+            class_uses,
+            fun_uses: SMap::new(),
+            const_uses: SMap::new(),
+            name: None,
+            mode: NamespaceMode::ForTypecheck,
+            disable_xhp_element_mangling,
         }
     }
 
     fn push_namespace<'s>(&mut self, name: Option<Cow<'s, str>>) {
         let current = self.current_namespace();
-        let mut nsenv = self.stack.last().unwrap().clone();
+        let mut nsenv = NamespaceEnv::clone(self.stack.last().unwrap());
         if let Some(name) = name {
             let fully_qualified = match current {
                 None => name.into_owned(),
@@ -617,7 +660,7 @@ impl NamespaceBuilder {
         } else {
             nsenv.name = current.map(|s| s.to_owned());
         }
-        self.stack.push(nsenv);
+        self.stack.push(Rc::new(nsenv));
     }
 
     fn pop_namespace(&mut self) {
@@ -633,8 +676,8 @@ impl NamespaceBuilder {
     // push_namespace(Y) + push_namespace(X) + pop_previous_namespace()
     fn pop_previous_namespace(&mut self) {
         if self.stack.len() > 2 {
-            let last = self.stack.pop().unwrap().name.unwrap_or_default();
-            let previous = self.stack.pop().unwrap().name.unwrap_or_default();
+            let last = self.stack.pop().unwrap().name.clone().unwrap_or_default();
+            let previous = self.stack.pop().unwrap().name.clone().unwrap_or_default();
             assert!(last.starts_with(&previous));
             let name = &last[previous.len() + 1..last.len()];
             self.push_namespace(Some(Cow::Borrowed(name)));
@@ -646,10 +689,11 @@ impl NamespaceBuilder {
     }
 
     fn add_import(&mut self, kind: NamespaceUseKind, name: &str, aliased_name: Option<&str>) {
-        let stack_top = &mut self
-            .stack
-            .last_mut()
-            .expect("Attempted to get the current import map, but namespace stack was empty");
+        let stack_top = Rc::make_mut(
+            self.stack
+                .last_mut()
+                .expect("Attempted to get the current import map, but namespace stack was empty"),
+        );
         let aliased_name = aliased_name.unwrap_or_else(|| {
             name.rsplit_terminator('\\')
                 .next()
@@ -681,7 +725,7 @@ impl NamespaceBuilder {
         if name.starts_with('\\') {
             Cow::Borrowed(name)
         } else {
-            let env = self.stack.last().unwrap();
+            let env: &NamespaceEnv = self.stack.last().unwrap();
             match namespaces::elaborate_raw_id(
                 env,
                 kind,
@@ -695,7 +739,7 @@ impl NamespaceBuilder {
     }
 
     fn elaborate_defined_id(&self, Id(pos, name): Id) -> Id {
-        let env = self.stack.last().unwrap();
+        let env: &NamespaceEnv = self.stack.last().unwrap();
         let name = if env.disable_xhp_element_mangling && name.contains(':') {
             let xhp_name_opt = namespaces::elaborate_xhp_namespace(&name);
             let name = xhp_name_opt.unwrap_or(name);
@@ -1302,7 +1346,12 @@ impl<'o, 't> DirectDeclSmartConstructors<'o, 't> {
     // Check that the slice is valid UTF-8. If it is, return a &str referencing
     // the same data.
     fn str_from_utf8<'s>(slice: &'s [u8]) -> Cow<'s, str> {
-        String::from_utf8_lossy(slice)
+        // `from_utf8_lossy`, with the faster check of `from_utf8` for the
+        // (usual) valid text.
+        match std::str::from_utf8(slice) {
+            Ok(s) => Cow::Borrowed(s),
+            Err(_) => String::from_utf8_lossy(slice),
+        }
     }
 
     fn merge(pos1: impl Into<Option<Pos>>, pos2: impl Into<Option<Pos>>) -> Pos {

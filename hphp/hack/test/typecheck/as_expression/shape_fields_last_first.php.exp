@@ -1,0 +1,6 @@
+ERROR: File "shape_fields_last_first.php", line 6, characters 66-69:
+You can only use the `void` type as the return type of a function or method (Naming[2063])
+ERROR: File "shape_fields_last_first.php", line 6, characters 9-70:
+Invalid `as` expression hint (Typing[4195])
+  File "shape_fields_last_first.php", line 6, characters 66-69:
+  The `as` operator cannot be used with the `void` type

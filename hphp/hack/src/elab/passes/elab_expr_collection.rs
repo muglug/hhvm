@@ -73,41 +73,29 @@ impl Pass for ElabExprCollectionPass {
                 }
 
                 CollectionKind::Pair => {
-                    match &mut (afields.pop(), afields.pop(), afields.pop()) {
+                    match afields.len() {
+                        // We have no args, this cannot be a valid `Pair` so
+                        // replace with `Invalid`
+                        0 => {
+                            env.emit_error(NamingError::TooFewArguments(pos.clone()));
+                            invalidate(elem);
+                            Break(())
+                        }
                         // We have exactly two args so this _may_ be a valid pair
-                        (Some(afield2), Some(afield1), None) => {
+                        2 => {
                             let targs_opt = targs_from_collection_targs(env, ctarg_opt, pos);
-                            let expr1 = expr_from_afield(env, afield1, cname);
-                            let expr2 = expr_from_afield(env, afield2, cname);
+                            let mut afield2 = afields.pop().unwrap();
+                            let mut afield1 = afields.pop().unwrap();
+                            let expr1 = expr_from_afield(env, &mut afield1, cname);
+                            let expr2 = expr_from_afield(env, &mut afield2, cname);
                             *expr_ = Expr_::Pair(Box::new((targs_opt, expr1, expr2)));
                             Continue(())
                         }
-
-                        // We have fewer than two args, this cannot be a valid [Pair] so replace
-                        // with [Invalid]
-                        (_, None, _) => {
-                            env.emit_error(NamingError::TooFewArguments(pos.clone()));
-                            let inner_expr =
-                                std::mem::replace(elem, Expr((), Pos::NONE, Expr_::Null));
-                            *elem = Expr(
-                                (),
-                                inner_expr.1.clone(),
-                                Expr_::Invalid(Box::new(Some(inner_expr))),
-                            );
-                            Break(())
-                        }
-
-                        // We have more than two args, this cannot be a valid `Pair` so replace
-                        // with `Invalid`.
+                        // Any other number of args (including one) is
+                        // reported as too many
                         _ => {
                             env.emit_error(NamingError::TooManyArguments(pos.clone()));
-                            let inner_expr =
-                                std::mem::replace(elem, Expr((), Pos::NONE, Expr_::Null));
-                            *elem = Expr(
-                                (),
-                                inner_expr.1.clone(),
-                                Expr_::Invalid(Box::new(Some(inner_expr))),
-                            );
+                            invalidate(elem);
                             Break(())
                         }
                     }
@@ -118,13 +106,7 @@ impl Pass for ElabExprCollectionPass {
                         pos: pos.clone(),
                         cname: cname.clone(),
                     });
-                    let inner_expr = std::mem::replace(elem, Expr((), Pos::NONE, Expr_::Null));
-                    let Expr(_, expr_pos, _) = &inner_expr;
-                    *elem = Expr(
-                        (),
-                        expr_pos.clone(),
-                        Expr_::Invalid(Box::new(Some(inner_expr))),
-                    );
+                    invalidate(elem);
                     Break(())
                 }
             }
@@ -132,6 +114,12 @@ impl Pass for ElabExprCollectionPass {
             Continue(())
         }
     }
+}
+
+/// Wrap the expression in the `Invalid` expression marker
+fn invalidate(elem: &mut Expr) {
+    let inner_expr = std::mem::replace(elem, elab_utils::expr::null());
+    *elem = elab_utils::expr::invalid(inner_expr);
 }
 
 /// Extract the expression from [AFvalue]s; if we encounter an [AFkvalue] we
@@ -169,7 +157,7 @@ fn field_from_afield(env: &Env, afield: &mut Afield, cname: &str) -> Field {
             // TODO[mjt]: replace with `Invalid` expression?
             let ev = Expr(
                 (),
-                Pos::NONE,
+                ek.1.clone(),
                 Expr_::Lvar(Box::new(Lid(
                     ek.1.clone(),
                     local_id::make_unscoped("__internal_placeholder"),
@@ -583,8 +571,10 @@ mod tests {
         assert!(matches!(expr_, Expr_::Pair(_)));
     }
 
+    // `Naming_elab_collection`: only a `Pair` with no elements has too few
+    // arguments; one element is reported like three or more are.
     #[test]
-    fn test_pair_too_few_exprs() {
+    fn test_pair_one_expr() {
         let env = Env::default();
 
         let mut pass = ElabExprCollectionPass;
@@ -608,7 +598,7 @@ mod tests {
         let Expr(_, _, expr_) = elem;
         assert!(matches!(
             env.into_errors().pop(),
-            Some(NamingPhaseError::Naming(NamingError::TooFewArguments(_)))
+            Some(NamingPhaseError::Naming(NamingError::TooManyArguments(_)))
         ));
         assert!(matches!(expr_, Expr_::Invalid(_)));
     }

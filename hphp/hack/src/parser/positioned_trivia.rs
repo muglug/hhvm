@@ -4,14 +4,14 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the "hack" directory of this source tree.
 
-use ocamlrep::ToOcamlRep;
 
 use crate::lexable_trivia::LexableTrivia;
 use crate::lexable_trivia::LexableTrivium;
 use crate::source_text::SourceText;
 use crate::trivia_kind::TriviaKind;
 
-#[derive(Debug, Clone, PartialEq, ToOcamlRep)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::ToOcamlRep))]
 pub struct PositionedTrivium {
     pub kind: TriviaKind,
     pub offset: usize,

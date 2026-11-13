@@ -45,17 +45,11 @@ impl Pass for ElabClassIdPass {
         match class_id_ {
             ClassId_::CIself if !self.in_class => {
                 env.emit_error(NamingError::SelfOutsideClass(pos.clone()));
-                *class_id_ = ClassId_::CI(Id(
-                    std::mem::replace(pos, Pos::NONE),
-                    sn::classes::UNKNOWN.to_string(),
-                ));
+                *class_id_ = ClassId_::CI(Id(pos.clone(), sn::classes::UNKNOWN.to_string()));
             }
             ClassId_::CIparent if !self.in_class => {
                 env.emit_error(NamingError::ParentOutsideClass(pos.clone()));
-                *class_id_ = ClassId_::CI(Id(
-                    std::mem::replace(pos, Pos::NONE),
-                    sn::classes::UNKNOWN.to_string(),
-                ));
+                *class_id_ = ClassId_::CI(Id(pos.clone(), sn::classes::UNKNOWN.to_string()));
             }
             ClassId_::CIexpr(Expr(_, expr_pos, expr_)) => {
                 // [mjt] For some reason the legacy code modifies the position of
@@ -88,8 +82,11 @@ impl Pass for ElabClassIdPass {
                     Expr_::Lvar(lid) => {
                         // Convert Lvar(this) => this; note that this overlaps
                         // with lvar elaboration
-                        let Lid(_lid_pos, lcl_id) = &**lid;
+                        // (annot, _, CIexpr(ci_annot, expr_pos, Lvar(lid_pos, $this)))
+                        // ==> (annot, expr_pos, CIexpr(ci_annot, lid_pos, This))
+                        let Lid(lid_pos, lcl_id) = &**lid;
                         if local_id::get_name(lcl_id) == sn::special_idents::THIS {
+                            *expr_pos = lid_pos.clone();
                             *expr_ = Expr_::This
                         }
                     }

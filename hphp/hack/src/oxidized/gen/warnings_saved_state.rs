@@ -13,7 +13,7 @@ pub use error_hash_set::*;
 #[allow(unused_imports)]
 use crate::*;
 
-#[rust_to_ocaml(attr = "deriving (ord, show)")]
-pub type ErrorHash = ocamlrep::OCamlInt;
+/// A 63-bit hash (the most significant bit is erased, as OCaml ints were).
+pub type ErrorHash = isize;
 
 pub type Path = String;

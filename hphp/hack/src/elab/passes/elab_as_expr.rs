@@ -41,7 +41,10 @@ fn elab_value(env: &Env, expr: &mut Expr) {
 fn elab_key(env: &Env, expr: &mut Expr) {
     let Expr(_, pos, expr_) = expr;
     match expr_ {
-        Expr_::Lvar(..) | Expr_::Lplaceholder(..) => (),
+        Expr_::Lvar(..)
+        | Expr_::Lplaceholder(..)
+        | Expr_::DestructureShape(..)
+        | Expr_::DestructureTuple(..) => (),
         _ => {
             env.emit_error(NamingError::ExpectedVariable(pos.clone()));
             *expr_ = Expr_::Lvar(Box::new(Lid(

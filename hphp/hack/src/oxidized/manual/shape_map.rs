@@ -5,15 +5,14 @@
 
 use std::cmp::Ordering;
 
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
 use crate::ast_defs::Id;
 use crate::ast_defs::ShapeFieldName;
 
-#[derive(Clone, Debug, Deserialize, FromOcamlRep, ToOcamlRep, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ShapeField(pub ShapeFieldName);
 
 impl Ord for ShapeField {

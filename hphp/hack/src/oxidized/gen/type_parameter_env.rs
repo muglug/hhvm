@@ -9,8 +9,6 @@
 //   buck run @fbcode//mode/dev-nosan-lg fbcode//hphp/hack/src:oxidized_regen
 
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 pub use typing_defs::*;
@@ -24,25 +22,11 @@ pub type TparamName = String;
 
 pub type TparamBounds = ty_set::TySet;
 
-#[rust_to_ocaml(attr = "deriving (hash, (show { with_path = false }))")]
 pub type TparamInfo = typing_kinding_defs::Kind;
 
-#[derive(
-    Clone,
-    Debug,
-    Deserialize,
-    Eq,
-    FromOcamlRep,
-    Hash,
-    NoPosHash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-    Serialize,
-    ToOcamlRep
-)]
-#[rust_to_ocaml(attr = "deriving (hash, (show { with_path = false }))")]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, NoPosHash, Ord, PartialEq, PartialOrd, Serialize)]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct TypeParameterEnv {
     /// The position indicates where the type parameter was defined.
     /// It may be Pos.none if the type parameter denotes a fresh type variable

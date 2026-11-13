@@ -5,8 +5,6 @@
 
 use arena_trait::Arena;
 use arena_trait::TrivialDrop;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -37,35 +35,6 @@ impl<'a, K> TrivialDrop for Set<'a, K> {}
 impl<K> Default for Set<'_, K> {
     fn default() -> Self {
         Set(Map::default())
-    }
-}
-
-impl<K: ToOcamlRep + Ord> ToOcamlRep for Set<'_, K> {
-    fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
-        let len = self.count();
-        let mut iter = self.iter().map(|x| x.to_ocamlrep(alloc));
-        let (value, _) = ocamlrep::sorted_iter_to_ocaml_set(&mut iter, alloc, len);
-        value
-    }
-}
-
-impl<'a, K> FromOcamlRepIn<'a> for Set<'a, K>
-where
-    K: FromOcamlRepIn<'a> + Ord + TrivialDrop + Clone,
-{
-    fn from_ocamlrep_in(
-        value: ocamlrep::Value<'_>,
-        alloc: &'a bumpalo::Bump,
-    ) -> Result<Self, ocamlrep::FromError> {
-        // TODO: This is a bit wasteful. If we had iter_from_ocaml_set_in
-        // instead, we wouldn't need the extra vec.
-        let mut elements = bumpalo::collections::Vec::new_in(alloc);
-        ocamlrep::vec_from_ocaml_set_in(value, &mut elements, alloc)?;
-        let mut set = Set::empty();
-        for element in elements {
-            set = set.add(alloc, element);
-        }
-        Ok(set)
     }
 }
 
@@ -243,5 +212,45 @@ pub mod tests_iter {
         let a = Bump::new();
         let s: Set<'_, i32> = set![&a; 6, 4, 5];
         assert!(s.into_iter().copied().eq(vec![4, 5, 6].into_iter()));
+    }
+}
+
+// ---- OCaml interop (feature "ocamlrep") ----
+#[cfg(feature = "ocamlrep")]
+mod ocamlrep_impls {
+    #[allow(unused_imports)]
+    use super::*;
+    #[allow(unused_imports)]
+    use ocamlrep::FromOcamlRepIn;
+    #[allow(unused_imports)]
+    use ocamlrep::ToOcamlRep;
+
+    impl<K: ToOcamlRep + Ord> ToOcamlRep for Set<'_, K> {
+        fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
+            let len = self.count();
+            let mut iter = self.iter().map(|x| x.to_ocamlrep(alloc));
+            let (value, _) = ocamlrep::sorted_iter_to_ocaml_set(&mut iter, alloc, len);
+            value
+        }
+    }
+
+    impl<'a, K> FromOcamlRepIn<'a> for Set<'a, K>
+    where
+        K: FromOcamlRepIn<'a> + Ord + TrivialDrop + Clone,
+    {
+        fn from_ocamlrep_in(
+            value: ocamlrep::Value<'_>,
+            alloc: &'a bumpalo::Bump,
+        ) -> Result<Self, ocamlrep::FromError> {
+            // TODO: This is a bit wasteful. If we had iter_from_ocaml_set_in
+            // instead, we wouldn't need the extra vec.
+            let mut elements = bumpalo::collections::Vec::new_in(alloc);
+            ocamlrep::vec_from_ocaml_set_in(value, &mut elements, alloc)?;
+            let mut set = Set::empty();
+            for element in elements {
+                set = set.add(alloc, element);
+            }
+            Ok(set)
+        }
     }
 }

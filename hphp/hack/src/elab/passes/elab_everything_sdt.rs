@@ -20,6 +20,8 @@ use nast::ParamKind;
 use nast::Pos;
 use nast::Tparam;
 use nast::Typedef;
+use nast::TypedefAssignment;
+use nast::TypedefVisibilityAndHint;
 use nast::TypedefVisibility;
 use nast::UserAttribute;
 use nast::UserAttributes;
@@ -148,20 +150,26 @@ impl Pass for ElabEverythingSdtPass {
                 wrap_supportdyn_mut(hint);
             }
             // Return types and inout parameter types are pessimised.
-            Hint(_, box Hint_::Hfun(hint_fun)) if !self.under_no_auto_likes => {
-                for (p, ty) in std::iter::zip(&hint_fun.param_info, &mut hint_fun.param_tys) {
-                    if matches!(
-                        p,
-                        Some(HfParamInfo {
-                            kind: ParamKind::Pinout(_),
-                            ..
-                        })
-                    ) {
-                        wrap_like_mut(ty);
+            Hint(_, box Hint_::Hfun(hint_fun)) => {
+                if !self.under_no_auto_likes {
+                    // (Unequal lengths shouldn't happen; OCaml leaves the
+                    // parameter types alone in that case.)
+                    if hint_fun.param_info.len() == hint_fun.param_tys.len() {
+                        for (p, ty) in std::iter::zip(&hint_fun.param_info, &mut hint_fun.param_tys)
+                        {
+                            if matches!(
+                                p,
+                                Some(HfParamInfo {
+                                    kind: ParamKind::Pinout(_),
+                                    ..
+                                })
+                            ) {
+                                wrap_like_mut(ty);
+                            }
+                        }
                     }
+                    wrap_like_mut(&mut hint_fun.return_ty);
                 }
-
-                wrap_like_mut(&mut hint_fun.return_ty);
                 wrap_supportdyn_mut(hint);
             }
             _ => (),
@@ -248,7 +256,9 @@ impl Pass for ElabEverythingSdtPass {
             return Continue(());
         }
 
-        wrap_like_mut(&mut enum_.base);
+        if !self.under_no_auto_likes {
+            wrap_like_mut(&mut enum_.base);
+        }
 
         Continue(())
     }
@@ -263,7 +273,14 @@ impl Pass for ElabEverythingSdtPass {
         // If there isn't an "as constraint", and this is not just a type alias, produce a
         // `Happly(\\HH\\supportdyn, Hmixed)` and write it into
         // `td.as_constraint` in-place.
-        if td.as_constraint.is_none() && td.vis != TypedefVisibility::Transparent {
+        let is_transparent_alias = matches!(
+            &td.assignment,
+            TypedefAssignment::SimpleTypeDef(TypedefVisibilityAndHint {
+                vis: TypedefVisibility::Transparent,
+                ..
+            })
+        );
+        if td.as_constraint.is_none() && !is_transparent_alias {
             let pos = td.name.pos().clone();
             td.as_constraint = Some(wrap_supportdyn(Hint(pos, Box::new(Hint_::Hmixed))));
         }

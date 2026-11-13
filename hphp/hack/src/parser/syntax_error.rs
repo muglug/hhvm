@@ -9,15 +9,14 @@
 use std::borrow::Cow;
 use std::cmp::Ordering;
 
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 
 use crate::token_kind::TokenKind;
 
 // many errors are static strings, but not all of them
 pub type Error = Cow<'static, str>;
 
-#[derive(Debug, Clone, FromOcamlRep, ToOcamlRep, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum ErrorType {
     ParseError,
     RuntimeError,
@@ -35,13 +34,15 @@ pub enum LvalRoot {
 
 /// Equivalent to `Quickfix` but uses offsets rather than the `Pos` type,
 /// so this type is Send.
-#[derive(Debug, Clone, FromOcamlRep, ToOcamlRep, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct SyntaxQuickfix {
     pub title: String,
     pub edits: Vec<(usize, usize, String)>,
 }
 
-#[derive(Debug, Clone, FromOcamlRep, ToOcamlRep, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct SyntaxError {
     pub child: Option<Box<SyntaxError>>,
     pub start_offset: usize,

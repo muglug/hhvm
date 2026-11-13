@@ -10,8 +10,6 @@
 
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -24,17 +22,15 @@ use crate::*;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (show, eq)")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ParserOptions {
     /// Enable const static properties
     pub const_static_props: bool,
@@ -122,16 +118,15 @@ pub struct ParserOptions {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct FfiT {
     pub hhvm_compat_mode: bool,
     pub hhi_mode: bool,

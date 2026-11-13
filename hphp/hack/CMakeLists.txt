@@ -9,117 +9,25 @@ endif()
 
 message(STATUS "Building hack")
 
-find_package(LZ4)
-find_package(LibElf)
-
-# native_libraries: values for `-l` flags
-# lib_paths: values for `-L` flags (directories)
-# extra_link_opts: opaque options passed to the linker
+# The Hack toolchain (parser, bytecode compiler and typechecker) is written in
+# Rust: nothing that hhvm or the Rust typechecker (`hh`, `hh_client_rust`,
+# `hh_server_rust`) is built from needs OCaml, opam or dune.
 #
-# We need extra_link_opts for:
-# - static libraries
-# - anything built from third-party: cmake gives us the link flags
-unset(extra_include_paths)
-unset(extra_native_libraries)
-unset(extra_lib_paths)
-unset(extra_link_opts)
-unset(extra_cc_flags)
-
-# Allows '#include "hphp/path/to/library/"' paths to start from hphp
-# project directory  which is consistent with fbmake's include paths.
-list(APPEND extra_include_paths ${HPHP_HOME})
-list(APPEND extra_cc_flags -pthread)
-
-# Xcode/Ninja generators undefined MAKE
-if(NOT MAKE)
-  set(MAKE make)
-endif()
+# The OCaml typechecker (`hh_client`, `hh_server`) is still here, built by the
+# hack_dune targets at the end of this file (BUILD_HACK_OCAML).
 
 if ("${CMAKE_CURRENT_SOURCE_DIR}" STREQUAL "${CMAKE_CURRENT_BINARY_DIR}")
-  set(DUNE_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/_build")
-  set(OPAM_STAMP_FILE "_build/opam.stamp")
-  set(RUST_FFI_BUILD_ROOT "${DUNE_BUILD_DIR}/rust_ffi")
-  set(CARGO_HOME "${DUNE_BUILD_DIR}/cargo_home")
+  set(HACK_BUILD_DIR "${CMAKE_CURRENT_SOURCE_DIR}/_build")
+  set(RUST_FFI_BUILD_ROOT "${HACK_BUILD_DIR}/rust_ffi")
 else()
-  set(DUNE_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}")
+  set(HACK_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}")
   set(RUST_FFI_BUILD_ROOT "${CMAKE_BINARY_DIR}")
-  set(CARGO_HOME "${CMAKE_CURRENT_BINARY_DIR}/cargo_home")
-  set(OPAM_STAMP_FILE "opam.stamp")
 endif()
-set(HACK_BUILD_ROOT "${DUNE_BUILD_DIR}/default")
-
-get_target_property(OPAM_EXECUTABLE opam IMPORTED_LOCATION)
-
-add_custom_command(
-  OUTPUT "${OPAM_STAMP_FILE}"
-  DEPENDS opam opam_setup.sh
-  COMMAND
-    ${CMAKE_CURRENT_SOURCE_DIR}/opam_setup.sh
-    "${OPAM_EXECUTABLE}"
-    "${DUNE_BUILD_DIR}"
-    && cmake -E touch "${OPAM_STAMP_FILE}"
-  USES_TERMINAL
-)
-add_custom_target(opam_setup DEPENDS "${OPAM_STAMP_FILE}" opam_setup.sh)
-
-if (SKIP_OPAM)
-  set(OPAMROOT "~/.opam")
-else ()
-  set(OPAMROOT "${DUNE_BUILD_DIR}/opam")
-endif()
-
-if(LZ4_FOUND)
-  list(APPEND extra_include_paths ${LZ4_INCLUDE_DIR})
-  get_filename_component(pth ${LZ4_LIBRARY} DIRECTORY)
-  list(APPEND extra_lib_paths ${pth})
-  list(APPEND extra_native_libraries "lz4")
-else()
-  get_target_property(LZ4_INCLUDE_DIRS lz4 INTERFACE_INCLUDE_DIRECTORIES)
-  list(APPEND extra_include_paths ${LZ4_INCLUDE_DIRS})
-  # If LZ4_FOUND is false either we didn't find lz4 or we found it but it's the
-  # wrong version.  We can't just add the new path and a native_lib because we
-  # can't control the order (and -l won't accept the raw path to the lib).  By
-  # doing it this way we specify the path explicitly.
-  get_target_property(LZ4_LIBS lz4 INTERFACE_LINK_LIBRARIES)
-  list(APPEND extra_link_opts ${LZ4_LIBS})
-endif()
-
-get_target_property(ZSTD_INCLUDE_DIRS zstd INTERFACE_INCLUDE_DIRECTORIES)
-list(APPEND extra_include_paths ${ZSTD_INCLUDE_DIRS})
-get_target_property(ZSTD_LIBS zstd INTERFACE_LINK_LIBRARIES)
-list(APPEND extra_link_opts ${ZSTD_LIBS})
-
-list(APPEND extra_include_paths ${LIBSQLITE3_INCLUDE_DIR})
-get_filename_component(pth ${LIBSQLITE3_LIBRARY} DIRECTORY)
-list(APPEND extra_lib_paths ${pth})
-list(APPEND extra_native_libraries "sqlite3")
+set(CARGO_HOME "${HACK_BUILD_DIR}/cargo_home")
+set(HACK_BUILD_ROOT "${HACK_BUILD_DIR}/default")
 
 get_filename_component(RUSTC_BIN_DIR "${RUSTC_EXE}" DIRECTORY)
 get_filename_component(CARGO_BIN_DIR "${CARGO_EXE}" DIRECTORY)
-
-function(invoke_dune name target)
-  add_custom_target(
-      ${name}
-      COMMAND
-        . "${CMAKE_CURRENT_BINARY_DIR}/dev_env.sh" &&
-        opam exec --
-        make --makefile=Makefile.dune ${target}
-        BYTECODE="${EMIT_OCAML_BYTECODE}"
-      WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-      # Expose output from dune as it happens even if we're using Ninja.
-      # Since dune has parallelism of its own, this doesn't create a bottleneck.
-      USES_TERMINAL
-    )
-
-  add_dependencies(${name} zstd)
-  if (NOT SKIP_OPAM)
-    add_dependencies(${name} opam_setup)
-  endif()
-endfunction()
-
-invoke_dune(hack_dune_debug debug)
-invoke_dune(hack_dune_test test)
-invoke_dune(hack_dune all)
 
 set(INVOKE_CARGO "${CMAKE_SOURCE_DIR}/hphp/hack/scripts/invoke_cargo.sh")
 
@@ -277,7 +185,7 @@ add_custom_command(
       --header "${HHBC_AST_HEADER}" --namespaces "HPHP,hackc,hhbc"
       --includes "${FFI_HEADER},${NAMING_SPECIAL_NAMES_HEADER},${TYPE_CONSTRAINT_HEADER},${ATTR_HEADER},${FCALL_HEADER},${HHBC_HEADER},${ITER_ARGS_FLAGS_HEADER}"
       ${HHBC_AST_SRCS}
-  DEPENDS opam_setup "${RUST_OPCODES}"
+  DEPENDS "${RUST_OPCODES}"
   COMMENT "Generating hhbc-unit.h"
 )
 
@@ -318,8 +226,11 @@ string(JOIN " -I" FOLLY_INCLUDE_DIRS_STR ${FOLLY_INCLUDE_DIRECTORIES})
 string(JOIN " -I" FMT_INCLUDE_DIRS_STR ${FMT_INCLUDE_DIRECTORIES})
 set(FFI_CXXFLAGS "${CMAKE_CXX_FLAGS} -I${FOLLY_INCLUDE_DIRS_STR} -I${FMT_INCLUDE_DIRS_STR}")
 
-add_custom_command(
-  OUTPUT ${HHVM_RUST_FFI_STATICLIB} ${FFI_CXXBRIDGE_SRCS}
+# Cargo works out what to rebuild, so it runs on every build: a rule with
+# file-level dependencies would not see changes to the Rust sources. The
+# outputs are byproducts, so what links them is redone only when they change.
+add_custom_target(
+  hack_rust_ffi_rust_build
   COMMAND
     ${CMAKE_COMMAND} -E make_directory "${RUST_FFI_CARGO_TARGET_DIR}"
   COMMAND
@@ -333,17 +244,14 @@ add_custom_command(
       --package "${HHVM_RUST_FFI_STATICLIB_NAME}"
       --target-dir "${RUST_FFI_CARGO_TARGET_DIR}"
       ${HHVM_RUST_FFI_PROFILE_ARGS}
+  BYPRODUCTS ${HHVM_RUST_FFI_STATICLIB} ${FFI_CXXBRIDGE_SRCS}
   WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
   DEPENDS
-    hackc_options
     "${OPCODE_DATA}"
     "${HHVM_RUST_FFI_CARGO_TOML}"
     "${HHVM_RUST_FFI_LIB_RS}"
 )
-add_custom_target(hack_rust_ffi_rust_build DEPENDS ${HHVM_RUST_FFI_STATICLIB})
-if (NOT SKIP_OPAM)
-  add_dependencies(hack_rust_ffi_rust_build opam_setup)
-endif()
+add_dependencies(hack_rust_ffi_rust_build hackc_options)
 
 # Some consumers expect FFI headers to be in a different place, indulge them.
 set(FFI_PACKAGES_NEEDING_SYMLINKS compiler_ffi parser_ffi packages_ffi)
@@ -395,43 +303,223 @@ target_link_libraries(hack_rust_ffi_bridge PRIVATE Folly::folly hack_rust_ffi_br
 target_include_directories(hack_rust_ffi_bridge INTERFACE "${RUST_FFI_BUILD_ROOT}")
 target_include_directories(hack_rust_ffi_bridge PRIVATE "${RUST_FFI_CARGO_TARGET_DIR}/cxxbridge")
 
-if (NOT LZ4_FOUND)
-  add_dependencies(hack_dune lz4)
-  add_dependencies(hack_dune_debug lz4)
-  add_dependencies(hack_dune_test lz4)
-endif()
+# The Rust typechecker: `hh` (`hh check ROOT`, `hh single FILE`) and
+# `hh_server`, which takes the command line of the OCaml hh_server for its
+# batch mode (`hh_server --check [--json] ROOT`), as CI runs it.
+#
+# The typing core is behind the `port` feature and the hh_server command line
+# and its output behind `server`: without `port`, `hh` is only the placeholder
+# checker. Both binaries come from one cargo invocation so the library is
+# compiled once.
+set(HH_CARGO_TARGET_DIR "${HACK_BUILD_DIR}/hh")
+set(HH_EXECUTABLE "${HH_CARGO_TARGET_DIR}/${PROFILE}/hh")
+set(HH_SERVER_EXECUTABLE "${HH_CARGO_TARGET_DIR}/${PROFILE}/hh_server")
+add_custom_target(
+  hh
+  COMMAND
+    . "${CMAKE_CURRENT_BINARY_DIR}/dev_env_rust_only.sh" &&
+    cd "${CMAKE_CURRENT_SOURCE_DIR}/src" &&
+    "${CARGO_EXE}" build
+      --package hh
+      --features port,server
+      --bin hh
+      --bin hh_server
+      --target-dir "${HH_CARGO_TARGET_DIR}"
+      ${HHVM_RUST_FFI_PROFILE_ARGS}
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/bin"
+  COMMAND
+    ${CMAKE_COMMAND} -E copy_if_different
+      "${HH_EXECUTABLE}" "${CMAKE_CURRENT_BINARY_DIR}/bin/hh"
+  COMMAND
+    ${CMAKE_COMMAND} -E copy_if_different
+      "${HH_SERVER_EXECUTABLE}" "${CMAKE_CURRENT_BINARY_DIR}/bin/hh_server"
+  COMMENT "Building the Hack typechecker (hh, hh_server)"
+  USES_TERMINAL
+)
 
-# Intentionally not using `hack_dune_debug` as it generates output files of a
-# different format (bytecode instead of raw executables, which is useful if
-# you're working with Hack). Keep it around, but require it to be explicitly
-# used.
-# hack_dune builds the typechecker (hh_server) via OCaml/dune.
-# Excluded from ALL because it requires shipit file transformations
-# (internal .ml files don't match OSS .mli stubs).
-# The hhvm binary doesn't need hack_dune — it only needs the Rust FFI bridges.
+# The formatter (`hackfmt`, src/hackfmt/rust).
+set(HACKFMT_CARGO_TARGET_DIR "${HACK_BUILD_DIR}/hackfmt")
+set(HACKFMT_EXECUTABLE "${HACKFMT_CARGO_TARGET_DIR}/${PROFILE}/hackfmt")
+add_custom_target(
+  hackfmt
+  COMMAND
+    . "${CMAKE_CURRENT_BINARY_DIR}/dev_env_rust_only.sh" &&
+    cd "${CMAKE_CURRENT_SOURCE_DIR}/src" &&
+    "${CARGO_EXE}" build
+      --package hackfmt
+      --target-dir "${HACKFMT_CARGO_TARGET_DIR}"
+      ${HHVM_RUST_FFI_PROFILE_ARGS}
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/bin"
+  COMMAND
+    ${CMAKE_COMMAND} -E copy_if_different
+      "${HACKFMT_EXECUTABLE}" "${CMAKE_CURRENT_BINARY_DIR}/bin/hackfmt"
+  COMMENT "Building the Hack formatter (hackfmt)"
+  USES_TERMINAL
+)
+
+# `hack` builds everything Hack-related. It is not part of ALL: the hhvm binary
+# only needs the Rust FFI bridge.
 add_custom_target(
   hack
-  DEPENDS hack_dune hack_rust_ffi_bridge "${OPCODE_DATA}"
+  DEPENDS hh hackfmt hack_rust_ffi_bridge "${OPCODE_DATA}"
 )
-add_custom_target(hack_test DEPENDS hack_dune_test "${OPCODE_DATA}")
 
-set(NON_DUNE_CARGO_DIRECTORY ${DUNE_BUILD_DIR})
-configure_file(dev_env.sh.in dev_env.sh ESCAPE_QUOTES @ONLY)
+# The OCaml typechecker: `hh_client`, `hh_server`, `hackfmt`, `hh_parse` and
+# the single-file tools, built with dune in an opam switch (opam_setup.sh).
+# Only the hack_dune targets need OCaml: they are not part of ALL, and nothing
+# the Rust targets above build depends on them.
+#
+# The Rust crates that the OCaml executables link (the `*_ffi` crates under
+# src/, built by dune through scripts/invoke_cargo.sh, each in its own target
+# directory) turn on the `ocamlrep` feature of the crates they share with the
+# Rust typechecker, which gives those crates' types their conversions to and
+# from OCaml values. The Rust targets above build without that feature.
+if (BUILD_HACK_OCAML)
+  find_package(LZ4)
+  find_package(LibElf)
+
+  # native_libraries: values for `-l` flags
+  # lib_paths: values for `-L` flags (directories)
+  # extra_link_opts: opaque options passed to the linker
+  #
+  # We need extra_link_opts for:
+  # - static libraries
+  # - anything built from third-party: cmake gives us the link flags
+  unset(extra_include_paths)
+  unset(extra_native_libraries)
+  unset(extra_lib_paths)
+  unset(extra_link_opts)
+  unset(extra_cc_flags)
+
+  # Allows '#include "hphp/path/to/library/"' paths to start from hphp
+  # project directory  which is consistent with fbmake's include paths.
+  list(APPEND extra_include_paths ${HPHP_HOME})
+  list(APPEND extra_cc_flags -pthread)
+
+  # Xcode/Ninja generators undefined MAKE
+  if(NOT MAKE)
+    set(MAKE make)
+  endif()
+
+  set(DUNE_BUILD_DIR "${HACK_BUILD_DIR}")
+  if ("${CMAKE_CURRENT_SOURCE_DIR}" STREQUAL "${CMAKE_CURRENT_BINARY_DIR}")
+    set(OPAM_STAMP_FILE "_build/opam.stamp")
+  else()
+    set(OPAM_STAMP_FILE "opam.stamp")
+  endif()
+
+  get_target_property(OPAM_EXECUTABLE opam IMPORTED_LOCATION)
+
+  add_custom_command(
+    OUTPUT "${OPAM_STAMP_FILE}"
+    DEPENDS opam opam_setup.sh
+    COMMAND
+      ${CMAKE_CURRENT_SOURCE_DIR}/opam_setup.sh
+      "${OPAM_EXECUTABLE}"
+      "${DUNE_BUILD_DIR}"
+      && cmake -E touch "${OPAM_STAMP_FILE}"
+    USES_TERMINAL
+  )
+  add_custom_target(opam_setup DEPENDS "${OPAM_STAMP_FILE}" opam_setup.sh)
+
+  if (SKIP_OPAM)
+    set(OPAMROOT "~/.opam")
+  else ()
+    set(OPAMROOT "${DUNE_BUILD_DIR}/opam")
+  endif()
+
+  if(LZ4_FOUND)
+    list(APPEND extra_include_paths ${LZ4_INCLUDE_DIR})
+    get_filename_component(pth ${LZ4_LIBRARY} DIRECTORY)
+    list(APPEND extra_lib_paths ${pth})
+    list(APPEND extra_native_libraries "lz4")
+  else()
+    get_target_property(LZ4_INCLUDE_DIRS lz4 INTERFACE_INCLUDE_DIRECTORIES)
+    list(APPEND extra_include_paths ${LZ4_INCLUDE_DIRS})
+    # If LZ4_FOUND is false either we didn't find lz4 or we found it but it's the
+    # wrong version.  We can't just add the new path and a native_lib because we
+    # can't control the order (and -l won't accept the raw path to the lib).  By
+    # doing it this way we specify the path explicitly.
+    get_target_property(LZ4_LIBS lz4 INTERFACE_LINK_LIBRARIES)
+    list(APPEND extra_link_opts ${LZ4_LIBS})
+  endif()
+
+  get_target_property(ZSTD_INCLUDE_DIRS zstd INTERFACE_INCLUDE_DIRECTORIES)
+  list(APPEND extra_include_paths ${ZSTD_INCLUDE_DIRS})
+  get_target_property(ZSTD_LIBS zstd INTERFACE_LINK_LIBRARIES)
+  list(APPEND extra_link_opts ${ZSTD_LIBS})
+
+  list(APPEND extra_include_paths ${LIBSQLITE3_INCLUDE_DIR})
+  get_filename_component(pth ${LIBSQLITE3_LIBRARY} DIRECTORY)
+  list(APPEND extra_lib_paths ${pth})
+  list(APPEND extra_native_libraries "sqlite3")
+
+  function(invoke_dune name target)
+    add_custom_target(
+        ${name}
+        COMMAND
+          . "${CMAKE_CURRENT_BINARY_DIR}/dev_env.sh" &&
+          opam exec --
+          make --makefile=Makefile.dune ${target}
+          BYTECODE="${EMIT_OCAML_BYTECODE}"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        # Expose output from dune as it happens even if we're using Ninja.
+        # Since dune has parallelism of its own, this doesn't create a bottleneck.
+        USES_TERMINAL
+      )
+
+    add_dependencies(${name} zstd)
+    if (NOT SKIP_OPAM)
+      add_dependencies(${name} opam_setup)
+    endif()
+  endfunction()
+
+  # Intentionally not using `hack_dune_debug` as it generates output files of a
+  # different format (bytecode instead of raw executables, which is useful if
+  # you're working with Hack). Keep it around, but require it to be explicitly
+  # used.
+  invoke_dune(hack_dune_debug debug)
+  invoke_dune(hack_dune_test test)
+  invoke_dune(hack_dune all)
+
+  if (NOT LZ4_FOUND)
+    add_dependencies(hack_dune lz4)
+    add_dependencies(hack_dune_debug lz4)
+    add_dependencies(hack_dune_test lz4)
+  endif()
+
+  # `hack` builds both typecheckers.
+  add_dependencies(hack hack_dune)
+  add_custom_target(hack_test DEPENDS hack_dune_test "${OPCODE_DATA}")
+
+  set(NON_DUNE_CARGO_DIRECTORY ${DUNE_BUILD_DIR})
+  configure_file(dev_env.sh.in dev_env.sh ESCAPE_QUOTES @ONLY)
+  configure_file(dev_env_ocaml.sh.in dev_env_ocaml.sh ESCAPE_QUOTES @ONLY)
+endif()
+
 configure_file(dev_env_common.sh.in dev_env_common.sh ESCAPE_QUOTES @ONLY)
 configure_file(dev_env_rust_only.sh.in dev_env_rust_only.sh ESCAPE_QUOTES @ONLY)
 
-install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hh_client
+install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hh
   DESTINATION bin
-  COMPONENT dev)
-
+  COMPONENT dev
+  OPTIONAL)
 install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hh_server
   DESTINATION bin
-  COMPONENT dev)
-
+  COMPONENT dev
+  OPTIONAL)
 install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hackfmt
   DESTINATION bin
-  COMPONENT dev)
+  COMPONENT dev
+  OPTIONAL)
 
-install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hh_parse
-  DESTINATION bin
-  COMPONENT dev)
+# The OCaml typechecker's executables (hack_dune): present only when that
+# target was built.
+if (BUILD_HACK_OCAML)
+  foreach(OCAML_PROGRAM hh_client hh_server hackfmt hh_parse)
+    install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/${OCAML_PROGRAM}
+      DESTINATION bin
+      COMPONENT dev
+      OPTIONAL)
+  endforeach()
+endif()

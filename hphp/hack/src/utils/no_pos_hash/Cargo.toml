@@ -15,4 +15,9 @@ arena_collections = { path = "../../arena_collections" }
 bstr = { version = "1.13.1", features = ["serde", "std", "unicode"] }
 fnv = "1.0"
 no_pos_hash_derive = { path = "derive" }
-ocamlrep_caml_builtins = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main" }
+ocamlrep_caml_builtins = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main", optional = true }
+
+[features]
+# The conversions to and from OCaml values, for the crates that the OCaml
+# typechecker links, which turn the feature on.
+ocamlrep = ["dep:ocamlrep_caml_builtins", "arena_collections/ocamlrep"]

@@ -1,0 +1,361 @@
+// Copyright (c) Meta Platforms, Inc. and affiliates.
+//
+// This source code is licensed under the MIT license found in the
+// LICENSE file in the "hack" directory of this source tree.
+
+//! The OCaml `Aast.reduce` (ppx_visitors) with its exact combination of
+//! values, and `Tast_visitor.reduce` over it (no OCaml module of its own;
+//! owned by **F7**).
+//!
+//! `tast_visitor::Reduce` adds the values of the nodes in the order of the
+//! traversal, which is what OCaml computes when `plus` is associative. Some
+//! reducers of the code actions combine values with a `plus` that is not
+//! (`Inline_variable.Var_info.merge`, `Extract_shape_type.plus_state`,
+//! `Await_expression.Expr_structure`): for them the shape of the
+//! combination matters, and it is that of ppx_visitors: the value of a node
+//! is `fold_left1 plus` of the values of its fields (`zero` for none, the
+//! value itself for one), the value of a list is `fold_left plus zero` of
+//! its elements, of an option the value of its content (`zero` for `None`),
+//! of a leaf (string, int, position, ...) `zero`.
+//!
+//! [`Reducer`] (generated from `oxidized::aast_visitor::Visitor`, in
+//! `aast_reduce_gen.rs`) has one method per node type, returning its value;
+//! a reducer overrides the methods its OCaml class overrides and calls
+//! `x.srecurse(c, self)` for `super#on_x` (or the functions of [`tast`] for
+//! the methods that `Tast_visitor.reduce` overrides).
+
+use std::collections::BTreeMap;
+use std::sync::Arc;
+
+use oxidized::aast_visitor::Params;
+
+pub use super::aast_reduce_gen::Reducer;
+
+/// A node of the AST, visited by a [`Reducer`].
+pub trait SNode<P: Params> {
+    fn saccept<'node, A>(&'node self, c: &mut P::Context, v: &mut dyn Reducer<'node, P, A>) -> A {
+        self.srecurse(c, v)
+    }
+    fn srecurse<'node, A>(&'node self, _c: &mut P::Context, v: &mut dyn Reducer<'node, P, A>) -> A {
+        v.zero()
+    }
+}
+
+macro_rules! leaf_node {
+    ($ty:ty) => {
+        impl<P: Params> SNode<P> for $ty {}
+    };
+}
+
+leaf_node!(bool);
+leaf_node!(isize);
+leaf_node!(String);
+leaf_node!(bstr::BString);
+leaf_node!(oxidized::pos::Pos);
+leaf_node!(oxidized::file_info::Mode);
+leaf_node!(oxidized::namespace_env::Env);
+
+impl<P: Params, T: SNode<P>> SNode<P> for &T {
+    fn srecurse<'node, A>(&'node self, c: &mut P::Context, v: &mut dyn Reducer<'node, P, A>) -> A {
+        (*self).saccept(c, v)
+    }
+}
+
+impl<P: Params, L: SNode<P>, R: SNode<P>> SNode<P> for itertools::Either<L, R> {
+    fn srecurse<'node, A>(&'node self, c: &mut P::Context, v: &mut dyn Reducer<'node, P, A>) -> A {
+        match self {
+            itertools::Either::Left(i) => i.saccept(c, v),
+            itertools::Either::Right(i) => i.saccept(c, v),
+        }
+    }
+}
+
+/// `on_list`: `List.fold_left (fun s x -> self#plus s (f x)) self#zero`
+fn fold_list<'node, P: Params, A, T: SNode<P> + 'node>(
+    l: impl Iterator<Item = &'node T>,
+    c: &mut P::Context,
+    v: &mut dyn Reducer<'node, P, A>,
+) -> A {
+    let mut s = v.zero();
+    for x in l {
+        let r = x.saccept(c, v);
+        s = v.plus(s, r);
+    }
+    s
+}
+
+impl<P: Params, T: SNode<P>> SNode<P> for Vec<T> {
+    fn srecurse<'node, A>(&'node self, c: &mut P::Context, v: &mut dyn Reducer<'node, P, A>) -> A {
+        fold_list(self.iter(), c, v)
+    }
+}
+
+impl<P: Params, T: SNode<P>> SNode<P> for &[T] {
+    fn srecurse<'node, A>(&'node self, c: &mut P::Context, v: &mut dyn Reducer<'node, P, A>) -> A {
+        fold_list(self.iter(), c, v)
+    }
+}
+
+impl<P: Params, T: SNode<P>> SNode<P> for Option<T> {
+    fn srecurse<'node, A>(&'node self, c: &mut P::Context, v: &mut dyn Reducer<'node, P, A>) -> A {
+        match self {
+            Some(t) => t.saccept(c, v),
+            None => v.zero(),
+        }
+    }
+}
+
+impl<P: Params, T: SNode<P>> SNode<P> for oxidized::lazy::Lazy<T> {
+    fn srecurse<'node, A>(&'node self, c: &mut P::Context, v: &mut dyn Reducer<'node, P, A>) -> A {
+        self.0.saccept(c, v)
+    }
+}
+
+impl<P: Params, K: SNode<P>, V: SNode<P>> SNode<P> for BTreeMap<K, V> {
+    fn srecurse<'node, A>(&'node self, c: &mut P::Context, v: &mut dyn Reducer<'node, P, A>) -> A {
+        let mut s = v.zero();
+        for (k, x) in self {
+            let rk = k.saccept(c, v);
+            let rx = x.saccept(c, v);
+            let r = v.plus(rk, rx);
+            s = v.plus(s, r);
+        }
+        s
+    }
+}
+
+impl<P: Params, T: SNode<P>> SNode<P> for Arc<T> {
+    fn srecurse<'node, A>(&'node self, c: &mut P::Context, v: &mut dyn Reducer<'node, P, A>) -> A {
+        self.as_ref().saccept(c, v)
+    }
+}
+
+impl<P: Params, T: SNode<P>> SNode<P> for std::rc::Rc<T> {
+    fn srecurse<'node, A>(&'node self, c: &mut P::Context, v: &mut dyn Reducer<'node, P, A>) -> A {
+        self.as_ref().saccept(c, v)
+    }
+}
+
+impl<P: Params, T: SNode<P>> SNode<P> for Box<T> {
+    fn srecurse<'node, A>(&'node self, c: &mut P::Context, v: &mut dyn Reducer<'node, P, A>) -> A {
+        self.as_ref().saccept(c, v)
+    }
+}
+
+impl<P: Params, T1: SNode<P>, T2: SNode<P>> SNode<P> for (T1, T2) {
+    fn srecurse<'node, A>(&'node self, c: &mut P::Context, v: &mut dyn Reducer<'node, P, A>) -> A {
+        let r0 = self.0.saccept(c, v);
+        let r1 = self.1.saccept(c, v);
+        v.plus(r0, r1)
+    }
+}
+
+impl<P: Params, T1: SNode<P>, T2: SNode<P>, T3: SNode<P>> SNode<P> for (T1, T2, T3) {
+    fn srecurse<'node, A>(&'node self, c: &mut P::Context, v: &mut dyn Reducer<'node, P, A>) -> A {
+        let r0 = self.0.saccept(c, v);
+        let r1 = self.1.saccept(c, v);
+        let r2 = self.2.saccept(c, v);
+        let r01 = v.plus(r0, r1);
+        v.plus(r01, r2)
+    }
+}
+
+impl<P: Params, T1: SNode<P>, T2: SNode<P>, T3: SNode<P>, T4: SNode<P>> SNode<P> for (T1, T2, T3, T4) {
+    fn srecurse<'node, A>(&'node self, c: &mut P::Context, v: &mut dyn Reducer<'node, P, A>) -> A {
+        let r0 = self.0.saccept(c, v);
+        let r1 = self.1.saccept(c, v);
+        let r2 = self.2.saccept(c, v);
+        let r3 = self.3.saccept(c, v);
+        let r01 = v.plus(r0, r1);
+        let r012 = v.plus(r01, r2);
+        v.plus(r012, r3)
+    }
+}
+
+/// The parameters of a reducer over a NAST: no context.
+pub struct NastParams;
+
+impl Params for NastParams {
+    type Context = ();
+    type Error = ();
+    type Ex = ();
+    type En = ();
+}
+
+/// `class virtual ['a] reduce` of `Tast_visitor`: the functions of the
+/// methods it overrides (call them for `super#on_x` where the OCaml class
+/// inherits from `Tast_visitor.reduce`), and [`tast_methods!`] to write the
+/// `visit_` methods that call them.
+pub mod tast {
+    use naming_special_names_rust as sn;
+    use oxidized::aast;
+    use oxidized::ast_defs;
+
+    use super::*;
+    use crate::ctx::Ctx;
+    use crate::tast;
+    use crate::tast_env;
+    use crate::tast_env::Env;
+    use crate::tast_visitor::IterParams;
+    use crate::typing_defs::ValKind;
+
+    type R<'r, 'node, A> = dyn Reducer<'node, IterParams, A> + 'r;
+
+    /// Entry point: `self#on_list (fun () -> self#go_def ctx) () program`
+    pub fn go<'node, A>(v: &mut R<'_, 'node, A>, ctx: &Arc<Ctx>, program: &'node [tast::Def]) -> A {
+        let mut s = v.zero();
+        for x in program {
+            let r = go_def(v, ctx, x);
+            s = v.plus(s, r);
+        }
+        s
+    }
+
+    pub fn go_def<'node, A>(v: &mut R<'_, 'node, A>, ctx: &Arc<Ctx>, x: &'node tast::Def) -> A {
+        let mut env = tast_env::def_env(ctx, x);
+        v.visit_def(&mut env, x)
+    }
+
+    pub fn on_expr_<'node, A>(v: &mut R<'_, 'node, A>, env: &mut Env, expr_: &'node tast::Expr_) -> A {
+        match expr_ {
+            aast::Expr_::Invalid(_) => v.zero(),
+            aast::Expr_::Assign(a) => {
+                let (lhs, bop, rhs) = &**a;
+                on_assign(v, env, lhs, bop.as_ref(), rhs)
+            }
+            aast::Expr_::Is(a) => {
+                let saved = env.clone();
+                tast_env::set_allow_wildcards(env);
+                let r = expr_.srecurse(env, v);
+                *env = saved;
+                r
+            }
+            aast::Expr_::As(_) => {
+                let saved = env.clone();
+                tast_env::set_allow_wildcards(env);
+                let r = expr_.srecurse(env, v);
+                *env = saved;
+                r
+            }
+            aast::Expr_::ETSplice(_) => {
+                let saved = env.clone();
+                tast_env::outside_expr_tree(env);
+                let r = expr_.srecurse(env, v);
+                *env = saved;
+                r
+            }
+            _ => expr_.srecurse(env, v),
+        }
+    }
+
+    /// `on_Assign`: `bop` first, then `lhs` (as an lvalue), then `rhs`;
+    /// `plus e1 (plus op e2)`.
+    pub fn on_assign<'node, A>(
+        v: &mut R<'_, 'node, A>,
+        env: &mut Env,
+        lhs: &'node tast::Expr,
+        bop: Option<&'node ast_defs::Bop>,
+        rhs: &'node tast::Expr,
+    ) -> A {
+        let op = bop.map(|bop| v.visit_bop(env, bop));
+        let e1 = {
+            let saved = env.clone();
+            tast_env::set_val_kind(env, ValKind::Lval);
+            let r = v.visit_expr(env, lhs);
+            *env = saved;
+            r
+        };
+        let e2 = v.visit_expr(env, rhs);
+        match op {
+            Some(op) => {
+                let op_e2 = v.plus(op, e2);
+                v.plus(e1, op_e2)
+            }
+            None => v.plus(e1, e2),
+        }
+    }
+
+    pub fn on_fun_<'node, A>(v: &mut R<'_, 'node, A>, env: &mut Env, x: &'node tast::Fun_) -> A {
+        let saved = env.clone();
+        tast_env::restore_fun_env(env, x);
+        let r = x.srecurse(env, v);
+        *env = saved;
+        r
+    }
+
+    pub fn on_method_<'node, A>(v: &mut R<'_, 'node, A>, env: &mut Env, x: &'node tast::Method_) -> A {
+        let saved = env.clone();
+        if x.name.1 == sn::members::__CONSTRUCT {
+            tast_env::set_inside_constructor(env)
+        } else if x.static_ {
+            tast_env::set_static(env)
+        }
+        tast_env::restore_method_env(env, x);
+        let r = x.srecurse(env, v);
+        *env = saved;
+        r
+    }
+
+    pub fn on_class_var<'node, A>(v: &mut R<'_, 'node, A>, env: &mut Env, cv: &'node tast::ClassVar) -> A {
+        let saved = env.clone();
+        if cv.is_static {
+            tast_env::set_static(env)
+        }
+        let r = cv.srecurse(env, v);
+        *env = saved;
+        r
+    }
+
+    /// `on_expression_tree`: `plus et_class et_runtime_expr` (the free
+    /// variables are not visited).
+    pub fn on_expression_tree<'node, A>(
+        v: &mut R<'_, 'node, A>,
+        env: &mut Env,
+        et: &'node aast::ExpressionTree<tast::Ty, tast::SavedEnv>,
+    ) -> A {
+        let et_class = v.visit_id(env, &et.class);
+        let saved = env.clone();
+        tast_env::inside_expr_tree(env, et.class.clone());
+        let et_runtime_expr = v.visit_expr(env, &et.runtime_expr);
+        *env = saved;
+        v.plus(et_class, et_runtime_expr)
+    }
+
+    /// The `visit_` methods of a reducer that inherits from
+    /// `Tast_visitor.reduce` (the ones named), calling the functions above.
+    macro_rules! tast_methods {
+        ($lt:lifetime, $a:ty; $($m:ident),* $(,)?) => {
+            $( $crate::code_actions::aast_reduce::tast::tast_methods!(@one $lt, $a, $m); )*
+        };
+        (@one $lt:lifetime, $a:ty, expr_) => {
+            fn visit_expr_(&mut self, env: &mut $crate::tast_env::Env, x: &$lt $crate::tast::Expr_) -> $a {
+                $crate::code_actions::aast_reduce::tast::on_expr_(self, env, x)
+            }
+        };
+        (@one $lt:lifetime, $a:ty, fun_) => {
+            fn visit_fun_(&mut self, env: &mut $crate::tast_env::Env, x: &$lt $crate::tast::Fun_) -> $a {
+                $crate::code_actions::aast_reduce::tast::on_fun_(self, env, x)
+            }
+        };
+        (@one $lt:lifetime, $a:ty, method_) => {
+            fn visit_method_(&mut self, env: &mut $crate::tast_env::Env, x: &$lt $crate::tast::Method_) -> $a {
+                $crate::code_actions::aast_reduce::tast::on_method_(self, env, x)
+            }
+        };
+        (@one $lt:lifetime, $a:ty, class_var) => {
+            fn visit_class_var(&mut self, env: &mut $crate::tast_env::Env, x: &$lt $crate::tast::ClassVar) -> $a {
+                $crate::code_actions::aast_reduce::tast::on_class_var(self, env, x)
+            }
+        };
+        (@one $lt:lifetime, $a:ty, expression_tree) => {
+            fn visit_expression_tree(
+                &mut self,
+                env: &mut $crate::tast_env::Env,
+                x: &$lt oxidized::aast::ExpressionTree<$crate::tast::Ty, $crate::tast::SavedEnv>,
+            ) -> $a {
+                $crate::code_actions::aast_reduce::tast::on_expression_tree(self, env, x)
+            }
+        };
+    }
+    pub(crate) use tast_methods;
+}

@@ -10,9 +10,6 @@
 use arena_trait::TrivialDrop;
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 use strum::EnumString;
@@ -31,8 +28,6 @@ use crate::*;
     EnumString,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     FromRepr,
     Hash,
     NoPosHash,
@@ -40,10 +35,9 @@ use crate::*;
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep,
 )]
-#[rust_to_ocaml(attr = "deriving enum")]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum DepKind {
     KGConst = 0,
     KFun = 1,

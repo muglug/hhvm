@@ -8,7 +8,7 @@ use quote::quote;
 
 use super::Context;
 use super::Direction;
-use super::contains_ocaml_attr;
+use super::contains_transform_attr;
 
 pub fn r#gen(ctx: &Context) -> TokenStream {
     let pass_methods: Vec<_> = ctx
@@ -18,6 +18,10 @@ pub fn r#gen(ctx: &Context) -> TokenStream {
     let passes_methods: Vec<_> = ctx
         .type_structures()
         .flat_map(|s| gen_pass_methods(s, Body::Passes))
+        .collect();
+    let pair_methods: Vec<_> = ctx
+        .type_structures()
+        .flat_map(|s| gen_pass_methods(s, Body::Pair))
         .collect();
 
     quote! {
@@ -66,12 +70,28 @@ pub fn r#gen(ctx: &Context) -> TokenStream {
         impl Pass for Passes {
             #(#passes_methods)*
         }
+
+        /// Two passes run as one: at each node the first, then the second
+        /// (unless the first breaks), as `Passes` runs its list. Nest pairs
+        /// (`Pair(a, Pair(b, c))`) to run more. Unlike `Passes`, a pair calls
+        /// its passes statically, so the methods a pass does not override
+        /// cost nothing, and cloning it (which the traversal does at every
+        /// node) does not allocate.
+        #[derive(Clone, Copy, Default)]
+        pub struct Pair<A, B>(pub A, pub B);
+        impl<A, B> Pass for Pair<A, B>
+        where
+            A: 'static + Pass + Clone,
+            B: 'static + Pass + Clone,
+        {
+            #(#pair_methods)*
+        }
     }
 }
 
 fn gen_pass_methods(s: synstructure::Structure<'_>, body_type: Body) -> TokenStream {
     // If the type is marked opaque, generate no methods; they won't be called.
-    if contains_ocaml_attr(&s.ast().attrs, "transform.opaque") {
+    if contains_transform_attr(&s.ast().attrs, "opaque") {
         return quote!();
     }
     let ty = &s.ast().ident;
@@ -108,6 +128,7 @@ fn gen_pass_methods(s: synstructure::Structure<'_>, body_type: Body) -> TokenStr
 enum Body {
     Default,
     Passes,
+    Pair,
 }
 
 impl Body {
@@ -120,6 +141,10 @@ impl Body {
                 }
                 Continue(())
             },
+            Body::Pair => quote! {
+                self.0.#name(env, elem)?;
+                self.1.#name(env, elem)
+            },
         }
     }
 }
@@ -129,13 +154,13 @@ fn gen_fld_methods(s: &synstructure::Structure<'_>, body_type: Body) -> Vec<Toke
     match &s.ast().data {
         syn::Data::Struct(data) => match &data.fields {
             syn::Fields::Named(..) => (s.variants().iter().flat_map(|v| v.bindings()))
-                .filter(|field| contains_ocaml_attr(&field.ast().attrs, "transform.explicit"))
+                .filter(|field| contains_transform_attr(&field.ast().attrs, "explicit"))
                 .map(|bi| gen_fld_method(&ty_name, bi, body_type))
                 .collect(),
             _ => vec![],
         },
         syn::Data::Enum(..) => (s.variants().iter())
-            .filter(|variant| contains_ocaml_attr(variant.ast().attrs, "transform.explicit"))
+            .filter(|variant| contains_transform_attr(variant.ast().attrs, "explicit"))
             .map(|variant| gen_ctor_method(&ty_name, variant, body_type))
             .collect(),
         _ => vec![],

@@ -4,9 +4,6 @@
 // LICENSE file in the "hack" directory of this source tree.
 #![feature(box_patterns)]
 
-#[macro_use]
-extern crate rust_to_ocaml_attr;
-
 pub use file_info;
 pub use file_info::prim_defs;
 pub use naming_types;

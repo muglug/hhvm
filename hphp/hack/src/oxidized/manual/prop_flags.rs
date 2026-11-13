@@ -58,29 +58,6 @@ impl PropFlags {
     }
 }
 
-impl ocamlrep::ToOcamlRep for PropFlags {
-    fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, _: &'a A) -> ocamlrep::Value<'a> {
-        ocamlrep::Value::int(self.bits() as isize)
-    }
-}
-
-impl ocamlrep::FromOcamlRep for PropFlags {
-    fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
-        let int_value = ocamlrep::from::expect_int(value)?;
-        Ok(Self::from_bits_truncate(int_value.try_into()?))
-    }
-}
-
-impl<'a> ocamlrep::FromOcamlRepIn<'a> for PropFlags {
-    fn from_ocamlrep_in(
-        value: ocamlrep::Value<'_>,
-        _alloc: &'a bumpalo::Bump,
-    ) -> Result<Self, ocamlrep::FromError> {
-        use ocamlrep::FromOcamlRep;
-        Self::from_ocamlrep(value)
-    }
-}
-
 impl no_pos_hash::NoPosHash for PropFlags {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         std::hash::Hash::hash(self, state);
@@ -114,5 +91,35 @@ impl<'de> serde::Deserialize<'de> for PropFlags {
             }
         }
         deserializer.deserialize_u16(Visitor)
+    }
+}
+
+// ---- OCaml interop (feature "ocamlrep") ----
+#[cfg(feature = "ocamlrep")]
+mod ocamlrep_impls {
+    #[allow(unused_imports)]
+    use super::*;
+
+    impl ocamlrep::ToOcamlRep for PropFlags {
+        fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, _: &'a A) -> ocamlrep::Value<'a> {
+            ocamlrep::Value::int(self.bits() as isize)
+        }
+    }
+
+    impl ocamlrep::FromOcamlRep for PropFlags {
+        fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
+            let int_value = ocamlrep::from::expect_int(value)?;
+            Ok(Self::from_bits_truncate(int_value.try_into()?))
+        }
+    }
+
+    impl<'a> ocamlrep::FromOcamlRepIn<'a> for PropFlags {
+        fn from_ocamlrep_in(
+            value: ocamlrep::Value<'_>,
+            _alloc: &'a bumpalo::Bump,
+        ) -> Result<Self, ocamlrep::FromError> {
+            use ocamlrep::FromOcamlRep;
+            Self::from_ocamlrep(value)
+        }
     }
 }

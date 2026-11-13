@@ -11,18 +11,15 @@
 use arena_trait::TrivialDrop;
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 pub use pos::Pos;
 use serde::Deserialize;
 use serde::Serialize;
+use transform_markers::TransformMarkers;
 
 pub use crate::shape_map;
 #[allow(unused_imports)]
 use crate::*;
 
-#[rust_to_ocaml(and)]
 pub type Id_ = String;
 
 #[derive(
@@ -30,26 +27,21 @@ pub type Id_ = String;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(and)]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct Id(pub Pos, pub Id_);
 
-#[rust_to_ocaml(and)]
 pub type Pstring = (Pos, String);
 
-#[rust_to_ocaml(and)]
 pub type ByteString = String;
 
-#[rust_to_ocaml(and)]
 pub type PositionedByteString = (Pos, bstr::BString);
 
 #[derive(
@@ -58,23 +50,20 @@ pub type PositionedByteString = (Pos, bstr::BString);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(attr = "transform.opaque")]
+#[transform(opaque)]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum ShapeFieldName {
-    #[rust_to_ocaml(name = "SFlit_str")]
     SFlitStr(PositionedByteString),
     SFclassname(Id),
-    #[rust_to_ocaml(name = "SFclass_const")]
     SFclassConst(Id, Pstring),
 }
 
@@ -85,19 +74,17 @@ pub enum ShapeFieldName {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(attr = "transform.opaque")]
+#[transform(opaque)]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum Variance {
     Covariant,
     Contravariant,
@@ -113,25 +100,20 @@ arena_deserializer::impl_deserialize_in_arena!(Variance);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(attr = "transform.opaque")]
+#[transform(opaque)]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum ConstraintKind {
-    #[rust_to_ocaml(name = "Constraint_as")]
     ConstraintAs,
-    #[rust_to_ocaml(name = "Constraint_eq")]
     ConstraintEq,
-    #[rust_to_ocaml(name = "Constraint_super")]
     ConstraintSuper,
 }
 impl TrivialDrop for ConstraintKind {}
@@ -144,19 +126,17 @@ arena_deserializer::impl_deserialize_in_arena!(ConstraintKind);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(attr = "transform.opaque")]
+#[transform(opaque)]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum Abstraction {
     Concrete,
     Abstract,
@@ -171,19 +151,17 @@ arena_deserializer::impl_deserialize_in_arena!(Abstraction);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(attr = "transform.opaque")]
+#[transform(opaque)]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum ClassishKind {
     /// Kind for `class` and `abstract class`
     Cclass(Abstraction),
@@ -195,7 +173,6 @@ pub enum ClassishKind {
     Cenum,
     /// Kind for `enum class` and `abstract enum class`.
     /// See https://docs.hhvm.com/hack/built-in-types/enum-class
-    #[rust_to_ocaml(name = "Cenum_class")]
     CenumClass(Abstraction),
 }
 
@@ -205,18 +182,17 @@ pub enum ClassishKind {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(attr = "transform.opaque")]
+#[transform(opaque)]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum ParamKind {
     /// Contains the position for an entire `inout` annotated expression, e.g.:
     ///
@@ -233,19 +209,17 @@ pub enum ParamKind {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(attr = "transform.opaque")]
+#[transform(opaque)]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum ReadonlyKind {
     Readonly,
 }
@@ -259,21 +233,18 @@ arena_deserializer::impl_deserialize_in_arena!(ReadonlyKind);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(attr = "transform.opaque")]
+#[transform(opaque)]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum ParamNamed {
-    #[rust_to_ocaml(name = "Param_named")]
     ParamNamed,
 }
 impl TrivialDrop for ParamNamed {}
@@ -286,19 +257,17 @@ arena_deserializer::impl_deserialize_in_arena!(ParamNamed);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(attr = "transform.opaque")]
+#[transform(opaque)]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum OptionalKind {
     Optional,
 }
@@ -312,19 +281,17 @@ arena_deserializer::impl_deserialize_in_arena!(OptionalKind);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(attr = "transform.opaque")]
+#[transform(opaque)]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum SplatKind {
     Splat,
 }
@@ -338,19 +305,17 @@ arena_deserializer::impl_deserialize_in_arena!(SplatKind);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(attr = "transform.opaque")]
+#[transform(opaque)]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum OperatorNullFlavor {
     Regular,
     Nullsafe,
@@ -365,23 +330,19 @@ arena_deserializer::impl_deserialize_in_arena!(OperatorNullFlavor);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(attr = "transform.opaque")]
+#[transform(opaque)]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum PropOrMethod {
-    #[rust_to_ocaml(name = "Is_prop")]
     IsProp,
-    #[rust_to_ocaml(name = "Is_method")]
     IsMethod,
 }
 impl TrivialDrop for PropOrMethod {}
@@ -394,19 +355,17 @@ arena_deserializer::impl_deserialize_in_arena!(PropOrMethod);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(attr = "transform.opaque")]
+#[transform(opaque)]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum FunKind {
     FSync,
     FAsync,
@@ -423,19 +382,17 @@ arena_deserializer::impl_deserialize_in_arena!(FunKind);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(attr = "transform.opaque")]
+#[transform(opaque)]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum Bop {
     /// Addition: x + y
     Plus,
@@ -496,19 +453,17 @@ arena_deserializer::impl_deserialize_in_arena!(Bop);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(attr = "transform.opaque")]
+#[transform(opaque)]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum Uop {
     /// Bitwise negation: ~x
     Utild,
@@ -539,29 +494,22 @@ arena_deserializer::impl_deserialize_in_arena!(Uop);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(attr = "transform.opaque")]
+#[transform(opaque)]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum Visibility {
-    #[rust_to_ocaml(attr = r#"visitors.name "visibility_Private""#)]
     Private,
-    #[rust_to_ocaml(attr = r#"visitors.name "visibility_Public""#)]
     Public,
-    #[rust_to_ocaml(attr = r#"visitors.name "visibility_Protected""#)]
     Protected,
-    #[rust_to_ocaml(attr = r#"visitors.name "visibility_Internal""#)]
     Internal,
-    #[rust_to_ocaml(attr = r#"visitors.name "visibility_ProtectedInternal""#)]
     ProtectedInternal,
 }
 impl TrivialDrop for Visibility {}
@@ -578,22 +526,19 @@ arena_deserializer::impl_deserialize_in_arena!(Visibility);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(attr = "transform.opaque")]
+#[transform(opaque)]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum XhpEnumValue {
-    #[rust_to_ocaml(name = "XEV_Int")]
     XEVInt(isize),
-    #[rust_to_ocaml(name = "XEV_String")]
     XEVString(String),
 }
 
@@ -608,19 +553,17 @@ pub enum XhpEnumValue {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(attr = "transform.opaque")]
+#[transform(opaque)]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum Tprim {
     Tnull,
     Tvoid,
@@ -642,19 +585,17 @@ arena_deserializer::impl_deserialize_in_arena!(Tprim);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(attr = "transform.opaque")]
+#[transform(opaque)]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum TypedefVisibility {
     Transparent,
     Opaque,
@@ -670,49 +611,17 @@ arena_deserializer::impl_deserialize_in_arena!(TypedefVisibility);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(attr = "transform.opaque")]
-#[rust_to_ocaml(attr = r#"deriving ((show { with_path = false }), eq, hash, ord, sexp,
-    (transform ~restart:(`Disallow `Encode_as_result)), yojson_of,
-    (visitors
-       {
-         variety = "iter";
-         nude = true;
-         visit_prefix = "on_";
-         ancestors = ["Visitors_runtime.iter_base"]
-       }),
-    (visitors
-       {
-         variety = "endo";
-         nude = true;
-         visit_prefix = "on_";
-         ancestors = ["Visitors_runtime.endo_base"]
-       }),
-    (visitors
-       {
-         variety = "reduce";
-         nude = true;
-         visit_prefix = "on_";
-         ancestors = ["Visitors_runtime.reduce_base"]
-       }),
-    (visitors
-       {
-         variety = "map";
-         nude = true;
-         visit_prefix = "on_";
-         ancestors = ["Visitors_runtime.map_base"]
-       }))"#)]
+#[transform(opaque)]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum ReifyKind {
     Erased,
     SoftReified,

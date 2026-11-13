@@ -9,9 +9,6 @@
 //   buck run @fbcode//mode/dev-nosan-lg fbcode//hphp/hack/src:oxidized_regen
 use arena_trait::TrivialDrop;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -29,51 +26,30 @@ use crate::*;
     Debug,
     Deserialize,
     Eq,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep,
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving show")]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum Severity {
-    #[rust_to_ocaml(name = "Lint_error")]
     LintError,
-    #[rust_to_ocaml(name = "Lint_warning")]
     LintWarning,
-    #[rust_to_ocaml(name = "Lint_advice")]
     LintAdvice,
-    #[rust_to_ocaml(name = "Lint_disabled")]
     LintDisabled,
 }
 impl TrivialDrop for Severity {}
 arena_deserializer::impl_deserialize_in_arena!(Severity);
 
-#[derive(
-    Clone,
-    Debug,
-    Deserialize,
-    Eq,
-    FromOcamlRep,
-    Hash,
-    NoPosHash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-    Serialize,
-    ToOcamlRep,
-)]
-#[rust_to_ocaml(attr = "deriving show")]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, NoPosHash, Ord, PartialEq, PartialOrd, Serialize)]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct LintsCore<Pos> {
     pub code: isize,
     pub severity: Severity,
-    #[rust_to_ocaml(attr = "opaque")]
     pub pos: Pos,
     pub message: String,
     /// Normally, lint warnings and lint advice only get shown by arcanist if the

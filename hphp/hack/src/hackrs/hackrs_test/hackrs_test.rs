@@ -25,7 +25,6 @@ use tempfile::TempDir;
 use ty::reason::BReason;
 
 mod folded_decl_provider_test;
-mod pos_test;
 
 struct TestContext {
     root: TestRepo,

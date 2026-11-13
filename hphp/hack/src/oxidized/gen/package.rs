@@ -11,9 +11,6 @@
 use arena_trait::TrivialDrop;
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -26,17 +23,15 @@ use crate::*;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct PosId(pub pos::Pos, pub String);
 
 #[derive(
@@ -45,17 +40,15 @@ pub struct PosId(pub pos::Pos, pub String);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct Package {
     pub name: PosId,
     pub includes: Vec<PosId>,
@@ -90,21 +83,18 @@ pub struct Package {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum PackageRelationship {
     Unrelated,
     Includes,
-    #[rust_to_ocaml(name = "Soft_includes")]
     SoftIncludes,
     Equal,
 }

@@ -10,8 +10,6 @@
 
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -24,26 +22,20 @@ use crate::*;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum Elem {
     Lit(String),
-    #[rust_to_ocaml(name = "Ty_var")]
     TyVar(patt_var::PattVar),
-    #[rust_to_ocaml(name = "Name_var")]
     NameVar(patt_var::PattVar),
-    #[rust_to_ocaml(name = "File_var")]
     FileVar(patt_var::PattVar),
-    #[rust_to_ocaml(name = "Member_name_var")]
     MemberNameVar(patt_var::PattVar),
 }
 
@@ -53,17 +45,15 @@ pub enum Elem {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ErrorMessage {
     pub message: Vec<Elem>,
 }

@@ -11,9 +11,6 @@
 use arena_trait::TrivialDrop;
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -27,19 +24,17 @@ use crate::*;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum PattLoclTy {
     /// Matches type-constructor like types e.g. class, vec_or_dict and newtypes
-    #[rust_to_ocaml(prefix = "patt_")]
     Apply {
         name: patt_name::PattName,
         params: Box<Params>,
@@ -59,7 +54,6 @@ pub enum PattLoclTy {
     /// Matches any Hack type
     Any,
     /// Matches either the first pattern or, if that does not match, the second
-    #[rust_to_ocaml(prefix = "patt_")]
     Or {
         fst: Box<PattLoclTy>,
         snd: Box<PattLoclTy>,
@@ -80,17 +74,15 @@ pub enum PattLoclTy {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(and)]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum Params {
     /// Matches the empty parameter list
     Nil,
@@ -98,7 +90,6 @@ pub enum Params {
     Wildcard,
     /// Mathes a parameter list where the first element matches [patt_hd] and
     /// the remaining parameters match [patt_tl]
-    #[rust_to_ocaml(prefix = "patt_")]
     Cons { hd: PattLoclTy, tl: Box<Params> },
     /// Matches a parameter list where at least one Hint matches the supplied
     /// pattern
@@ -113,18 +104,15 @@ pub enum Params {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(and)]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum Prim {
     Null,
     Void,
@@ -147,21 +135,18 @@ arena_deserializer::impl_deserialize_in_arena!(Prim);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(and)]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum ShapeFields {
     /// Matches a shape which contains the a field matching the given [shape_field]
     /// and matches the remaining [shape_fields]
-    #[rust_to_ocaml(prefix = "patt_")]
     Fld {
         fld: ShapeField,
         rest: Box<ShapeFields>,
@@ -179,17 +164,15 @@ pub enum ShapeFields {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(and)]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ShapeField {
     pub lbl: ShapeLabel,
     pub optional: bool,
@@ -203,18 +186,15 @@ pub struct ShapeField {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(attr = "deriving (compare, eq, sexp, show)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum ShapeLabel {
     RegGroupLabel(String),
     StrLbl(String),

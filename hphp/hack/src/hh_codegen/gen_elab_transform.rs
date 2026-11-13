@@ -71,21 +71,15 @@ fn gen_pass_ctor_method_name(
     )
 }
 
-fn contains_ocaml_attr(attrs: &[syn::Attribute], value: &str) -> bool {
+/// Whether `attrs` contains the marker `#[transform(<value>)]` (see the
+/// `transform_markers` crate).
+fn contains_transform_attr(attrs: &[syn::Attribute], value: &str) -> bool {
     for attr in attrs {
-        if attr.path().is_ident("rust_to_ocaml")
+        if attr.path().is_ident("transform")
             && let Ok(inner) =
-                attr.parse_args_with(Punctuated::<syn::Meta, Token![,]>::parse_terminated)
+                attr.parse_args_with(Punctuated::<syn::Path, Token![,]>::parse_terminated)
         {
-            for meta in inner {
-                if let syn::Meta::NameValue(meta) = meta
-                    && meta.path.is_ident("attr")
-                    && let syn::Expr::Lit(meta_value) = &meta.value
-                    && let syn::Lit::Str(lit) = &meta_value.lit
-                {
-                    return lit.value() == value;
-                }
-            }
+            return inner.iter().any(|path| path.is_ident(value));
         }
     }
 

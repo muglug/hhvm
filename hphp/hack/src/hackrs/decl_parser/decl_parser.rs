@@ -44,10 +44,24 @@ impl<R: Reason> DeclParser<R> {
         path: RelativePath,
         text: &[u8],
     ) -> anyhow::Result<Vec<shallow::NamedDecl<R>>> {
-        let hashed_file = self.parse_impl(path, text);
-        Ok(hashed_file
+        let opts = &self.decl_parser_opts;
+        if opts.deregister_php_stdlib && path.prefix() == pos::Prefix::Hhi {
+            let hashed_file = self.parse_impl(path, text);
+            return Ok(hashed_file
+                .into_iter()
+                .map(|(name, decl, _)| NamedDecl::from((name, decl)))
+                .collect());
+        }
+        // What `parse_impl` gives when no decl is filtered out, without
+        // computing the hashes of the file and of every decl, which are
+        // dropped here: the decls of the parsed file are in reverse lexical
+        // order, `ParsedFileWithHashes` iterates them in forward order.
+        let parsed_file = direct_decl_parser::parse_decls_for_typechecking(opts, path.into(), text);
+        Ok(parsed_file
+            .decls
             .into_iter()
-            .map(|(name, decl, _)| NamedDecl::from((name, decl)))
+            .rev()
+            .map(|(name, decl)| NamedDecl::from((name, decl)))
             .collect())
     }
     pub fn parse_and_summarize(

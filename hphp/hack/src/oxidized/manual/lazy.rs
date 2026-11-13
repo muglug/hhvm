@@ -5,8 +5,6 @@
 
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -25,14 +23,25 @@ use serde::Serialize;
 )]
 pub struct Lazy<T>(pub T);
 
-impl<T: ToOcamlRep> ToOcamlRep for Lazy<T> {
-    fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, _alloc: &'a A) -> ocamlrep::Value<'a> {
-        unimplemented!()
-    }
-}
+// ---- OCaml interop (feature "ocamlrep") ----
+#[cfg(feature = "ocamlrep")]
+mod ocamlrep_impls {
+    #[allow(unused_imports)]
+    use super::*;
+    #[allow(unused_imports)]
+    use ocamlrep::FromOcamlRep;
+    #[allow(unused_imports)]
+    use ocamlrep::ToOcamlRep;
 
-impl<T: FromOcamlRep> FromOcamlRep for Lazy<T> {
-    fn from_ocamlrep(_value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
-        unimplemented!()
+    impl<T: ToOcamlRep> ToOcamlRep for Lazy<T> {
+        fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, _alloc: &'a A) -> ocamlrep::Value<'a> {
+            unimplemented!()
+        }
+    }
+
+    impl<T: FromOcamlRep> FromOcamlRep for Lazy<T> {
+        fn from_ocamlrep(_value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
+            unimplemented!()
+        }
     }
 }

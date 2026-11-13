@@ -14,7 +14,6 @@ path = "../../ty.rs"
 eq_modulo_pos = { path = "../../../../utils/eq_modulo_pos" }
 hash = { path = "../../../../utils/hash" }
 hcons = { path = "../../../../hcons" }
-ocamlrep = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main" }
 oxidized = { path = "../../../../oxidized" }
 pos = { path = "../../../pos/cargo/pos" }
 serde = { version = "1.0.229", features = ["derive", "rc"] }

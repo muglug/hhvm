@@ -10,9 +10,6 @@
 
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -26,53 +23,31 @@ use crate::*;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, hash, show, ord)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum Severity {
     Warning {
-        #[rust_to_ocaml(attr = "hash.ignore")]
-        #[rust_to_ocaml(attr = "equal fun _ _ -> true")]
-        #[rust_to_ocaml(attr = "compare fun _ _ -> 0")]
         is_trusted: bool,
     },
     Err,
 }
 
-#[derive(
-    Clone,
-    Debug,
-    Deserialize,
-    Eq,
-    EqModuloPos,
-    FromOcamlRep,
-    Hash,
-    NoPosHash,
-    PartialEq,
-    Serialize,
-    ToOcamlRep
-)]
-#[rust_to_ocaml(attr = "deriving (eq, hash, ord, show)")]
+#[derive(Clone, Debug, Deserialize, Eq, EqModuloPos, Hash, NoPosHash, PartialEq, Serialize)]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct UserDiagnostic<PrimPos, Pos> {
     pub severity: Severity,
     pub code: isize,
     pub claim: message::Message<PrimPos>,
     pub reasons: Vec<message::Message<Pos>>,
-    #[rust_to_ocaml(attr = "hash.ignore")]
-    #[rust_to_ocaml(attr = "equal fun _ _ -> true")]
-    #[rust_to_ocaml(attr = "compare fun _ _ -> 0")]
     pub explanation: explanation::Explanation<Pos>,
-    #[rust_to_ocaml(attr = "hash.ignore")]
     pub quickfixes: Vec<quickfix::Quickfix<PrimPos>>,
     pub custom_msgs: Vec<String>,
     pub is_fixmed: bool,

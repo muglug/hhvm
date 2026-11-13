@@ -16,4 +16,9 @@ bstr = { version = "1.13.1", features = ["serde", "std", "unicode"] }
 eq_modulo_pos_derive = { path = "../eq_modulo_pos_derive" }
 hcons = { path = "../../hcons" }
 indexmap = { version = "2.14.2", features = ["arbitrary", "rayon", "serde"] }
-ocamlrep_caml_builtins = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main" }
+ocamlrep_caml_builtins = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main", optional = true }
+
+[features]
+# The conversions to and from OCaml values, for the crates that the OCaml
+# typechecker links, which turn the feature on.
+ocamlrep = ["dep:ocamlrep_caml_builtins", "arena_collections/ocamlrep", "hcons/ocamlrep"]

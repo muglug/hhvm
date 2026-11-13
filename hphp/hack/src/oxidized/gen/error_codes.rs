@@ -11,9 +11,6 @@
 use arena_trait::TrivialDrop;
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -27,18 +24,15 @@ use crate::*;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (enum, (show { with_path = false }))")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum Parsing {
     FixmeFormat = 1001,
     ParsingError = 1002,
@@ -56,18 +50,15 @@ arena_deserializer::impl_deserialize_in_arena!(Parsing);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (enum, (show { with_path = false }))")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum Naming {
     AddATypehint = 2001,
     PrimitiveInvalidAlias = 2004,
@@ -91,7 +82,6 @@ pub enum Naming {
     NamingTooManyArguments = 2038,
     PrimitiveToplevel = 2039,
     ShadowedTypeParam = 2041,
-    #[rust_to_ocaml(name = "StartWith_T")]
     StartWithT = 2042,
     ThisMustBeReturn = 2043,
     ThisNoArgument = 2044,
@@ -160,18 +150,15 @@ arena_deserializer::impl_deserialize_in_arena!(Naming);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (enum, (show { with_path = false }))")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum NastCheck {
     AbstractBody = 3001,
     AbstractWithBody = 3002,
@@ -223,7 +210,6 @@ pub enum NastCheck {
     InternalMemberInsidePublicTrait = 3099,
     AttributeConflictingMemoize = 3100,
     RefinementInTypeStruct = 3101,
-    #[rust_to_ocaml(name = "Soft_internal_without_internal")]
     SoftInternalWithoutInternal = 3102,
     CloneReturnType = 3104,
     NamedInTransformedPseudofunction = 3106,
@@ -247,18 +233,15 @@ arena_deserializer::impl_deserialize_in_arena!(NastCheck);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (enum, (show { with_path = false }))")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum Typing {
     InternalError = 0,
     UninstantiableClass = 4002,
@@ -620,18 +603,15 @@ arena_deserializer::impl_deserialize_in_arena!(Typing);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (enum, ord, (show { with_path = false }))")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum Warning {
     SketchyEquality = 12001,
     NonDisjointCheck = 12004,
@@ -682,18 +662,15 @@ arena_deserializer::impl_deserialize_in_arena!(Warning);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (enum, (show { with_path = false }))")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum GlobalAccessCheck {
     DefiniteGlobalWrite = 11001,
     PossibleGlobalWriteViaReference = 11002,

@@ -21,9 +21,6 @@ if (NOT WINDOWS)
   )
 endif()
 
-# These mocks need to be added for the rust/ocaml FFI to work properly
-target_sources(hhvm PUBLIC ../hack/src/utils/ocaml_ffi_mock/ocaml.c)
-
 if (ENABLE_SPLIT_DWARF)
   message(STATUS "Enabled split DWARF files")
   target_link_libraries(hhvm debug "-Wl,--gdb-index")

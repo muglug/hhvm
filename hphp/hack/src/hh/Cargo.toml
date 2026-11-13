@@ -1,0 +1,110 @@
+[package]
+name = "hh"
+version = "0.0.0"
+edition = "2024"
+repository = "https://github.com/facebook/hhvm"
+license = "MIT"
+
+[lib]
+name = "hh"
+path = "src/lib.rs"
+
+[[bin]]
+name = "hh"
+path = "src/main.rs"
+
+[[bin]]
+name = "hh_client"
+path = "src/bin/hh_client.rs"
+required-features = ["server"]
+
+[[bin]]
+name = "hh_server"
+path = "src/bin/hh_server.rs"
+required-features = ["server"]
+
+# The `integration_ml` tests of the server (`test/integration_ml`): one
+# binary that runs each test in a process of its own (plan T1).
+[[test]]
+name = "integration_ml"
+path = "tests/integration_ml/main.rs"
+harness = false
+required-features = ["server"]
+
+# Process tests of the monitor (MON): the real monitor, a fake typechecker
+# server, the real hh_client.
+[[test]]
+name = "monitor"
+path = "tests/monitor/main.rs"
+harness = false
+required-features = ["server"]
+
+[dependencies]
+dhat = { version = "0.3", optional = true }
+bincode = { version = "2", features = ["serde"] }
+special_names = { path = "../hackrs/special_names/cargo/special_names" }
+typing_deps_hash = { path = "../deps/cargo/typing_deps_hash" }
+depgraph_dep = { package = "dep", path = "../depgraph/cargo/dep" }
+dep_graph_delta = { path = "../deps" }
+depgraph_reader = { path = "../depgraph/cargo/depgraph_reader" }
+hackrs_decl_enforceability = { package = "decl_enforceability", path = "../hackrs/decl_enforceability" }
+hcons = { path = "../hcons" }
+packages = { path = "../packages/cargo" }
+naming_special_names_rust = { path = "../naming" }
+indexmap = "2"
+itertools = "0.15.0"
+im = "15"
+aast_parser = { path = "../parser/cargo/aast_parser" }
+anyhow = "1.0.104"
+bstr = { version = "1.13.1", features = ["serde", "std", "unicode"] }
+config_file = { path = "../utils/config_file/rust" }
+core_utils_rust = { path = "../utils/core" }
+crossbeam-channel = "0.5.17"
+datastore = { path = "../hackrs/datastore" }
+decl_parser = { path = "../hackrs/decl_parser/cargo/decl_parser" }
+elab = { path = "../elab" }
+file_provider = { path = "../hackrs/file_provider/cargo/file_provider" }
+folded_decl_provider = { path = "../hackrs/folded_decl_provider/cargo/folded_decl_provider" }
+hash = { path = "../utils/hash" }
+hackfmt = { path = "../hackfmt/rust" }
+hh_hash = { path = "../utils/hh_hash" }
+hh_autoimport = { package = "hh_autoimport_rust", path = "../parser/cargo/hh_autoimport" }
+hh_config = { path = "../utils/hh_config/cargo" }
+hhi = { path = "../hhi/rust" }
+jwalk = "0.8.1"
+libc = "0.2"
+lint_rust = { path = "../utils/lint" }
+mode_parser = { path = "../parser/cargo/mode_parser" }
+regex = "1"
+mimalloc = { version = "0.1", default-features = false }
+multifile_rust = { path = "../utils/multifile" }
+notify = "8.2.2"
+oxidized = { path = "../oxidized" }
+parser_core_types = { path = "../parser/cargo/core_types" }
+pos = { path = "../hackrs/pos/cargo/pos" }
+positioned_parser = { path = "../parser/api/cargo/positioned_parser" }
+rayon = "1.12.0"
+rusqlite = { version = "0.40.0", features = ["bundled"] }
+relative_path = { path = "../utils/rust/relative_path" }
+repo_root = { path = "../utils/repo_root" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha1 = "0.10.7"
+md-5 = "0.10.6"
+shallow_decl_provider = { path = "../hackrs/shallow_decl_provider/cargo/shallow_decl_provider" }
+ty = { path = "../hackrs/ty/cargo/ty" }
+
+[dev-dependencies]
+hh24_types = { path = "../utils/hh24_types" }
+names = { path = "../naming/names_rust" }
+
+[features]
+# The modules still being ported from OCaml (see PORTING.md).
+port = []
+# The server, client and IDE layer (hh_server, hh_client, the LSP), on top of
+# the typing port (PORTING.md, "The server layer"). The incremental daemon
+# needs the typechecker, so `server` implies `port`.
+server = ["port"]
+# Heap profiling of `hh check` with DHAT (writes dhat-heap.json in the
+# current directory); the profile needs debug info to name call sites.
+dhat-heap = ["dep:dhat"]

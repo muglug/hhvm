@@ -4,15 +4,14 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the "hack" directory of this source tree.
 
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 
 use crate::lexable_trivia::LexableTrivia;
 use crate::lexable_trivia::LexableTrivium;
 use crate::trivia_factory::SimpleTriviaFactory;
 use crate::trivia_kind::TriviaKind;
 
-#[derive(Debug, Clone, FromOcamlRep, ToOcamlRep, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct MinimalTrivium {
     pub kind: TriviaKind,
     pub width: usize,

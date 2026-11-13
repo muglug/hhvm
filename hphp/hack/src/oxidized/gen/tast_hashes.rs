@@ -10,8 +10,6 @@
 
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -27,32 +25,25 @@ pub type Hash = isize;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving yojson_of")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ByNames {
     #[serde(default)]
-    #[rust_to_ocaml(attr = "yojson_drop_if S_map.is_empty")]
     pub fun_tast_hashes: s_map::SMap<Hash>,
     #[serde(default)]
-    #[rust_to_ocaml(attr = "yojson_drop_if S_map.is_empty")]
     pub class_tast_hashes: s_map::SMap<Hash>,
     #[serde(default)]
-    #[rust_to_ocaml(attr = "yojson_drop_if S_map.is_empty")]
     pub typedef_tast_hashes: s_map::SMap<Hash>,
     #[serde(default)]
-    #[rust_to_ocaml(attr = "yojson_drop_if S_map.is_empty")]
     pub gconst_tast_hashes: s_map::SMap<Hash>,
     #[serde(default)]
-    #[rust_to_ocaml(attr = "yojson_drop_if S_map.is_empty")]
     pub module_tast_hashes: s_map::SMap<Hash>,
 }
 
@@ -63,21 +54,18 @@ pub struct ByNames {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving yojson_of")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct FileInfo {
     pub tast_hashes: ByNames,
     pub error_hashes: i_set::ISet,
 }
 
-#[rust_to_ocaml(attr = "deriving yojson_of")]
 pub type TastHashes = relative_path::map::Map<FileInfo>;

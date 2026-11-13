@@ -25,6 +25,7 @@ impl Pass for ValidateFunParamsPass {
 impl ValidateFunParamsPass {
     fn validate_fun_params(&self, env: &Env, params: &Vec<FunParam>) -> ControlFlow<()> {
         let mut seen = std::collections::BTreeSet::<&String>::new();
+        let mut errs = vec![];
         for FunParam {
             name,
             pos,
@@ -37,26 +38,25 @@ impl ValidateFunParamsPass {
                     .iter()
                     .find(|ua| ua.name.name() == sn::user_attributes::IGNORE_READONLY_ERROR)
                     .map(|ua| ua.name.pos());
-                match attr_pos_opt {
-                    Some(pos) => {
-                        env.emit_error(NamingError::AttributeOutsideAllowedFiles(pos.clone()))
-                    }
-                    _ => (),
+                if let Some(pos) = attr_pos_opt {
+                    errs.push(NamingError::AttributeOutsideAllowedFiles(pos.clone()))
                 }
             }
             if name == sn::special_idents::PLACEHOLDER {
                 continue;
             } else if seen.contains(name) {
-                env.emit_error(NamingError::AlreadyBound {
+                errs.push(NamingError::AlreadyBound {
                     pos: pos.clone(),
                     name: name.clone(),
                 });
             } else if name == sn::special_idents::THIS {
-                env.emit_error(NamingError::ThisAsLexicalVariable(pos.clone()));
+                errs.push(NamingError::ThisAsLexicalVariable(pos.clone()));
             } else {
                 seen.insert(name);
             }
         }
+        // The OCaml pass accumulates these errors in reverse
+        errs.into_iter().rev().for_each(|err| env.emit_error(err));
         Continue(())
     }
 }
@@ -78,6 +78,7 @@ mod tests {
 
     fn mk_fun(params: Vec<FunParam>) -> Fun_ {
         Fun_ {
+            tparams: vec![],
             span: Pos::NONE,
             readonly_this: None,
             annotation: (),
@@ -92,6 +93,7 @@ mod tests {
             fun_kind: FunKind::FSync,
             user_attributes: UserAttributes(vec![]),
             external: false,
+            hidden: false,
             doc_comment: None,
         }
     }
@@ -119,6 +121,7 @@ mod tests {
             readonly_ret: None,
             ret: TypeHint((), None),
             external: false,
+            hidden: false,
             doc_comment: None,
         }
     }
@@ -133,6 +136,7 @@ mod tests {
             readonly: None,
             splat: None,
             callconv: ParamKind::Pnormal,
+            named: None,
             user_attributes: UserAttributes(Vec::default()),
             visibility: Some(Visibility::Public),
         }

@@ -10,8 +10,6 @@
 
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -26,17 +24,15 @@ use crate::*;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, ord, show)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum HintStyle<Pos> {
     /// Make the quickfix available for the given position, but don't provide
     /// any visual indication.
@@ -52,28 +48,23 @@ pub enum HintStyle<Pos> {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, ord, show)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum Edits<Pos> {
     /// Make a quickfix when all the information about
     /// edits is already available and does not need to be calculated.
     Eager(Vec<(String, Pos)>),
     /// A quickfix might want to add things to an empty class declaration,
     /// which requires FFP to compute the { position.
-    #[rust_to_ocaml(prefix = "classish_end_")]
-    #[rust_to_ocaml(name = "Classish_end")]
     ClassishEnd { new_text: String, name: String },
     /// Add an attribute to the end of the attribute list for the current function.
-    #[rust_to_ocaml(name = "Add_function_attribute")]
     AddFunctionAttribute {
         function_pos: Pos,
         /// Ideally should be a string from naming_special_names.ml .
@@ -88,17 +79,15 @@ pub enum Edits<Pos> {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, ord, show)")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct Quickfix<Pos> {
     pub title: String,
     pub edits: Edits<Pos>,

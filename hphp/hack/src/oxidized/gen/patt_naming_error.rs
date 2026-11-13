@@ -10,8 +10,6 @@
 
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -24,21 +22,17 @@ use crate::*;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum PattNameContext {
-    #[rust_to_ocaml(name = "Any_name_context")]
     AnyNameContext,
-    #[rust_to_ocaml(name = "One_of_name_context")]
     OneOfNameContext(Vec<name_context::NameContext>),
 }
 
@@ -48,25 +42,20 @@ pub enum PattNameContext {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum PattNamingError {
-    #[rust_to_ocaml(prefix = "patt_")]
-    #[rust_to_ocaml(name = "Unbound_name")]
     UnboundName {
         name_context: PattNameContext,
         name: patt_name::PattName,
     },
-    #[rust_to_ocaml(name = "Invalid_naming")]
     InvalidNaming {
         errs: Vec<validation_err::ValidationErr>,
         patt: Box<PattNamingError>,

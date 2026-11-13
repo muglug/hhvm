@@ -69,8 +69,10 @@ impl ExpectedTokens {
     }
 }
 
+/// (Inline up to a depth of 8: it is cloned with every parser, for every
+/// lookahead.)
 #[derive(Debug, Clone)]
-pub struct ExpectedTokenVec(Vec<ETMask>);
+pub struct ExpectedTokenVec(smallvec::SmallVec<[ETMask; 8]>);
 impl ExpectedTokenVec {
     fn push(&mut self, et: ExpectedTokens) {
         let last_mask = *self.0.last().unwrap_or(&0) & ET_MASK;
@@ -88,16 +90,32 @@ impl ExpectedTokenVec {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Context<T> {
     pub expected: ExpectedTokenVec,
     pub skipped_tokens: Vec<T>,
 }
 
+impl<T: Clone> Clone for Context<T> {
+    // Cloned with every parser (for every lookahead): skipped tokens are rare,
+    // and the empty case does not go through `Vec::clone`.
+    #[inline]
+    fn clone(&self) -> Self {
+        Self {
+            expected: self.expected.clone(),
+            skipped_tokens: if self.skipped_tokens.is_empty() {
+                Vec::new()
+            } else {
+                self.skipped_tokens.clone()
+            },
+        }
+    }
+}
+
 impl<T> Context<T> {
     pub fn empty() -> Self {
         Self {
-            expected: ExpectedTokenVec(vec![]),
+            expected: ExpectedTokenVec(smallvec::SmallVec::new()),
             skipped_tokens: vec![],
         }
     }

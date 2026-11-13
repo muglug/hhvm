@@ -10,15 +10,12 @@
 
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
 #[allow(unused_imports)]
 use crate::*;
 
-#[rust_to_ocaml(attr = "deriving yojson_of")]
 pub type Tast = String;
 
 #[derive(
@@ -28,17 +25,15 @@ pub type Tast = String;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving yojson_of")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ByNames {
     pub fun_tasts: s_map::SMap<Tast>,
     pub class_tasts: s_map::SMap<Tast>,
@@ -47,5 +42,4 @@ pub struct ByNames {
     pub module_tasts: s_map::SMap<Tast>,
 }
 
-#[rust_to_ocaml(attr = "deriving yojson_of")]
 pub type TastCollector = relative_path::map::Map<ByNames>;

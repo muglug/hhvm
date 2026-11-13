@@ -16,7 +16,6 @@ use crate::smart_constructors::SmartConstructors;
 use crate::smart_constructors::Token;
 use crate::type_parser::TypeParser;
 
-#[derive(Clone)]
 pub struct PatternParser<'a, S>
 where
     S: SmartConstructors,
@@ -27,6 +26,24 @@ where
     context: Context<Token<S>>,
     errors: Vec<SyntaxError>,
     sc: S,
+}
+
+// As derived, without `Vec::clone` for the (usually empty) errors: parsers
+// are cloned for every lookahead.
+impl<'a, S> Clone for PatternParser<'a, S>
+where
+    S: SmartConstructors,
+    S::Output: NodeType,
+{
+    fn clone(&self) -> Self {
+        Self {
+            lexer: self.lexer.clone(),
+            env: self.env.clone(),
+            context: self.context.clone(),
+            errors: crate::lexer::clone_errors(&self.errors),
+            sc: self.sc.clone(),
+        }
+    }
 }
 
 impl<'a, S> ParserTrait<'a, S> for PatternParser<'a, S>

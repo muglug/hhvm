@@ -10,7 +10,7 @@ use quote::quote;
 
 use super::Context;
 use super::Direction;
-use super::contains_ocaml_attr;
+use super::contains_transform_attr;
 use crate::common::to_snake;
 
 pub fn r#gen(ctx: &Context) -> TokenStream {
@@ -47,16 +47,70 @@ pub fn r#gen(ctx: &Context) -> TokenStream {
                 env: &Env,
                 pass: &mut (impl Pass + Clone),
             ) {}
+            // `self.transform(env, &mut pass.clone())`: a child that has
+            // siblings after it gets its own copy of the passes (the
+            // last child is given the copy of its parent, which is not
+            // used after it). The leaves make no copy.
+            #[inline(always)]
+            fn transform_copy(
+                &mut self,
+                env: &Env,
+                pass: &mut (impl Pass + Clone),
+            ) {
+                self.transform(env, &mut pass.clone())
+            }
         }
 
-        impl Transform for () {}
-        impl Transform for bool {}
-        impl Transform for isize {}
-        impl Transform for String {}
-        impl Transform for bstr::BString {}
-        impl Transform for oxidized::pos::Pos {}
-        impl Transform for oxidized::file_info::Mode {}
-        impl Transform for oxidized::namespace_env::Env {}
+        // The leaves: nothing to visit, and no stack check
+        // (`stack_limit::maybe_grow`) for them.
+        impl Transform for () {
+            #[inline(always)]
+            fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+            #[inline(always)]
+            fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+        }
+        impl Transform for bool {
+            #[inline(always)]
+            fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+            #[inline(always)]
+            fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+        }
+        impl Transform for isize {
+            #[inline(always)]
+            fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+            #[inline(always)]
+            fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+        }
+        impl Transform for String {
+            #[inline(always)]
+            fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+            #[inline(always)]
+            fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+        }
+        impl Transform for bstr::BString {
+            #[inline(always)]
+            fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+            #[inline(always)]
+            fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+        }
+        impl Transform for oxidized::pos::Pos {
+            #[inline(always)]
+            fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+            #[inline(always)]
+            fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+        }
+        impl Transform for oxidized::file_info::Mode {
+            #[inline(always)]
+            fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+            #[inline(always)]
+            fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+        }
+        impl Transform for oxidized::namespace_env::Env {
+            #[inline(always)]
+            fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+            #[inline(always)]
+            fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+        }
 
         #(#manual_impls)*
 
@@ -82,15 +136,15 @@ fn gen_transform_and_traverse(ctx: &Context, mut s: synstructure::Structure<'_>)
     s.underscore_const(true);
 
     // If the type is marked opaque, generate a no-op Transform impl.
-    if contains_ocaml_attr(&s.ast().attrs, "transform.opaque") {
+    if contains_transform_attr(&s.ast().attrs, "opaque") {
         return s.gen_impl(quote! {
             gen impl Transform for @Self {}
         });
     }
 
     // Don't visit fields or variants marked opaque.
-    s.filter(|bi| !contains_ocaml_attr(&bi.ast().attrs, "transform.opaque"));
-    s.filter_variants(|v| !contains_ocaml_attr(v.ast().attrs, "transform.opaque"));
+    s.filter(|bi| !contains_transform_attr(&bi.ast().attrs, "opaque"));
+    s.filter_variants(|v| !contains_transform_attr(v.ast().attrs, "opaque"));
 
     let ty_name = s.ast().ident.to_string();
     let transform_body = gen_transform_body(
@@ -136,8 +190,16 @@ fn gen_traverse_body(ty_name: &str, s: &synstructure::Structure<'_>) -> TokenStr
 }
 
 fn gen_variant_traverse(ty_name: &str, v: &synstructure::VariantInfo<'_>) -> TokenStream {
-    if !contains_ocaml_attr(v.ast().attrs, "transform.explicit") {
-        return v.each(|bi| gen_fld_traverse(ty_name, bi));
+    if !contains_transform_attr(v.ast().attrs, "explicit") {
+        // (`v.each`, with the last binding told apart.)
+        let pat = v.pat();
+        let n = v.bindings().len();
+        let fields = v
+            .bindings()
+            .iter()
+            .enumerate()
+            .map(|(i, bi)| gen_fld_traverse(ty_name, bi, i + 1 == n));
+        return quote! { #pat => { #({ #fields })* } };
     }
     let pass_method_td =
         super::gen_pass_ctor_method_name(ty_name, v.ast().ident.to_string(), Direction::TopDown);
@@ -156,11 +218,19 @@ fn gen_variant_traverse(ty_name: &str, v: &synstructure::VariantInfo<'_>) -> Tok
     })
 }
 
-fn gen_fld_traverse(ty_name: &str, bi: &synstructure::BindingInfo<'_>) -> TokenStream {
-    let transform_bi = quote! { #bi.transform(env, &mut pass.clone()) };
-    if !contains_ocaml_attr(&bi.ast().attrs, "transform.explicit") {
-        return transform_bi;
+/// The visit of the field `bi`; `last`: no field is visited after it, so it
+/// is given the passes of the parent (no longer used) instead of a copy.
+fn gen_fld_traverse(ty_name: &str, bi: &synstructure::BindingInfo<'_>, last: bool) -> TokenStream {
+    if !contains_transform_attr(&bi.ast().attrs, "explicit") {
+        return if last {
+            quote! { #bi.transform(env, pass) }
+        } else {
+            quote! { #bi.transform_copy(env, pass) }
+        };
     }
+    // (In the block of `gen_transform_body_explicit`, `pass` is a copy that
+    // is not used after the field.)
+    let transform_bi = quote! { #bi.transform(env, pass) };
     // Since Transform is a trait, we can't have special implementations
     // of Transform::transform for fields. Instead, we inline the
     // transform_fld function here (in the Transform::traverse body).
@@ -213,80 +283,166 @@ fn gen_transform_body_explicit(
 }
 
 fn gen_manual_impls() -> Vec<TokenStream> {
-    let transform = quote!(transform(env, &mut pass.clone()));
+    // A child among others gets its own copy of the passes; the last one
+    // (or the only one) gets the passes of its parent, not used after it.
+    let transform = quote!(transform(env, pass));
+    let transform_copy = quote!(transform_copy(env, pass));
+
+    // The wrappers of one value have no pass method of their own: they
+    // give the value what they are given (no copy, no stack check).
+    #[rustfmt::skip]
+    let wrappers = vec![
+        (vec!["T"], quote!(&mut T), quote!((**self)), None),
+        (vec!["T"], quote!(Box<T>), quote!((**self)), None),
+        (vec!["T"], quote!(oxidized::lazy::Lazy<T>), quote!(self.0), None),
+        (vec!["T"], quote!(Option<T>), quote!(x), Some(quote!(Some(x) = self))),
+        (vec!["T"], quote!(std::sync::Arc<T>), quote!(x),
+         Some(quote!(Some(x) = std::sync::Arc::get_mut(self)))),
+        (vec!["T"], quote!(std::rc::Rc<T>), quote!(x),
+         Some(quote!(Some(x) = std::rc::Rc::get_mut(self)))),
+    ];
 
     #[rustfmt::skip]
     let manual_impls = vec![
-        (vec!["T"], quote!(&mut T), quote!((**self).#transform)),
-        (vec!["T"], quote!(Box<T>), quote!((**self).#transform)),
-        (vec!["L", "R"], quote!(itertools::Either<L, R>), quote! {
-            match self {
-                Self::Left(x) => x.#transform,
-                Self::Right(x) => x.#transform,
-            }
-        }),
         (vec!["T"], quote!(Vec<T>), quote! {
-            for x in self.iter_mut() {
-                x.#transform;
+            if let Some((last, init)) = self.split_last_mut() {
+                for x in init {
+                    x.#transform_copy;
+                }
+                last.#transform;
             }
-        }),
-        (vec!["T"], quote!(Option<T>), quote! {
-            match self {
-                Some(x) => x.#transform,
-                None => {}
-            }
-        }),
-        (vec!["T"], quote!(oxidized::lazy::Lazy<T>), quote!(self.0.#transform)),
+        }, Some(quote!(self.is_empty()))),
         (vec!["K", "V"], quote!(std::collections::BTreeMap<K, V>), quote! {
-            for x in self.values_mut() {
-                x.#transform;
+            let mut values = self.values_mut().peekable();
+            while let Some(x) = values.next() {
+                if values.peek().is_some() {
+                    x.#transform_copy;
+                } else {
+                    x.#transform;
+                }
             }
-        }),
-        (vec!["T"], quote!(std::sync::Arc<T>), quote! {
-            if let Some(x) = std::sync::Arc::get_mut(self) {
-                x.#transform;
-            }
-        }),
-        (vec!["T"], quote!(std::rc::Rc<T>), quote! {
-            if let Some(x) = std::rc::Rc::get_mut(self) {
-                x.#transform;
-            }
-        }),
+        }, Some(quote!(self.is_empty()))),
         (vec!["T1", "T2"], quote!((T1, T2)), quote! {
-            self.0.#transform;
+            self.0.#transform_copy;
             self.1.#transform;
-        }),
+        }, None),
         (vec!["T1", "T2", "T3"], quote!((T1, T2, T3)), quote! {
-            self.0.#transform;
-            self.1.#transform;
+            self.0.#transform_copy;
+            self.1.#transform_copy;
             self.2.#transform;
-        }),
+        }, None),
         (vec!["T1", "T2", "T3", "T4"], quote!((T1, T2, T3, T4)), quote! {
-            self.0.#transform;
-            self.1.#transform;
-            self.2.#transform;
+            self.0.#transform_copy;
+            self.1.#transform_copy;
+            self.2.#transform_copy;
             self.3.#transform;
-        }),
+        }, None),
         (vec!["T1", "T2", "T3", "T4", "T5"], quote!((T1, T2, T3, T4, T5)), quote! {
-            self.0.#transform;
-            self.1.#transform;
-            self.2.#transform;
-            self.3.#transform;
+            self.0.#transform_copy;
+            self.1.#transform_copy;
+            self.2.#transform_copy;
+            self.3.#transform_copy;
             self.4.#transform;
-        }),
+        }, None),
     ];
 
-    manual_impls
+    let either = quote! {
+        impl<L, R> Transform for itertools::Either<L, R>
+        where
+            L: Transform,
+            R: Transform,
+        {
+            #[inline(always)]
+            fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+                self.traverse(env, pass)
+            }
+            fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+                match self {
+                    Self::Left(x) => x.#transform,
+                    Self::Right(x) => x.#transform,
+                }
+            }
+            #[inline(always)]
+            fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+                match self {
+                    Self::Left(x) => x.#transform_copy,
+                    Self::Right(x) => x.#transform_copy,
+                }
+            }
+        }
+    };
+
+    wrappers
         .into_iter()
-        .map(|(tp, ty, body)| gen_manual_impl(tp, ty, body))
+        .map(|(tp, ty, inner, binding)| gen_wrapper_impl(tp, ty, inner, binding))
+        .chain(std::iter::once(either))
+        .chain(
+            manual_impls
+                .into_iter()
+                .map(|(tp, ty, body, empty)| gen_manual_impl(tp, ty, body, empty)),
+        )
         .collect()
 }
 
+/// A wrapper of `inner` (bound by `if let #binding`, when given).
+fn gen_wrapper_impl(
+    typarams: Vec<&'static str>,
+    ty: TokenStream,
+    inner: TokenStream,
+    binding: Option<TokenStream>,
+) -> TokenStream {
+    let typarams: Vec<_> = typarams
+        .into_iter()
+        .map(|tp| quote::format_ident!("{}", tp))
+        .collect();
+    let call = |method: TokenStream| match &binding {
+        None => quote!(#inner.#method(env, pass)),
+        Some(binding) => quote! {
+            if let #binding {
+                #inner.#method(env, pass)
+            }
+        },
+    };
+    let transform = call(quote!(transform));
+    let transform_copy = call(quote!(transform_copy));
+    quote! {
+        impl<#(#typarams,)*> Transform for #ty
+        where
+            #(#typarams: Transform,)*
+        {
+            #[inline(always)]
+            fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+                #transform
+            }
+            fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+                #transform
+            }
+            #[inline(always)]
+            fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+                #transform_copy
+            }
+        }
+    }
+}
+
+/// `empty`: when it holds, the value has nothing to visit (no copy of the
+/// passes for it).
 fn gen_manual_impl(
     typarams: Vec<&'static str>,
     ty: TokenStream,
     traverse_body: TokenStream,
+    empty: Option<TokenStream>,
 ) -> TokenStream {
+    let transform_copy = empty.map(|empty| {
+        quote! {
+            #[inline(always)]
+            fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+                if !#empty {
+                    self.transform(env, &mut pass.clone())
+                }
+            }
+        }
+    });
     let typarams: Vec<_> = typarams
         .into_iter()
         .map(|tp| quote::format_ident!("{}", tp))
@@ -303,6 +459,7 @@ fn gen_manual_impl(
             ) {
                 #traverse_body
             }
+            #transform_copy
         }
     }
 }

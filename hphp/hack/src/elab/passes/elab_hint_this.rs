@@ -3,7 +3,6 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the "hack" directory of this source tree.
 
-use bitflags::bitflags;
 use nast::Class_;
 use nast::ClassHint;
 use nast::ClassReq;
@@ -24,131 +23,65 @@ use nast::XhpAttrHint;
 
 use crate::prelude::*;
 
+/// Port of `Naming_elab_this_hint` (the fields are those of
+/// `Naming_phase_env.Elab_this_hint`).
 #[derive(Copy, Clone, Default)]
 pub struct ElabHintThisPass {
-    context: Option<Context>,
-    flags: Flags,
-}
-
-#[derive(Copy, Clone)]
-enum Context {
-    ReqExtends,
-    Extends,
-    StaticClassVar(bool),
-}
-
-bitflags! {
-    #[derive(Default, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
-    struct Flags: u8 {
-        const FORBID_THIS= 1 << 0;
-        const IS_TOP_LEVEL_HACCESS_ROOT= 1 << 1;
-        const IN_INTERFACE = 1 << 2;
-        const IN_INVARIANT_FINAL = 1 << 3;
-    }
+    /// `this` is forbidden as a hint in this context
+    forbid_this: bool,
+    lsb: Option<bool>,
+    in_interface: bool,
+    in_req_extends: bool,
+    in_extends: bool,
+    is_top_level_haccess_root: bool,
+    in_invariant_final: bool,
 }
 
 impl ElabHintThisPass {
-    fn forbid_this(&self) -> bool {
-        self.flags.contains(Flags::FORBID_THIS)
+    fn reset(&mut self) {
+        self.forbid_this = false;
+        self.lsb = None;
     }
+}
 
-    fn set_forbid_this(&mut self, value: bool) {
-        self.flags.set(Flags::FORBID_THIS, value)
-    }
-
-    fn set_static_class_var(&mut self, value: bool) {
-        self.context = Some(Context::StaticClassVar(value))
-    }
-
-    fn in_req_extends(&self) -> bool {
-        matches!(self.context, Some(Context::ReqExtends))
-    }
-
-    fn set_in_req_extends(&mut self) {
-        self.context = Some(Context::ReqExtends)
-    }
-
-    fn in_extends(&self) -> bool {
-        matches!(self.context, Some(Context::Extends))
-    }
-
-    fn set_in_extends(&mut self) {
-        self.context = Some(Context::Extends)
-    }
-
-    fn is_top_level_haccess_root(&self) -> bool {
-        self.flags.contains(Flags::IS_TOP_LEVEL_HACCESS_ROOT)
-    }
-
-    fn set_is_top_level_haccess_root(&mut self, value: bool) {
-        self.flags.set(Flags::IS_TOP_LEVEL_HACCESS_ROOT, value)
-    }
-
-    fn in_interface(&self) -> bool {
-        self.flags.contains(Flags::IN_INTERFACE)
-    }
-
-    fn set_in_interface(&mut self, value: bool) {
-        self.flags.set(Flags::IN_INTERFACE, value)
-    }
-
-    fn in_invariant_final(&self) -> bool {
-        self.flags.contains(Flags::IN_INVARIANT_FINAL)
-    }
-
-    fn set_in_invariant_final(&mut self, value: bool) {
-        self.flags.set(Flags::IN_INVARIANT_FINAL, value)
-    }
-
+impl Pass for ElabHintThisPass {
     // We want to disallow `this` hints in:
     // - _class_ and _abstract class_ type parameters
     // - non-late static bound class_var
     // - `extends` and `require extends` clauses _unless_ it appears as the
     //   top-level root of a type access
-    fn forbid_in_extends(&self) -> bool {
-        (self.in_req_extends() || self.in_extends())
-            && (!self.in_interface())
-            && (!self.is_top_level_haccess_root())
-            && (!self.in_invariant_final())
-    }
-}
-
-impl Pass for ElabHintThisPass {
     fn on_ty_hint_top_down(&mut self, env: &Env, elem: &mut Hint) -> ControlFlow<()> {
+        let forbid_in_extends = (self.in_req_extends || self.in_extends)
+            && !self.in_interface
+            && !self.is_top_level_haccess_root
+            && !self.in_invariant_final;
         let Hint(pos, box hint_) = elem;
         match &hint_ {
-            Hint_::Hthis if self.forbid_this() || self.forbid_in_extends() => {
-                // We have a `this` hint in a forbidden position; raise an error
+            Hint_::Hthis if self.forbid_this || forbid_in_extends => {
                 env.emit_error(NamingError::ThisTypeForbidden {
                     pos: pos.clone(),
-                    in_extends: self.in_extends(),
-                    in_req_extends: self.in_req_extends(),
+                    in_extends: self.in_extends,
+                    in_req_extends: self.in_req_extends,
                 });
-                return Continue(());
             }
-            // Otherwise, just update our state to reflect whether we are
-            // at the top-level `Hint` inside an `Haccess`
-            Hint_::Haccess(..) => self.set_is_top_level_haccess_root(true),
-            _ => self.set_is_top_level_haccess_root(false),
+            Hint_::Haccess(..) => self.is_top_level_haccess_root = true,
+            _ => self.is_top_level_haccess_root = false,
         }
-
         Continue(())
     }
 
     fn on_ty_class__top_down(&mut self, _: &Env, elem: &mut Class_) -> ControlFlow<()> {
-        let in_interface = matches!(elem.kind, ClassishKind::Cinterface);
-        let in_invariant_final = elem.final_
+        self.in_interface = matches!(elem.kind, ClassishKind::Cinterface);
+        self.in_invariant_final = elem.final_
             && elem
                 .tparams
                 .iter()
                 .all(|tp| matches!(tp.variance, Variance::Invariant));
-        self.set_in_interface(in_interface);
-        self.set_in_invariant_final(in_invariant_final);
         Continue(())
     }
 
     fn on_fld_class__tparams_top_down(&mut self, _: &Env, _: &mut Vec<Tparam>) -> ControlFlow<()> {
-        self.set_forbid_this(true);
+        self.forbid_this = true;
         Continue(())
     }
 
@@ -157,12 +90,12 @@ impl Pass for ElabHintThisPass {
         _: &Env,
         _: &mut Vec<ClassHint>,
     ) -> ControlFlow<()> {
-        self.set_in_extends();
+        self.in_extends = true;
         Continue(())
     }
 
     fn on_fld_class__uses_top_down(&mut self, _: &Env, _: &mut Vec<TraitHint>) -> ControlFlow<()> {
-        self.set_forbid_this(false);
+        self.forbid_this = false;
         Continue(())
     }
 
@@ -171,7 +104,7 @@ impl Pass for ElabHintThisPass {
         _: &Env,
         _: &mut Vec<XhpAttr>,
     ) -> ControlFlow<()> {
-        self.set_forbid_this(false);
+        self.forbid_this = false;
         Continue(())
     }
 
@@ -180,19 +113,17 @@ impl Pass for ElabHintThisPass {
         _: &Env,
         _: &mut Vec<XhpAttrHint>,
     ) -> ControlFlow<()> {
-        self.set_forbid_this(false);
+        self.forbid_this = false;
         Continue(())
     }
 
     fn on_fld_class__reqs_top_down(&mut self, _: &Env, _: &mut Vec<ClassReq>) -> ControlFlow<()> {
-        self.set_forbid_this(false);
+        self.forbid_this = false;
         Continue(())
     }
 
     fn on_ty_class_req_top_down(&mut self, _: &Env, elem: &mut ClassReq) -> ControlFlow<()> {
-        if elem.1 == RequireKind::RequireExtends {
-            self.set_in_req_extends()
-        }
+        self.in_req_extends = matches!(elem.1, RequireKind::RequireExtends);
         Continue(())
     }
 
@@ -201,43 +132,38 @@ impl Pass for ElabHintThisPass {
         _: &Env,
         _: &mut Vec<ClassHint>,
     ) -> ControlFlow<()> {
-        self.set_forbid_this(false);
+        self.forbid_this = false;
         Continue(())
     }
 
     fn on_ty_class_var_top_down(&mut self, _: &Env, elem: &mut ClassVar) -> ControlFlow<()> {
-        self.set_static_class_var(
-            elem.is_static
-                && !elem
+        self.lsb = if elem.is_static {
+            Some(
+                !elem
                     .user_attributes
                     .iter()
                     .any(|ua| ua.name.name() == sn::user_attributes::LSB),
-        );
+            )
+        } else {
+            None
+        };
         Continue(())
     }
 
     fn on_fld_class_var_type__top_down(&mut self, _: &Env, _: &mut TypeHint) -> ControlFlow<()> {
-        let forbid_this = match self.context {
-            Some(Context::StaticClassVar(lsb)) => lsb,
-            _ => panic!("impossible"),
-        };
-        self.context = None;
-        self.set_forbid_this(forbid_this);
+        self.forbid_this = self.lsb.unwrap_or(false);
+        self.lsb = None;
         Continue(())
     }
 
     fn on_fld_fun__ret_top_down(&mut self, _: &Env, _: &mut TypeHint) -> ControlFlow<()> {
-        self.context = None;
-        self.set_forbid_this(false);
+        self.reset();
         Continue(())
     }
 
     fn on_ty_expr__top_down(&mut self, _: &Env, elem: &mut Expr_) -> ControlFlow<()> {
         match elem {
-            Expr_::Cast(..) | Expr_::Is(..) | Expr_::As(..) | Expr_::Upcast(..) => {
-                self.context = None;
-                self.set_forbid_this(false);
-            }
+            Expr_::Cast(..) | Expr_::Is(..) | Expr_::As(..) | Expr_::Upcast(..) => self.reset(),
             _ => (),
         }
         Continue(())
@@ -248,20 +174,17 @@ impl Pass for ElabHintThisPass {
         _: &Env,
         _: &mut ShapeFieldInfo,
     ) -> ControlFlow<()> {
-        self.context = None;
-        self.set_forbid_this(false);
+        self.reset();
         Continue(())
     }
 
     fn on_fld_hint_fun_return_ty_top_down(&mut self, _: &Env, _: &mut Hint) -> ControlFlow<()> {
-        self.context = None;
-        self.set_forbid_this(false);
+        self.reset();
         Continue(())
     }
 
     fn on_ty_targ_top_down(&mut self, _: &Env, _: &mut Targ) -> ControlFlow<()> {
-        self.context = None;
-        self.set_forbid_this(false);
+        self.reset();
         Continue(())
     }
 }
@@ -271,7 +194,7 @@ mod tests {
 
     use std::sync::Arc;
 
-    use file_info::Mode;
+    use oxidized::file_info::Mode;
     use nast::Id;
     use nast::Pos;
     use nast::UserAttribute;
@@ -329,6 +252,7 @@ mod tests {
             emit_id: Default::default(),
             internal: Default::default(),
             module: Default::default(),
+            package: None,
         }
     }
 
@@ -409,7 +333,6 @@ mod tests {
             vec![Tparam {
                 variance: Variance::Invariant,
                 name: Id(Pos::default(), "T".to_string()),
-                parameters: Default::default(),
                 constraints: Default::default(),
                 reified: nast::ReifyKind::Erased,
                 user_attributes: Default::default(),
@@ -452,7 +375,6 @@ mod tests {
             vec![Tparam {
                 variance: Variance::Covariant,
                 name: Id(Pos::default(), "T".to_string()),
-                parameters: Default::default(),
                 constraints: Default::default(),
                 reified: nast::ReifyKind::Erased,
                 user_attributes: Default::default(),
@@ -496,7 +418,6 @@ mod tests {
             vec![Tparam {
                 variance: Variance::Invariant,
                 name: Id(Pos::default(), "T".to_string()),
-                parameters: Default::default(),
                 constraints: Default::default(),
                 reified: nast::ReifyKind::Erased,
                 user_attributes: Default::default(),
@@ -541,7 +462,6 @@ mod tests {
             vec![Tparam {
                 variance: Variance::Invariant,
                 name: Id(Pos::default(), "T".to_string()),
-                parameters: Default::default(),
                 constraints: Default::default(),
                 reified: nast::ReifyKind::Erased,
                 user_attributes: Default::default(),

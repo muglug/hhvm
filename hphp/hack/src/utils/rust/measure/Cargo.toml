@@ -12,5 +12,10 @@ path = "measure.rs"
 
 [dependencies]
 hash = { path = "../../hash" }
-ocamlrep = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main" }
 parking_lot = { version = "0.13.0", features = ["arc_lock", "send_guard", "serde"] }
+ocamlrep = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main", optional = true }
+
+[features]
+# The conversions to and from OCaml values, for the crates that the OCaml
+# typechecker links, which turn the feature on.
+ocamlrep = ["dep:ocamlrep"]

@@ -57,7 +57,6 @@ enum ParseContinuation<NT, P> {
     Reparse(NT),
 }
 
-#[derive(Clone)]
 pub struct ExpressionParser<'a, S>
 where
     S: SmartConstructors,
@@ -72,6 +71,28 @@ where
     allow_as_expressions: bool,
     in_expression_tree: bool,
     _phantom: PhantomData<S>,
+}
+
+// As derived, without `Vec::clone` for the (usually empty) errors: parsers
+// are cloned for every lookahead.
+impl<'a, S> Clone for ExpressionParser<'a, S>
+where
+    S: SmartConstructors,
+    S::Output: NodeType,
+{
+    fn clone(&self) -> Self {
+        Self {
+            lexer: self.lexer.clone(),
+            env: self.env.clone(),
+            context: self.context.clone(),
+            errors: crate::lexer::clone_errors(&self.errors),
+            sc: self.sc.clone(),
+            precedence: self.precedence,
+            allow_as_expressions: self.allow_as_expressions,
+            in_expression_tree: self.in_expression_tree,
+            _phantom: PhantomData,
+        }
+    }
 }
 
 impl<'a, S> ParserTrait<'a, S> for ExpressionParser<'a, S>

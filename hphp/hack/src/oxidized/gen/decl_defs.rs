@@ -11,9 +11,6 @@
 use arena_trait::TrivialDrop;
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 pub use typing_defs::*;
@@ -57,18 +54,15 @@ use crate::*;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (show, ord)")]
-#[rust_to_ocaml(prefix = "sc_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct SubstContext {
     pub subst: s_map::SMap<Ty>,
     pub class_context: String,
@@ -82,18 +76,15 @@ pub struct SubstContext {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum SourceType {
     Child,
     Parent,
@@ -114,19 +105,16 @@ arena_deserializer::impl_deserialize_in_arena!(SourceType);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving show")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum DeclError {
-    #[rust_to_ocaml(name = "Wrong_extend_kind")]
     WrongExtendKind {
         pos: pos::Pos,
         kind: ast_defs::ClassishKind,
@@ -135,14 +123,12 @@ pub enum DeclError {
         parent_kind: ast_defs::ClassishKind,
         parent_name: String,
     },
-    #[rust_to_ocaml(name = "Wrong_use_kind")]
     WrongUseKind {
         pos: pos::Pos,
         name: String,
         parent_pos: pos_or_decl::PosOrDecl,
         parent_name: String,
     },
-    #[rust_to_ocaml(name = "Cyclic_class_def")]
     CyclicClassDef { pos: pos::Pos, stack: s_set::SSet },
 }
 
@@ -152,18 +138,15 @@ pub enum DeclError {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving show")]
-#[rust_to_ocaml(prefix = "elt_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct Element {
     pub flags: typing_defs_flags::class_elt::ClassElt,
     pub origin: String,
@@ -180,18 +163,15 @@ pub struct Element {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving show")]
-#[rust_to_ocaml(prefix = "dc_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct DeclClassType {
     pub need_init: bool,
     pub abstract_: bool,
@@ -255,18 +235,15 @@ pub struct DeclClassType {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving show")]
-#[rust_to_ocaml(prefix = "cr_req_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ClassRequirements {
     pub ancestors: Vec<typing_defs::Requirement>,
     pub ancestors_extends: s_set::SSet,

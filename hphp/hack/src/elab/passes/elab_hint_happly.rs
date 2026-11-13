@@ -3,12 +3,16 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the "hack" directory of this source tree.
 
-use hash::HashSet;
+use std::collections::BTreeMap;
+
 use nast::Class_;
+use nast::Expr_;
 use nast::FunDef;
 use nast::Gconst;
 use nast::Hint;
 use nast::Hint_;
+use nast::HintFun;
+use nast::HintTparam;
 use nast::Id;
 use nast::Method_;
 use nast::ModuleDef;
@@ -19,34 +23,77 @@ use nast::Typedef;
 
 use crate::prelude::*;
 
+/// Port of `Naming_elab_happly_hint`.
 #[derive(Clone, Default)]
 pub struct ElabHintHapplyPass {
-    tparams: Rc<HashSet<String>>,
+    /// The type parameters in scope, with the position they were bound at.
+    tparams: Rc<BTreeMap<String, Pos>>,
 }
 
 impl ElabHintHapplyPass {
-    pub fn extend_tparams(&mut self, tps: &[Tparam]) {
+    fn extend_tparams(&mut self, tps: &[Tparam]) {
+        if tps.is_empty() {
+            return;
+        }
         let tparams = Rc::make_mut(&mut self.tparams);
-        tps.iter().for_each(|tparam| {
-            tparams.insert(tparam.name.1.clone());
-        })
+        for Tparam {
+            name: Id(pos, nm), ..
+        } in tps
+        {
+            tparams.insert(nm.clone(), pos.clone());
+        }
     }
-    pub fn reset_tparams(&mut self) {
-        Rc::make_mut(&mut self.tparams).clear()
+
+    fn extend_hint_tparams(&mut self, tps: &[HintTparam]) {
+        if tps.is_empty() {
+            return;
+        }
+        let tparams = Rc::make_mut(&mut self.tparams);
+        for HintTparam {
+            name: Id(pos, nm), ..
+        } in tps
+        {
+            tparams.insert(nm.clone(), pos.clone());
+        }
     }
-    pub fn set_tparams(&mut self, tps: &[Tparam]) {
+
+    fn reset_tparams(&mut self) {
+        self.tparams = Rc::new(BTreeMap::new());
+    }
+
+    fn set_tparams(&mut self, tps: &[Tparam]) {
         self.reset_tparams();
         self.extend_tparams(tps);
     }
-    pub fn tparams(&self) -> &HashSet<String> {
-        &self.tparams
+
+    /// Disallow rebinding type parameters that occur in class or method
+    /// position but allow names to be reused across different first-class
+    /// polymorphic function hints
+    fn validate_hint_tparams(&self, env: &Env, tps: &[HintTparam]) {
+        if tps.is_empty() {
+            return;
+        }
+        let mut bound: BTreeMap<String, Pos> = (*self.tparams).clone();
+        for HintTparam {
+            name: Id(pos, tparam_name),
+            ..
+        } in tps
+        {
+            match bound.get(tparam_name) {
+                Some(prev_pos) => env.emit_error(NamingError::ShadowedTparam {
+                    pos: pos.clone(),
+                    tparam_name: tparam_name.clone(),
+                    prev_pos: prev_pos.clone(),
+                }),
+                None => {
+                    bound.insert(tparam_name.clone(), pos.clone());
+                }
+            }
+        }
     }
 }
 
 impl Pass for ElabHintHapplyPass {
-    // We can't write this - how can we make the contexts modular?
-    // type Ctx = impl CanonicalHapplyCtx;
-
     fn on_ty_typedef_top_down(&mut self, _: &Env, elem: &mut Typedef) -> ControlFlow<()> {
         self.set_tparams(&elem.tparams);
         Continue(())
@@ -77,34 +124,43 @@ impl Pass for ElabHintHapplyPass {
         Continue(())
     }
 
-    fn on_ty_tparam_top_down(&mut self, _: &Env, elem: &mut Tparam) -> ControlFlow<()> {
-        self.extend_tparams(&elem.parameters);
+    fn on_ty_expr__top_down(&mut self, env: &Env, elem: &mut Expr_) -> ControlFlow<()> {
+        let fun_ = match elem {
+            Expr_::Lfun(box (fun_, _)) => fun_,
+            Expr_::Efun(efun) => &efun.fun,
+            _ => return Continue(()),
+        };
+        self.validate_hint_tparams(env, &fun_.tparams);
+        self.extend_hint_tparams(&fun_.tparams);
+        Continue(())
+    }
+
+    fn on_ty_hint_fun_top_down(&mut self, env: &Env, elem: &mut HintFun) -> ControlFlow<()> {
+        self.validate_hint_tparams(env, &elem.tparams);
+        self.extend_hint_tparams(&elem.tparams);
         Continue(())
     }
 
     fn on_ty_hint_top_down(&mut self, env: &Env, elem: &mut Hint) -> ControlFlow<()> {
-        match &mut *elem.1 {
-            Hint_::Happly(id, hints) => {
-                match canonical_happly(&elem.0, id, hints, self.tparams()) {
-                    Continue((hint_opt, err_opt)) => {
-                        if let Some(hint_) = hint_opt {
-                            *elem.1 = hint_
-                        }
-                        if let Some(err) = err_opt {
-                            env.emit_error(err)
-                        }
-                        Continue(())
+        let Hint(hint_pos, hint_) = elem;
+        if let Hint_::Happly(tycon, hints) = &mut **hint_ {
+            match canonicalize_happly(&self.tparams, hint_pos, tycon, hints) {
+                Ok((new_hint, err_opt)) => {
+                    if let Some(new_hint) = new_hint {
+                        *elem = new_hint;
                     }
-                    Break((hint_opt, err)) => {
-                        if let Some(hint_) = hint_opt {
-                            *elem.1 = hint_
-                        }
-                        env.emit_error(err);
-                        Break(())
+                    if let Some(err) = err_opt {
+                        env.emit_error(err)
                     }
+                    Continue(())
+                }
+                Err(err) => {
+                    env.emit_error(err);
+                    Break(())
                 }
             }
-            _ => Continue(()),
+        } else {
+            Continue(())
         }
     }
 }
@@ -113,66 +169,139 @@ enum CanonResult {
     Concrete(Hint_),
     This,
     Classname,
-    Wildcard,
     Tycon,
     Typaram,
     Varray,
     Darray,
     VecOrDict,
-    ErrPrimTopLevel,
+    CanonErr(NamingError),
 }
 
-// Find the canonical representation of an `Happly` hint; if only some _part_
-// of the hint needs modifying, we mutate here. If the whole hint should be
-// replaced, we return a `Hint_` and replace in the calling function
-fn canonical_happly(
+/// A number of hints are represented by `Happly` after lowering; we elaborate
+/// to the canonical representation here taking care to separate the result
+/// so we can apply subsequent validation of the hint based on where it appeared
+fn canonical_tycon(tparams: &BTreeMap<String, Pos>, Id(pos, name): &Id) -> CanonResult {
+    let name = name.as_str();
+    if name == sn::typehints::INT {
+        CanonResult::Concrete(Hint_::Hprim(Tprim::Tint))
+    } else if name == sn::typehints::BOOL {
+        CanonResult::Concrete(Hint_::Hprim(Tprim::Tbool))
+    } else if name == sn::typehints::FLOAT {
+        CanonResult::Concrete(Hint_::Hprim(Tprim::Tfloat))
+    } else if name == sn::typehints::DARRAY {
+        CanonResult::Darray
+    } else if name == sn::typehints::VARRAY {
+        CanonResult::Varray
+    } else if name == sn::typehints::VARRAY_OR_DARRAY || name == sn::typehints::VEC_OR_DICT {
+        // TODO[mjt] `vec_or_dict` is currently special cased since the canonical representation
+        // requires us to have no arity mismatches or throw away info. We do not use that repr here
+        // to avoid having to do so. Ultimately, we should remove that special case
+        CanonResult::VecOrDict
+    } else if name == sn::typehints::VOID {
+        CanonResult::Concrete(Hint_::Hprim(Tprim::Tvoid))
+    } else if name == sn::typehints::NORETURN {
+        CanonResult::Concrete(Hint_::Hprim(Tprim::Tnoreturn))
+    } else if name == sn::typehints::NULL {
+        CanonResult::Concrete(Hint_::Hprim(Tprim::Tnull))
+    } else if name == sn::typehints::NUM {
+        CanonResult::Concrete(Hint_::Hprim(Tprim::Tnum))
+    } else if name == sn::typehints::RESOURCE {
+        CanonResult::Concrete(Hint_::Hprim(Tprim::Tresource))
+    } else if name == sn::typehints::ARRAYKEY {
+        CanonResult::Concrete(Hint_::Hprim(Tprim::Tarraykey))
+    } else if name == sn::typehints::MIXED {
+        CanonResult::Concrete(Hint_::Hmixed)
+    } else if name == sn::typehints::NONNULL {
+        CanonResult::Concrete(Hint_::Hnonnull)
+    } else if name == sn::typehints::NOTHING {
+        CanonResult::Concrete(Hint_::Hnothing)
+    } else if name == sn::typehints::DYNAMIC {
+        CanonResult::Concrete(Hint_::Hdynamic)
+    } else if name == sn::typehints::THIS {
+        CanonResult::This
+    } else if is_toplevel_prim(name) {
+        CanonResult::CanonErr(NamingError::PrimitiveTopLevel(pos.clone()))
+    } else if name == sn::classes::CLASS_NAME || name == "classname" {
+        // TODO[mjt] why wouldn't be have a fully qualified name here?
+        CanonResult::Classname
+    } else if tparams.contains_key(name) {
+        CanonResult::Typaram
+    } else {
+        CanonResult::Tycon
+    }
+}
+
+fn is_toplevel_prim(name: &str) -> bool {
+    match name.strip_prefix('\\') {
+        Some(name) => {
+            name == sn::typehints::VOID
+                || name == sn::typehints::NULL
+                || name == sn::typehints::NORETURN
+                || name == sn::typehints::INT
+                || name == sn::typehints::BOOL
+                || name == sn::typehints::FLOAT
+                || name == sn::typehints::NUM
+                || name == sn::typehints::RESOURCE
+                || name == sn::typehints::MIXED
+                || name == sn::typehints::NONNULL
+                || name == sn::typehints::ARRAYKEY
+                || name == sn::typehints::NOTHING
+        }
+        None => false,
+    }
+}
+
+/// After lowering many hints are represented as `Happly(...,...)`. Here
+/// we canonicalise the representation of type constructor then handle
+/// errors and further elaboration.
+///
+/// `Ok((Some(hint), _))` is the hint to use in place of the `Happly`;
+/// `Ok((None, _))` means it was updated in place (or is to be left alone).
+/// `Err(_)` means the hint was malformed: it is left as it is and must not be
+/// elaborated further.
+fn canonicalize_happly(
+    tparams: &BTreeMap<String, Pos>,
     hint_pos: &Pos,
-    id: &mut Id,
+    tycon: &mut Id,
     hints: &mut Vec<Hint>,
-    tparams: &HashSet<String>,
-) -> ControlFlow<(Option<Hint_>, NamingError), (Option<Hint_>, Option<NamingError>)> {
-    match canonical_tycon(id, tparams) {
-        // The type constructors canonical representation _is_ `Happly`
-        CanonResult::Tycon => Continue((None, None)),
+) -> Result<(Option<Hint>, Option<NamingError>), NamingError> {
+    let mk = |pos: &Pos, hint_: Hint_| Some(Hint(pos.clone(), Box::new(hint_)));
+    match canonical_tycon(tparams, tycon) {
+        // The hint was malformed
+        CanonResult::CanonErr(err) => Err(err),
         // The type constructors canonical representation is a concrete type
-        CanonResult::Concrete(hint_canon) => {
+        CanonResult::Concrete(hint_) => {
             // We can't represent a concrete type applied to other types
-            let err_opt = if hints.is_empty() {
-                None
+            // so we raise an error here
+            let err_opt = if !hints.is_empty() {
+                Some(NamingError::UnexpectedTypeArguments(tycon.0.clone()))
             } else {
-                Some(NamingError::UnexpectedTypeArguments(id.0.clone()))
+                None
             };
-            Continue((Some(hint_canon), err_opt))
+            Ok((mk(hint_pos, hint_), err_opt))
         }
         // The type constructors corresponds to an in-scope type parameter
         CanonResult::Typaram => {
-            // TODO: is this clone necessary? We are replacing the hint which
-            // contains them
-            let mut nm_canon = String::default();
-            let mut hints_canon = vec![];
-            std::mem::swap(&mut id.1, &mut nm_canon);
-            std::mem::swap(hints, &mut hints_canon);
-            let hint_canon = Hint_::Habstr(nm_canon.to_string(), hints_canon);
-            Continue((Some(hint_canon), None))
+            let err_opt = if hints.is_empty() {
+                None
+            } else {
+                Some(NamingError::TparamAppliedToType {
+                    pos: hint_pos.clone(),
+                    tparam_name: tycon.1.clone(),
+                })
+            };
+            let hint_ = Hint_::Habstr(std::mem::take(&mut tycon.1));
+            Ok((mk(hint_pos, hint_), err_opt))
         }
         // The type constructors canonical representation is `Happly` but
         // additional elaboration / validation is required
         CanonResult::This => {
-            let hint_ = Hint_::Hthis;
-            let err_opt = if hints.is_empty() {
-                None
-            } else {
+            let err_opt = if !hints.is_empty() {
                 Some(NamingError::ThisNoArgument(hint_pos.clone()))
-            };
-            Continue((Some(hint_), err_opt))
-        }
-        CanonResult::Wildcard => {
-            if hints.is_empty() {
-                Continue((None, None))
             } else {
-                let err = NamingError::ThisNoArgument(hint_pos.clone());
-                Break((None, err))
-            }
+                None
+            };
+            Ok((mk(&tycon.0, Hint_::Hthis), err_opt))
         }
         CanonResult::Classname => {
             // TODO[mjt] currently if `classname` is not applied to exactly
@@ -180,122 +309,52 @@ fn canonical_happly(
             // Investigate why this happens and if we can delay treatment to
             // typing
             if hints.len() == 1 {
-                Continue((None, None))
+                tycon.1 = sn::classes::CLASS_NAME.to_string();
+                Ok((None, None))
             } else {
-                let err = NamingError::ClassnameParam(id.0.clone());
-                let hint_ = Hint_::Hprim(Tprim::Tstring);
-                Break((Some(hint_), err))
+                let pos = tycon.0.clone();
+                let hint_ = Hint_::Happly(
+                    Id(pos.clone(), sn::typehints::HH_STRING.to_string()),
+                    vec![],
+                );
+                Ok((mk(hint_pos, hint_), Some(NamingError::ClassnameParam(pos))))
             }
-        }
-        CanonResult::ErrPrimTopLevel => {
-            let err = NamingError::PrimitiveTopLevel(id.0.clone());
-            Break((None, err))
         }
         CanonResult::Darray => {
-            id.1 = sn::collections::DICT.to_string();
-            Continue((None, None))
+            tycon.1 = sn::collections::DICT.to_string();
+            Ok((None, None))
         }
         CanonResult::Varray => {
-            id.1 = sn::collections::VEC.to_string();
-            Continue((None, None))
+            tycon.1 = sn::collections::VEC.to_string();
+            Ok((None, None))
         }
-        CanonResult::VecOrDict if hints.len() > 2 => {
-            let err = NamingError::TooManyTypeArguments(hint_pos.clone());
-            Continue((None, Some(err)))
-        }
-        CanonResult::VecOrDict => match hints.pop() {
-            None => {
-                let err = NamingError::TooFewTypeArguments(hint_pos.clone());
-                Continue((None, Some(err)))
+        // TODO[mjt] should we really be special casing `vec_or_dict` both in
+        // its representation and error handling?
+        CanonResult::VecOrDict => match hints.len() {
+            0 => Ok((
+                None,
+                Some(NamingError::TooFewTypeArguments(hint_pos.clone())),
+            )),
+            1 => {
+                let val_hint = hints.pop().unwrap();
+                Ok((mk(hint_pos, Hint_::HvecOrDict(None, val_hint)), None))
             }
-            Some(hint2) => {
-                if let Some(hint1) = hints.pop() {
-                    let hint_ = Hint_::HvecOrDict(Some(hint1), hint2);
-                    Continue((Some(hint_), None))
-                } else {
-                    let hint_ = Hint_::HvecOrDict(None, hint2);
-                    Continue((Some(hint_), None))
-                }
+            2 => {
+                let val_hint = hints.pop().unwrap();
+                let key_hint = hints.pop().unwrap();
+                Ok((
+                    mk(hint_pos, Hint_::HvecOrDict(Some(key_hint), val_hint)),
+                    None,
+                ))
             }
+            _ => Ok((
+                None,
+                Some(NamingError::TooManyTypeArguments(hint_pos.clone())),
+            )),
         },
+        // The type constructors canonical representation is `Happly`
+        CanonResult::Tycon => Ok((None, None)),
     }
-}
-
-fn canonical_tycon(id: &Id, tparams: &HashSet<String>) -> CanonResult {
-    if id.1 == sn::typehints::INT {
-        CanonResult::Concrete(Hint_::Hprim(Tprim::Tint))
-    } else if id.1 == sn::typehints::BOOL {
-        CanonResult::Concrete(Hint_::Hprim(Tprim::Tbool))
-    } else if id.1 == sn::typehints::FLOAT {
-        CanonResult::Concrete(Hint_::Hprim(Tprim::Tfloat))
-    } else if id.1 == sn::typehints::STRING {
-        CanonResult::Concrete(Hint_::Hprim(Tprim::Tstring))
-    } else if id.1 == sn::typehints::VOID {
-        CanonResult::Concrete(Hint_::Hprim(Tprim::Tvoid))
-    } else if id.1 == sn::typehints::NORETURN {
-        CanonResult::Concrete(Hint_::Hprim(Tprim::Tnoreturn))
-    } else if id.1 == sn::typehints::NULL {
-        CanonResult::Concrete(Hint_::Hprim(Tprim::Tnull))
-    } else if id.1 == sn::typehints::RESOURCE {
-        CanonResult::Concrete(Hint_::Hprim(Tprim::Tresource))
-    } else if id.1 == sn::typehints::ARRAYKEY {
-        CanonResult::Concrete(Hint_::Hprim(Tprim::Tarraykey))
-    } else if id.1 == sn::typehints::NUM {
-        CanonResult::Concrete(Hint_::Hprim(Tprim::Tnum))
-    } else if id.1 == sn::typehints::DARRAY {
-        CanonResult::Darray
-    } else if id.1 == sn::typehints::VARRAY {
-        CanonResult::Varray
-    } else if id.1 == sn::typehints::VARRAY_OR_DARRAY || id.1 == sn::typehints::VEC_OR_DICT {
-        // TODO[mjt] `vec_or_dict` is currently special cased since the canonical representation
-        // requires us to have no arity mismatches or throw away info. We do not use that repr here
-        // to avoid having to do so. Ultimately, we should remove that special case
-        CanonResult::VecOrDict
-    } else if id.1 == sn::typehints::MIXED {
-        CanonResult::Concrete(Hint_::Hmixed)
-    } else if id.1 == sn::typehints::NONNULL {
-        CanonResult::Concrete(Hint_::Hnonnull)
-    } else if id.1 == sn::typehints::NOTHING {
-        CanonResult::Concrete(Hint_::Hnothing)
-    } else if id.1 == sn::typehints::DYNAMIC {
-        CanonResult::Concrete(Hint_::Hdynamic)
-    } else if id.1 == sn::typehints::THIS {
-        CanonResult::This
-    } else if id.1 == sn::typehints::WILDCARD {
-        CanonResult::Wildcard
-    } else if id.1 == sn::classes::CLASS_NAME {
-        CanonResult::Classname
-    } else if tparams.contains(&id.1) {
-        CanonResult::Typaram
-    } else if is_toplevel_prim(&id.1) {
-        // TODO: this should be a separate validation pass
-        CanonResult::ErrPrimTopLevel
-    } else {
-        CanonResult::Tycon
-    }
-}
-
-fn is_toplevel_prim(str: &str) -> bool {
-    if let Some(substr) = str.strip_prefix('\\') {
-        return is_prim(substr);
-    }
-    false
-}
-
-fn is_prim(str: &str) -> bool {
-    str == sn::typehints::VOID
-        || str == sn::typehints::NULL
-        || str == sn::typehints::NORETURN
-        || str == sn::typehints::INT
-        || str == sn::typehints::BOOL
-        || str == sn::typehints::FLOAT
-        || str == sn::typehints::NUM
-        || str == sn::typehints::STRING
-        || str == sn::typehints::RESOURCE
-        || str == sn::typehints::MIXED
-        || str == sn::typehints::NONNULL
-        || str == sn::typehints::ARRAYKEY
-        || str == sn::typehints::NOTHING
 }
 
 #[cfg(test)]
@@ -305,7 +364,6 @@ mod tests {
     use nast::ClassTypeconst;
 
     use super::*;
-
     #[test]
     fn test_int() {
         let env = Env::default();

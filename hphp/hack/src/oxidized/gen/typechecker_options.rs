@@ -11,5 +11,4 @@
 #[allow(unused_imports)]
 use crate::*;
 
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 pub type TypecheckerOptions = global_options::GlobalOptions;

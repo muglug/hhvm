@@ -10,9 +10,6 @@
 
 use arena_trait::TrivialDrop;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -25,18 +22,15 @@ use crate::*;
     Debug,
     Deserialize,
     Eq,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, hash, show, ord)")]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum Mode {
     ForTypecheck,
     ForCodegen,
@@ -44,31 +38,13 @@ pub enum Mode {
 impl TrivialDrop for Mode {}
 arena_deserializer::impl_deserialize_in_arena!(Mode);
 
-#[derive(
-    Clone,
-    Debug,
-    Deserialize,
-    Eq,
-    FromOcamlRep,
-    Hash,
-    NoPosHash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-    Serialize,
-    ToOcamlRep
-)]
-#[rust_to_ocaml(attr = "deriving (eq, hash, show, ord)")]
-#[rust_to_ocaml(prefix = "ns_")]
+#[derive(Clone, Debug, Deserialize, Eq, Hash, NoPosHash, Ord, PartialEq, PartialOrd, Serialize)]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct Env {
-    #[rust_to_ocaml(attr = "opaque")]
     pub ns_uses: s_map::SMap<String>,
-    #[rust_to_ocaml(attr = "opaque")]
     pub class_uses: s_map::SMap<String>,
-    #[rust_to_ocaml(attr = "opaque")]
     pub fun_uses: s_map::SMap<String>,
-    #[rust_to_ocaml(attr = "opaque")]
     pub const_uses: s_map::SMap<String>,
     pub name: Option<String>,
     pub mode: Mode,

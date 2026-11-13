@@ -14,5 +14,5 @@ doctest = false
 crate-type = ["lib", "staticlib"]
 
 [dependencies]
-measure = { path = ".." }
+measure = { path = "..", features = ["ocamlrep"] }
 ocamlrep_ocamlpool = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main" }

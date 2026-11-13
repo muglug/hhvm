@@ -11,9 +11,6 @@
 use arena_trait::TrivialDrop;
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 pub use user_diagnostic::Severity;
@@ -35,17 +32,15 @@ pub type ErrorCode = isize;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum Format {
     /// Underlined references and color
     Context,
@@ -65,14 +60,12 @@ pub enum Format {
 impl TrivialDrop for Format {}
 arena_deserializer::impl_deserialize_in_arena!(Format);
 
-#[rust_to_ocaml(attr = "deriving (eq, hash, ord, show)")]
 pub type Diagnostic = user_diagnostic::UserDiagnostic<pos::Pos, pos_or_decl::PosOrDecl>;
 
 /// Type representing the errors for a single file.
 pub type PerFileDiagnostics = Vec<Diagnostic>;
 
 /// The type of collections of errors
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 pub type Diagnostics = relative_path::map::Map<Vec<Diagnostic>>;
 
 #[derive(
@@ -81,16 +74,15 @@ pub type Diagnostics = relative_path::map::Map<Vec<Diagnostic>>;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum SuppressionKind {
     Fixme { forbidden_decl_fixme: bool },
     Ignore,
@@ -102,16 +94,15 @@ pub enum SuppressionKind {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct FixmeError {
     pub explanation: String,
     pub fixme_pos: pos::Pos,
@@ -123,18 +114,16 @@ pub struct FixmeError {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum FixmeOutcome {
-    #[rust_to_ocaml(name = "Not_fixmed")]
     NotFixmed(Option<FixmeError>),
     Fixmed,
 }

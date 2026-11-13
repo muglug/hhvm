@@ -29,14 +29,17 @@ impl Pass for ElabShapeFieldNamePass {
     }
 
     fn on_ty_expr__bottom_up(&mut self, env: &Env, elem: &mut Expr_) -> ControlFlow<()> {
-        match elem {
-            Expr_::Shape(fields) => fields.iter_mut().for_each(|f| match f {
-                ShapeExprField::SFField(nm, _) => {
-                    canonical_shape_name(env, nm, self.current_class.as_deref())
+        if let Expr_::Shape(fields) = elem {
+            for field in fields.iter_mut() {
+                match field {
+                    ShapeExprField::SFField(nm, _) => {
+                        if let Err(err) = canonical_shape_name(nm, self.current_class.as_deref()) {
+                            env.emit_error(err)
+                        }
+                    }
+                    ShapeExprField::SFSplat(_) => {}
                 }
-                ShapeExprField::SFSplat(_) => {}
-            }),
-            _ => (),
+            }
         }
         Continue(())
     }
@@ -46,30 +49,42 @@ impl Pass for ElabShapeFieldNamePass {
         env: &Env,
         elem: &mut ShapeFieldInfo,
     ) -> ControlFlow<()> {
-        canonical_shape_name(env, &mut elem.name, self.current_class.as_deref());
-        Continue(())
+        match canonical_shape_name(&mut elem.name, self.current_class.as_deref()) {
+            Ok(()) => Continue(()),
+            Err(err) => {
+                env.emit_error(err);
+                Break(())
+            }
+        }
     }
 }
 
+// We permit class constants to be used as shape field names. Here we replace
+// uses of `self` with the class to which they refer or `unknown` if the shape
+// is not defined within the context of a class
+//
 // TODO(T199272576) I believe all of this code should be dead by parse error,
 // check and eliminate.
-fn canonical_shape_name(env: &Env, nm: &mut ShapeFieldName, current_class: Option<&String>) {
-    match (nm, current_class) {
-        (ShapeFieldName::SFclassname(id, _), Some(cls_nm)) if id.name() == sn::classes::SELF => {
-            id.1 = cls_nm.to_string();
+fn canonical_shape_name(
+    nm: &mut ShapeFieldName,
+    current_class: Option<&String>,
+) -> Result<(), NamingError> {
+    match nm {
+        ShapeFieldName::SFclassname(id) | ShapeFieldName::SFclassConst(id, _)
+            if id.name() == sn::classes::SELF =>
+        {
+            match current_class {
+                Some(cls_nm) => {
+                    id.1 = cls_nm.to_string();
+                    Ok(())
+                }
+                None => {
+                    id.1 = sn::classes::UNKNOWN.to_string();
+                    Err(NamingError::SelfOutsideClass(id.0.clone()))
+                }
+            }
         }
-        (ShapeFieldName::SFclassname(id, _), _) if id.name() == sn::classes::SELF => {
-            env.emit_error(NamingError::SelfOutsideClass(id.0.clone()));
-            id.1 = sn::classes::UNKNOWN.to_string();
-        }
-        (ShapeFieldName::SFclassConst(id, _), Some(cls_nm)) if id.name() == sn::classes::SELF => {
-            id.1 = cls_nm.to_string();
-        }
-        (ShapeFieldName::SFclassConst(id, _), _) if id.name() == sn::classes::SELF => {
-            env.emit_error(NamingError::SelfOutsideClass(id.0.clone()));
-            id.1 = sn::classes::UNKNOWN.to_string();
-        }
-        _ => (),
+        _ => Ok(()),
     }
 }
 

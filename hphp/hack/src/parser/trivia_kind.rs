@@ -17,10 +17,9 @@
  *
  */
 
-use ocamlrep::{FromOcamlRep, ToOcamlRep};
-
-#[derive(Debug, Copy, Clone, FromOcamlRep, ToOcamlRep, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum TriviaKind {
     WhiteSpace = 0,
     EndOfLine = 1,

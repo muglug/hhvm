@@ -14,7 +14,12 @@ doctest = false
 
 [dependencies]
 bumpalo = { version = "3.20.3", features = ["allocator_api", "collections"] }
-ocamlrep = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main" }
 parser_core_types = { path = "../core_types" }
 smart_constructors = { path = "../smart_constructors" }
 syntax_smart_constructors = { path = "../syntax_smart_constructors" }
+ocamlrep = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main", optional = true }
+
+[features]
+# The conversions to and from OCaml values, for the crates that the OCaml
+# typechecker links, which turn the feature on.
+ocamlrep = ["dep:ocamlrep", "parser_core_types/ocamlrep", "smart_constructors/ocamlrep"]

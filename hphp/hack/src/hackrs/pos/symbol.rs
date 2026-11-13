@@ -13,9 +13,6 @@ use hh24_types::ToplevelSymbolHash;
 use intern::string::BytesId;
 use intern::string::IntoUtf8Bytes;
 use intern::string::StringId;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -87,28 +84,8 @@ impl ToOxidized for Symbol {
     type Output = String;
 
     fn to_oxidized(self) -> String {
-        self.to_string()
-    }
-}
-
-impl ToOcamlRep for Symbol {
-    fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
-        alloc.add_copy(self.as_str())
-    }
-}
-
-impl FromOcamlRep for Symbol {
-    fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
-        Ok(Self::new(ocamlrep::str_from_ocamlrep(value)?))
-    }
-}
-
-impl<'a> FromOcamlRepIn<'a> for Symbol {
-    fn from_ocamlrep_in(
-        value: ocamlrep::Value<'_>,
-        _arena: &'a bumpalo::Bump,
-    ) -> Result<Self, ocamlrep::FromError> {
-        Ok(Self::new(ocamlrep::str_from_ocamlrep(value)?))
+        // (The same string as `to_string`, without the formatting machinery.)
+        self.as_str().to_owned()
     }
 }
 
@@ -211,27 +188,6 @@ impl ToOxidized for Bytes {
     }
 }
 
-impl ToOcamlRep for Bytes {
-    fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
-        alloc.add_copy(self.as_bytes())
-    }
-}
-
-impl FromOcamlRep for Bytes {
-    fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
-        Ok(Self::new(ocamlrep::bytes_from_ocamlrep(value)?))
-    }
-}
-
-impl<'a> FromOcamlRepIn<'a> for Bytes {
-    fn from_ocamlrep_in(
-        value: ocamlrep::Value<'_>,
-        _arena: &'a bumpalo::Bump,
-    ) -> Result<Self, ocamlrep::FromError> {
-        Ok(Self::new(ocamlrep::bytes_from_ocamlrep(value)?))
-    }
-}
-
 impl arena_trait::TrivialDrop for Bytes {}
 
 macro_rules! common_impls {
@@ -298,31 +254,9 @@ macro_rules! common_impls {
             type Output = String;
 
             fn to_oxidized(self) -> String {
-                self.to_string()
-            }
-        }
-
-        impl ToOcamlRep for $name {
-            fn to_ocamlrep<'a, A: ocamlrep::Allocator>(
-                &'a self,
-                alloc: &'a A,
-            ) -> ocamlrep::Value<'a> {
-                alloc.add_copy(self.as_str())
-            }
-        }
-
-        impl FromOcamlRep for $name {
-            fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
-                Ok(Self::new(ocamlrep::str_from_ocamlrep(value)?))
-            }
-        }
-
-        impl<'a> FromOcamlRepIn<'a> for $name {
-            fn from_ocamlrep_in(
-                value: ocamlrep::Value<'_>,
-                _arena: &'a bumpalo::Bump,
-            ) -> Result<Self, ocamlrep::FromError> {
-                Ok(Self::new(ocamlrep::str_from_ocamlrep(value)?))
+                // (The same string as `to_string`, without the formatting
+                // machinery.)
+                self.as_str().to_owned()
             }
         }
 

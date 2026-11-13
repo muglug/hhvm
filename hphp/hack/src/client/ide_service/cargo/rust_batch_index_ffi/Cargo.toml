@@ -16,11 +16,11 @@ crate-type = ["lib", "staticlib"]
 [dependencies]
 anyhow = "1.0.104"
 direct_decl_parser = { path = "../../../../parser/api/cargo/direct_decl_parser" }
-file_info = { path = "../../../../deps/rust/file_info" }
+file_info = { path = "../../../../deps/rust/file_info", features = ["ocamlrep"] }
 ocamlrep_caml_builtins = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main" }
 ocamlrep_ocamlpool = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main" }
-oxidized = { path = "../../../../oxidized" }
+oxidized = { path = "../../../../oxidized", features = ["ocamlrep"] }
 rayon = "1.11.0"
-relative_path = { path = "../../../../utils/rust/relative_path" }
+relative_path = { path = "../../../../utils/rust/relative_path", features = ["ocamlrep"] }
 si_addendum = { path = "../../../../utils/cargo/si_addendum" }
 unwrap_ocaml = { path = "../../../../utils/unwrap_ocaml" }

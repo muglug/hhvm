@@ -10,8 +10,8 @@ pub use lint::*;
 use oxidized::aast_defs;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep)]
 #[repr(isize)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum LintCode {
     LowercaseConstant = 5001,
     UseCollectionLiteral,

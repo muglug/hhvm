@@ -28,18 +28,23 @@ hh_hash = { path = "../utils/hh_hash" }
 itertools = "0.15.0"
 naming_types = { path = "../naming/rust/naming_types" }
 no_pos_hash = { path = "../utils/no_pos_hash" }
-ocamlrep = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main" }
 packages = { path = "../packages/cargo" }
 parser_core_types = { path = "../parser/cargo/core_types" }
 rc_pos = { path = "../utils/rust/pos" }
 regex = "1.13.1"
 relative_path = { path = "../utils/rust/relative_path" }
-rust_to_ocaml_attr = { path = "../rust_to_ocaml/rust_to_ocaml_attr" }
 serde = { version = "1.0.229", features = ["derive", "rc"] }
 serde_json = { version = "1.0.154", features = ["alloc", "float_roundtrip", "raw_value", "unbounded_depth"] }
 strum = { version = "0.28.0", features = ["derive"] }
 thiserror = "2.0.21"
 toml = { version = "1.2.1", features = ["preserve_order"] }
+transform_markers = { path = "../elab/transform_markers" }
+ocamlrep = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main", optional = true }
+
+[features]
+# The conversions to and from OCaml values, for the crates that the OCaml
+# typechecker links, which turn the feature on.
+ocamlrep = ["dep:ocamlrep", "arena_deserializer/ocamlrep", "eq_modulo_pos/ocamlrep", "file_info/ocamlrep", "naming_types/ocamlrep", "no_pos_hash/ocamlrep", "parser_core_types/ocamlrep", "rc_pos/ocamlrep", "relative_path/ocamlrep"]
 
 [dev-dependencies]
 pretty_assertions = { version = "1.4.1", features = ["alloc"], default-features = false }

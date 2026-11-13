@@ -6,51 +6,48 @@
 use nast::HfParamInfo;
 use nast::Hint;
 use nast::Hint_;
+use nast::OptionalKind;
+use nast::SplatKind;
 
-use crate::nast::OptionalKind;
 use crate::prelude::*;
 
+/// Port of `Naming_validate_function_hint_optional_parameters`.
 #[derive(Clone, Copy, Default)]
 pub struct ValidateFunctionHintOptionalParametersPass;
-
-fn is_optional_param(p: &Option<HfParamInfo>) -> bool {
-    match p {
-        Some(HfParamInfo {
-            optional: Some(OptionalKind::Optional),
-            ..
-        }) => true,
-        _ => false,
-    }
-}
 
 impl Pass for ValidateFunctionHintOptionalParametersPass {
     // Reject optional parameter preceding non-optional parameter
     // e.g. (function(int,optional bool,string):void)
-    fn on_ty_hint_bottom_up(&mut self, env: &Env, hint: &mut Hint) -> ControlFlow<()> {
-        match hint {
-            Hint(pos, box Hint_::Hfun(hint_fun)) => {
-                let mut previous_optional_param = None;
-                for p in &hint_fun.param_info {
-                    if is_optional_param(p) {
-                        previous_optional_param = Some(p);
-                    } else {
-                        match previous_optional_param {
-                            None => (),
-                            Some(_) if p.pre_ellipsis.is_ellipsis() => (),
-                            Some(_) => {
-                                env.emit_error(NamingPhaseError::Parsing(ParsingError::ParsingError {
-                                pos: pos.clone(),
-                                msg: "Optional parameter cannot precede non-optional parameter"
-                                    .to_string(),
-                                quickfixes: vec![],
-                            }));
-                            }
-                        }
+    fn on_ty_hint_top_down(&mut self, env: &Env, hint: &mut Hint) -> ControlFlow<()> {
+        if let Hint(pos, box Hint_::Hfun(hint_fun)) = hint {
+            let mut seen_optional_positional = false;
+            let mut optional_precedes_required_positional = false;
+            for pi in &hint_fun.param_info {
+                match pi {
+                    Some(HfParamInfo {
+                        splat: Some(SplatKind::Splat),
+                        ..
+                    }) => (),
+                    Some(HfParamInfo { named: Some(_), .. }) => (),
+                    Some(HfParamInfo {
+                        optional: Some(OptionalKind::Optional),
+                        ..
+                    }) => seen_optional_positional = true,
+                    _ => {
+                        optional_precedes_required_positional =
+                            optional_precedes_required_positional || seen_optional_positional
                     }
                 }
             }
-            _ => (),
+            if optional_precedes_required_positional {
+                env.emit_error(NamingPhaseError::Parsing(ParsingError::ParsingError {
+                    pos: pos.clone(),
+                    msg: "Optional parameter cannot precede non-optional parameter".to_string(),
+                    quickfixes: vec![],
+                }));
+            }
         }
         Continue(())
     }
 }
+

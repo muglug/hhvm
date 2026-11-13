@@ -10,8 +10,6 @@
 
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -24,24 +22,18 @@ use crate::*;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = r#"ocaml.warning "-37""#)]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum ExperimentalFeature {
     Supportdyn(pos::Pos),
-    #[rust_to_ocaml(attr = r#"warning "-37""#)]
-    #[rust_to_ocaml(name = "Const_attr")]
     ConstAttr(pos::Pos),
-    #[rust_to_ocaml(attr = r#"warning "-37""#)]
-    #[rust_to_ocaml(name = "Const_static_prop")]
     ConstStaticProp(pos::Pos),
 }
 
@@ -51,28 +43,21 @@ pub enum ExperimentalFeature {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = r#"ocaml.warning "-37""#)]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum NamingPhaseError {
     Naming(naming_error::NamingError),
-    #[rust_to_ocaml(name = "Nast_check")]
     NastCheck(nast_check_error::NastCheckError),
-    #[rust_to_ocaml(name = "Unexpected_hint")]
     UnexpectedHint(pos::Pos),
-    #[rust_to_ocaml(name = "Malformed_access")]
     MalformedAccess(pos::Pos),
-    #[rust_to_ocaml(name = "Experimental_feature")]
     ExperimentalFeature(ExperimentalFeature),
-    #[rust_to_ocaml(attr = r#"warning "-37""#)]
     Parsing(parsing_error::ParsingError),
 }
 
@@ -82,16 +67,15 @@ pub enum NamingPhaseError {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct Agg {
     pub naming: Vec<naming_error::NamingError>,
     pub nast_check: Vec<nast_check_error::NastCheckError>,

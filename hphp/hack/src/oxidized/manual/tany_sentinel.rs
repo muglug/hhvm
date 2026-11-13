@@ -5,9 +5,6 @@
 
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -23,9 +20,7 @@ use serde::Serialize;
     Ord,
     PartialEq,
     PartialOrd,
-    FromOcamlRep,
-    FromOcamlRepIn,
-    ToOcamlRep,
     Serialize
 )]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub struct TanySentinel;

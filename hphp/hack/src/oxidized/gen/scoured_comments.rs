@@ -9,15 +9,12 @@
 //   buck run @fbcode//mode/dev-nosan-lg fbcode//hphp/hack/src:oxidized_regen
 
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
 #[allow(unused_imports)]
 use crate::*;
 
-#[rust_to_ocaml(attr = "deriving (show, eq)")]
 pub type Fixmes = i_map::IMap<i_map::IMap<pos::Pos>>;
 
 #[derive(
@@ -26,18 +23,15 @@ pub type Fixmes = i_map::IMap<i_map::IMap<pos::Pos>>;
     Default,
     Deserialize,
     Eq,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (show, eq)")]
-#[rust_to_ocaml(prefix = "sc_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ScouredComments {
     pub comments: Vec<(pos::Pos, prim_defs::Comment)>,
     pub fixmes: Fixmes,

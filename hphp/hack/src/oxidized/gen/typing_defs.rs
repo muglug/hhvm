@@ -10,9 +10,6 @@
 
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 pub use typing_defs_core::*;
@@ -41,19 +38,16 @@ use crate::*;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum ClassConstFrom {
-    #[rust_to_ocaml(name = "Self")]
     Self_,
     From(String),
 }
@@ -76,17 +70,15 @@ pub enum ClassConstFrom {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ClassConstRef(pub ClassConstFrom, pub String);
 
 #[derive(
@@ -95,18 +87,15 @@ pub struct ClassConstRef(pub ClassConstFrom, pub String);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (show, eq)")]
-#[rust_to_ocaml(prefix = "cd_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ConstDecl {
     pub pos: pos_or_decl::PosOrDecl,
     pub type_: Ty,
@@ -120,17 +109,15 @@ pub struct ConstDecl {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum PackageRequirement {
     RPRequire(PosString),
     RPSoft(PosString),
@@ -143,18 +130,15 @@ pub enum PackageRequirement {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving show")]
-#[rust_to_ocaml(prefix = "ce_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ClassElt {
     pub visibility: CeVisibility,
     pub type_: lazy::Lazy<Ty>,
@@ -175,18 +159,15 @@ pub struct ClassElt {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (show, eq)")]
-#[rust_to_ocaml(prefix = "fe_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct FunElt {
     pub deprecated: Option<String>,
     pub module: Option<ast_defs::Id>,
@@ -210,18 +191,15 @@ pub struct FunElt {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum ClassConstKind {
     CCAbstract(bool),
     CCConcrete,
@@ -241,18 +219,15 @@ pub enum ClassConstKind {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, ord, show)")]
-#[rust_to_ocaml(attr = r#"warning "-37""#)]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum ConstValue {
     CVInt(isize),
     CVLargeInt(String),
@@ -270,18 +245,15 @@ pub enum ConstValue {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving show")]
-#[rust_to_ocaml(prefix = "cc_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ClassConst {
     pub synthesized: bool,
     pub abstract_: ClassConstKind,
@@ -305,17 +277,15 @@ pub struct ClassConst {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving show")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ModuleDefType {
     pub mdt_pos: pos_or_decl::PosOrDecl,
 }
@@ -339,17 +309,15 @@ pub struct ModuleDefType {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct Requirement(pub pos_or_decl::PosOrDecl, pub Ty);
 
 #[derive(
@@ -358,21 +326,17 @@ pub struct Requirement(pub pos_or_decl::PosOrDecl, pub Ty);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum ConstraintRequirement {
-    #[rust_to_ocaml(name = "CR_Equal")]
     CREqual(Requirement),
-    #[rust_to_ocaml(name = "CR_Subtype")]
     CRSubtype(Requirement),
 }
 
@@ -382,18 +346,15 @@ pub enum ConstraintRequirement {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
-#[rust_to_ocaml(prefix = "atc_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct AbstractTypeconst {
     pub as_constraint: Option<Ty>,
     pub super_constraint: Option<Ty>,
@@ -406,17 +367,15 @@ pub struct AbstractTypeconst {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ConcreteTypeconst {
     pub tc_type: Ty,
 }
@@ -427,18 +386,15 @@ pub struct ConcreteTypeconst {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving show")]
-#[rust_to_ocaml(prefix = "patc_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct PartiallyAbstractTypeconst {
     pub constraint: Ty,
     pub type_: Ty,
@@ -450,17 +406,15 @@ pub struct PartiallyAbstractTypeconst {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum Typeconst {
     TCAbstract(AbstractTypeconst),
     TCConcrete(ConcreteTypeconst),
@@ -472,18 +426,15 @@ pub enum Typeconst {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving show")]
-#[rust_to_ocaml(prefix = "ttc_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct TypeconstType {
     pub synthesized: bool,
     pub name: PosId,
@@ -519,18 +470,15 @@ pub struct TypeconstType {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
-#[rust_to_ocaml(prefix = "te_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct EnumType {
     pub base: Ty,
     pub constraint: Option<Ty>,
@@ -543,17 +491,15 @@ pub struct EnumType {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct TypedefCaseTypeVariant(pub Ty, pub Vec<WhereConstraint>);
 
 #[derive(
@@ -562,17 +508,15 @@ pub struct TypedefCaseTypeVariant(pub Ty, pub Vec<WhereConstraint>);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum TypedefTypeAssignment {
     SimpleTypeDef(ast_defs::TypedefVisibility, Ty),
     CaseType(TypedefCaseTypeVariant, Vec<TypedefCaseTypeVariant>),
@@ -584,18 +528,15 @@ pub enum TypedefTypeAssignment {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
-#[rust_to_ocaml(prefix = "td_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct TypedefType {
     pub module: Option<ast_defs::Id>,
     pub pos: pos_or_decl::PosOrDecl,
@@ -616,29 +557,24 @@ pub struct TypedefType {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving show")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum DeserializationError {
     /// The type was valid, but some component thereof was a decl_ty when we
     /// expected a locl_phase ty, or vice versa.
-    #[rust_to_ocaml(name = "Wrong_phase")]
     WrongPhase(String),
     /// The specific type or some component thereof is not one that we support
     /// deserializing, usually because not enough information was serialized to be
     /// able to deserialize it again.
-    #[rust_to_ocaml(name = "Not_supported")]
     NotSupported(String),
     /// The input JSON was invalid for some reason.
-    #[rust_to_ocaml(name = "Deserialization_error")]
     DeserializationError(String),
 }
 
@@ -648,24 +584,18 @@ pub enum DeserializationError {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving show { with_path = false }")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum VisibilityBehavior {
-    #[rust_to_ocaml(name = "Always_expand_newtype")]
     AlwaysExpandNewtype,
-    #[rust_to_ocaml(name = "Expand_visible_newtype_only")]
     ExpandVisibleNewtypeOnly,
-    #[rust_to_ocaml(name = "Never_expand_newtype")]
     NeverExpandNewtype,
-    #[rust_to_ocaml(name = "Resolve_type_structure")]
     ResolveTypeStructure(Option<String>),
 }

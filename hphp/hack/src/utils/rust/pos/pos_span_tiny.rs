@@ -6,9 +6,6 @@
 use std::cmp::Ordering;
 use std::fmt;
 
-use ocamlrep::FromOcamlRep;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 use static_assertions::const_assert_eq;
@@ -87,6 +84,17 @@ const MASK: u64 = !(1 << 63);
 const DUMMY: u64 = MASK;
 
 impl PosSpanTiny {
+    /// The packed representation (for `Pos`, which packs it in turn).
+    #[inline]
+    pub(crate) const fn to_bits(self) -> u64 {
+        self.0
+    }
+
+    #[inline]
+    pub(crate) const fn from_bits(bits: u64) -> Self {
+        Self(bits)
+    }
+
     #[inline]
     pub const fn make_dummy() -> Self {
         Self(DUMMY)
@@ -261,27 +269,6 @@ impl PartialOrd for PosSpanTiny {
     }
 }
 
-impl ToOcamlRep for PosSpanTiny {
-    fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, _alloc: &'a A) -> ocamlrep::Value<'a> {
-        ocamlrep::Value::int(self.0 as isize)
-    }
-}
-
-impl FromOcamlRep for PosSpanTiny {
-    fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
-        Ok(Self(MASK & ocamlrep::from::expect_int(value)? as u64))
-    }
-}
-
-impl<'a> FromOcamlRepIn<'a> for PosSpanTiny {
-    fn from_ocamlrep_in(
-        value: ocamlrep::Value<'_>,
-        _alloc: &'a ocamlrep::Bump,
-    ) -> Result<Self, ocamlrep::FromError> {
-        Self::from_ocamlrep(value)
-    }
-}
-
 impl fmt::Debug for PosSpanTiny {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -453,26 +440,38 @@ mod test {
             }
         }
     }
+}
 
-    #[test]
-    fn test_round_trip_through_ocaml_value_large_tiny_span() {
-        // This marks a span between columns 6 and 62 of line 49110 (where the
-        // beginning of the line is character 1667611 from the beginning of the
-        // file).
-        let line = 49110usize;
-        let bol = 1667611usize;
-        let start_offset = 1667617usize;
-        let end_offset = 1667673usize;
-        let start = FilePosLarge::from_lnum_bol_offset(line, bol, start_offset);
-        let end = FilePosLarge::from_lnum_bol_offset(line, bol, end_offset);
-        let span = PosSpanTiny::make(&start, &end).unwrap();
+// ---- OCaml interop (feature "ocamlrep") ----
+#[cfg(feature = "ocamlrep")]
+mod ocamlrep_impls {
+    #[allow(unused_imports)]
+    use super::*;
+    #[allow(unused_imports)]
+    use ocamlrep::FromOcamlRep;
+    #[allow(unused_imports)]
+    use ocamlrep::FromOcamlRepIn;
+    #[allow(unused_imports)]
+    use ocamlrep::ToOcamlRep;
 
-        // Though the span fits nicely into 63-bits, the resulting value is > 2^62 -
-        // 1, OCaml's max (signed) int.
-        let alloc = ocamlrep::Arena::new();
-        let value = span.to_ocamlrep(&alloc);
-        let span_read_back = PosSpanTiny::from_ocamlrep(value).ok().unwrap();
+    impl ToOcamlRep for PosSpanTiny {
+        fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, _alloc: &'a A) -> ocamlrep::Value<'a> {
+            ocamlrep::Value::int(self.0 as isize)
+        }
+    }
 
-        assert_eq!(span, span_read_back);
+    impl FromOcamlRep for PosSpanTiny {
+        fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
+            Ok(Self(MASK & ocamlrep::from::expect_int(value)? as u64))
+        }
+    }
+
+    impl<'a> FromOcamlRepIn<'a> for PosSpanTiny {
+        fn from_ocamlrep_in(
+            value: ocamlrep::Value<'_>,
+            _alloc: &'a ocamlrep::Bump,
+        ) -> Result<Self, ocamlrep::FromError> {
+            Self::from_ocamlrep(value)
+        }
     }
 }

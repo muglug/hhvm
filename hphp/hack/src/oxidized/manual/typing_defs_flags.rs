@@ -212,29 +212,6 @@ pub mod fun_param {
     pub type FunParam = FunParamFlags;
 }
 
-impl ocamlrep::ToOcamlRep for ClassEltFlags {
-    fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, _alloc: &'a A) -> ocamlrep::Value<'a> {
-        ocamlrep::Value::int(self.bits() as isize)
-    }
-}
-
-impl ocamlrep::FromOcamlRep for ClassEltFlags {
-    fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
-        let int_value: isize = ocamlrep::from::expect_int(value)?;
-        Ok(Self::from_bits_truncate(int_value as u32))
-    }
-}
-
-impl<'a> ocamlrep::FromOcamlRepIn<'a> for ClassEltFlags {
-    fn from_ocamlrep_in(
-        value: ocamlrep::Value<'_>,
-        _alloc: &'a bumpalo::Bump,
-    ) -> Result<Self, ocamlrep::FromError> {
-        use ocamlrep::FromOcamlRep;
-        Self::from_ocamlrep(value)
-    }
-}
-
 impl no_pos_hash::NoPosHash for ClassEltFlags {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         std::hash::Hash::hash(self, state);
@@ -309,29 +286,6 @@ impl FunTypeFlags {
     }
 }
 
-impl ocamlrep::ToOcamlRep for FunTypeFlags {
-    fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, _alloc: &'a A) -> ocamlrep::Value<'a> {
-        ocamlrep::Value::int(self.bits() as isize)
-    }
-}
-
-impl ocamlrep::FromOcamlRep for FunTypeFlags {
-    fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
-        let int_value = ocamlrep::from::expect_int(value)?;
-        Ok(Self::from_bits_truncate(int_value.try_into()?))
-    }
-}
-
-impl<'a> ocamlrep::FromOcamlRepIn<'a> for FunTypeFlags {
-    fn from_ocamlrep_in(
-        value: ocamlrep::Value<'_>,
-        _alloc: &'a bumpalo::Bump,
-    ) -> Result<Self, ocamlrep::FromError> {
-        use ocamlrep::FromOcamlRep;
-        Self::from_ocamlrep(value)
-    }
-}
-
 impl no_pos_hash::NoPosHash for FunTypeFlags {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         std::hash::Hash::hash(self, state);
@@ -388,29 +342,6 @@ impl FunParamFlags {
     }
 }
 
-impl ocamlrep::ToOcamlRep for FunParamFlags {
-    fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, _alloc: &'a A) -> ocamlrep::Value<'a> {
-        ocamlrep::Value::int(self.bits() as isize)
-    }
-}
-
-impl ocamlrep::FromOcamlRep for FunParamFlags {
-    fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
-        let int_value = ocamlrep::from::expect_int(value)?;
-        Ok(Self::from_bits_truncate(int_value.try_into()?))
-    }
-}
-
-impl<'a> ocamlrep::FromOcamlRepIn<'a> for FunParamFlags {
-    fn from_ocamlrep_in(
-        value: ocamlrep::Value<'_>,
-        _alloc: &'a bumpalo::Bump,
-    ) -> Result<Self, ocamlrep::FromError> {
-        use ocamlrep::FromOcamlRep;
-        Self::from_ocamlrep(value)
-    }
-}
-
 impl no_pos_hash::NoPosHash for FunParamFlags {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         std::hash::Hash::hash(self, state);
@@ -443,5 +374,81 @@ impl<'de> serde::Deserialize<'de> for FunParamFlags {
             }
         }
         deserializer.deserialize_u16(Visitor)
+    }
+}
+
+// ---- OCaml interop (feature "ocamlrep") ----
+#[cfg(feature = "ocamlrep")]
+mod ocamlrep_impls {
+    #[allow(unused_imports)]
+    use super::*;
+
+    impl ocamlrep::ToOcamlRep for ClassEltFlags {
+        fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, _alloc: &'a A) -> ocamlrep::Value<'a> {
+            ocamlrep::Value::int(self.bits() as isize)
+        }
+    }
+
+    impl ocamlrep::FromOcamlRep for ClassEltFlags {
+        fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
+            let int_value: isize = ocamlrep::from::expect_int(value)?;
+            Ok(Self::from_bits_truncate(int_value as u32))
+        }
+    }
+
+    impl<'a> ocamlrep::FromOcamlRepIn<'a> for ClassEltFlags {
+        fn from_ocamlrep_in(
+            value: ocamlrep::Value<'_>,
+            _alloc: &'a bumpalo::Bump,
+        ) -> Result<Self, ocamlrep::FromError> {
+            use ocamlrep::FromOcamlRep;
+            Self::from_ocamlrep(value)
+        }
+    }
+
+    impl ocamlrep::ToOcamlRep for FunTypeFlags {
+        fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, _alloc: &'a A) -> ocamlrep::Value<'a> {
+            ocamlrep::Value::int(self.bits() as isize)
+        }
+    }
+
+    impl ocamlrep::FromOcamlRep for FunTypeFlags {
+        fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
+            let int_value = ocamlrep::from::expect_int(value)?;
+            Ok(Self::from_bits_truncate(int_value.try_into()?))
+        }
+    }
+
+    impl<'a> ocamlrep::FromOcamlRepIn<'a> for FunTypeFlags {
+        fn from_ocamlrep_in(
+            value: ocamlrep::Value<'_>,
+            _alloc: &'a bumpalo::Bump,
+        ) -> Result<Self, ocamlrep::FromError> {
+            use ocamlrep::FromOcamlRep;
+            Self::from_ocamlrep(value)
+        }
+    }
+
+    impl ocamlrep::ToOcamlRep for FunParamFlags {
+        fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, _alloc: &'a A) -> ocamlrep::Value<'a> {
+            ocamlrep::Value::int(self.bits() as isize)
+        }
+    }
+
+    impl ocamlrep::FromOcamlRep for FunParamFlags {
+        fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
+            let int_value = ocamlrep::from::expect_int(value)?;
+            Ok(Self::from_bits_truncate(int_value.try_into()?))
+        }
+    }
+
+    impl<'a> ocamlrep::FromOcamlRepIn<'a> for FunParamFlags {
+        fn from_ocamlrep_in(
+            value: ocamlrep::Value<'_>,
+            _alloc: &'a bumpalo::Bump,
+        ) -> Result<Self, ocamlrep::FromError> {
+            use ocamlrep::FromOcamlRep;
+            Self::from_ocamlrep(value)
+        }
     }
 }

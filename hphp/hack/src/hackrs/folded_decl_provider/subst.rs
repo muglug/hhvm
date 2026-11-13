@@ -4,7 +4,10 @@
 // LICENSE file in the "hack" directory of this source tree.
 
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
+use pos::Positioned;
+use pos::TypeName;
 use ty::decl::AbstractTypeconst;
 use ty::decl::ClassConst;
 use ty::decl::ClassRefinement;
@@ -23,6 +26,7 @@ use ty::decl::TypeConst;
 use ty::decl::Typeconst;
 use ty::decl::WhereConstraint;
 use ty::decl::subst::Subst;
+use ty::decl::ty::Capability;
 use ty::decl::ty::ShapeType;
 use ty::decl::ty::ShapeTypeSimple;
 use ty::decl::ty::TupleExtra;
@@ -30,6 +34,96 @@ use ty::decl::ty::TupleType;
 use ty::reason::Reason;
 
 // note(sf, 2022-02-14): c.f. `Decl_subst`, `Decl_instantiate`
+
+/// `Decl_instantiate.get_tparams_in_ty_and_acc`: the names of the generics
+/// that occur in a type. The OCaml is an object that inherits
+/// `Type_visitor.decl_type_visitor` and overrides `on_tgeneric`; this is that
+/// visitor's traversal, written out (the set does not depend on its order).
+fn get_tparams_in_ty_and_acc<R: Reason>(
+    mut acc: BTreeSet<TypeName>,
+    ty: &Ty<R>,
+) -> BTreeSet<TypeName> {
+    fn on_types<R: Reason>(acc: BTreeSet<TypeName>, tyl: &[Ty<R>]) -> BTreeSet<TypeName> {
+        tyl.iter().fold(acc, get_tparams_in_ty_and_acc)
+    }
+    match ty.node_ref() {
+        Ty_::Tany
+        | Ty_::Tmixed
+        | Ty_::Twildcard
+        | Ty_::Tnonnull
+        | Ty_::Tdynamic
+        | Ty_::Tthis
+        | Ty_::Tprim(_) => acc,
+        Ty_::TvecOrDict(tys) => {
+            let (ty1, ty2) = &**tys;
+            let acc = get_tparams_in_ty_and_acc(acc, ty1);
+            get_tparams_in_ty_and_acc(acc, ty2)
+        }
+        Ty_::Tgeneric(s) => {
+            acc.insert(*s);
+            acc
+        }
+        Ty_::Toption(ty) | Ty_::Tlike(ty) | Ty_::TclassPtr(ty) => {
+            get_tparams_in_ty_and_acc(acc, ty)
+        }
+        Ty_::Tfun(ft) => {
+            let acc =
+                (ft.params.iter()).fold(acc, |acc, fp| get_tparams_in_ty_and_acc(acc, &fp.ty));
+            let acc = ft.tparams.iter().fold(acc, |acc, tp| {
+                (tp.constraints.iter())
+                    .fold(acc, |acc, (_ck, ty)| get_tparams_in_ty_and_acc(acc, ty))
+            });
+            let acc = match &ft.implicit_params.capability {
+                Capability::CapDefaults(_) => acc,
+                Capability::CapTy(ty) => get_tparams_in_ty_and_acc(acc, ty),
+            };
+            let acc =
+                (ft.where_constraints.iter()).fold(acc, |acc, WhereConstraint(ty1, _ck, ty2)| {
+                    let acc = get_tparams_in_ty_and_acc(acc, ty1);
+                    get_tparams_in_ty_and_acc(acc, ty2)
+                });
+            get_tparams_in_ty_and_acc(acc, &ft.ret)
+        }
+        Ty_::Tapply(id_and_args) => {
+            let (_, tyl) = &**id_and_args;
+            on_types(acc, tyl)
+        }
+        Ty_::Trefinement(tr) => {
+            let acc = get_tparams_in_ty_and_acc(acc, &tr.ty);
+            // Class_refinement.fold
+            (tr.refinement.consts.values()).fold(acc, |acc, rc| match &rc.bound {
+                RefinedConstBound::Exact(ty) => get_tparams_in_ty_and_acc(acc, ty),
+                RefinedConstBound::Loose(bounds) => {
+                    let acc = on_types(acc, &bounds.lower);
+                    on_types(acc, &bounds.upper)
+                }
+            })
+        }
+        Ty_::Taccess(ta) => get_tparams_in_ty_and_acc(acc, &ta.ty),
+        Ty_::Ttuple(tuple) => {
+            let TupleType(t_required, t_optional, t_extra) = &**tuple;
+            let acc = match t_extra {
+                TupleExtra::Tsplat(t_splat) => get_tparams_in_ty_and_acc(acc, t_splat),
+                TupleExtra::Tvariadic(t_variadic) => get_tparams_in_ty_and_acc(acc, t_variadic),
+            };
+            let acc = on_types(acc, t_optional);
+            on_types(acc, t_required)
+        }
+        Ty_::Tunion(tyl) | Ty_::Tintersection(tyl) => on_types(acc, tyl),
+        Ty_::Tshape(shape_ty) => match &**shape_ty {
+            ShapeType::Simple(ShapeTypeSimple(kind, fdm)) => {
+                let acc = get_tparams_in_ty_and_acc(acc, kind);
+                (fdm.values()).fold(acc, |acc, sft| get_tparams_in_ty_and_acc(acc, &sft.ty))
+            }
+            ShapeType::Splat(ss_elems) => on_types(acc, ss_elems),
+        },
+    }
+}
+
+/// `Decl_instantiate.get_tparams_in_subst`
+fn get_tparams_in_subst<R: Reason>(subst: &Subst<R>) -> BTreeSet<TypeName> {
+    (subst.0.values()).fold(BTreeSet::new(), get_tparams_in_ty_and_acc)
+}
 
 #[derive(Debug, Clone)]
 pub struct Substitution<'a, R: Reason> {
@@ -116,11 +210,54 @@ impl<'a, R: Reason> Substitution<'a, R> {
             Ty_::Tlike(ty) => Ty_::Tlike(self.instantiate(ty)),
             Ty_::Tfun(ft) => {
                 let tparams = &ft.tparams;
-                let outer_subst = self;
+                // First remove shadowed type parameters from the substitution.
+                // For example, for
+                //   class C<T> { public function foo<T>(T $x):void }
+                //   class B extends C<int> { }
+                // we do not want to replace T by int in foo's signature.
                 let mut subst = self.subst.clone();
                 for tp in tparams.iter() {
-                    subst.0.swap_remove(tp.name.id_ref());
+                    subst.0.shift_remove(tp.name.id_ref());
                 }
+                // Now collect up all generic parameters that appear in the
+                // target of the substitution
+                let target_generics = get_tparams_in_subst(&subst);
+                // For generic parameters in the function type, rename them
+                // "away" from the parameters that appear in the target of the
+                // substitituion, and extend the substitution with the
+                // renaming.
+                //
+                // For example, consider
+                //    class Base<T> { public function cast<TF>(T $x):TF; }
+                //    class Derived<TF> extends Base<TF> { }
+                // Now we start with a substitution T:=TF
+                // But when going "under" the generic parameter to the cast
+                // method, we must rename it to avoid capture: T:=TF, TF:=TF#0
+                // and so we end up with
+                //   function cast<TF#0>(TF $x):TF#0
+                //
+                // (c.f. `Decl_instantiate.instantiate_`: this used to keep the
+                // names, which captured them.)
+                let tparams: Vec<Tparam<R, Ty<R>>> = (tparams.iter())
+                    .map(|tp| {
+                        let (pos, name) = (tp.name.pos(), tp.name.id());
+                        if target_generics.contains(&name) {
+                            // Fresh only because we don't support nesting of
+                            // generic function types
+                            let fresh_tp_name = TypeName::new(format!("{}#0", name.as_str()));
+                            let reason = R::witness_from_decl(pos.clone());
+                            subst
+                                .0
+                                .insert(name, Ty::new(reason, Ty_::Tgeneric(fresh_tp_name)));
+                            Tparam {
+                                name: Positioned::new(pos.clone(), fresh_tp_name),
+                                ..tp.clone()
+                            }
+                        } else {
+                            tp.clone()
+                        }
+                    })
+                    .collect();
                 let subst = Substitution { subst: &subst };
                 let params = ft
                     .params
@@ -134,25 +271,24 @@ impl<'a, R: Reason> Substitution<'a, R> {
                     })
                     .collect::<Box<[_]>>();
                 let ret = subst.instantiate(&ft.ret);
-                let tparams = tparams
-                    .iter()
+                let tparams = (tparams.into_iter())
                     .map(|tp| Tparam {
                         constraints: tp
                             .constraints
                             .iter()
                             .map(|(ck, ty)| (*ck, subst.instantiate(ty)))
                             .collect::<Box<[_]>>(),
-                        variance: tp.variance,
-                        name: tp.name.clone(),
-                        reified: tp.reified,
-                        user_attributes: tp.user_attributes.clone(),
+                        ..tp
                     })
                     .collect::<Box<[_]>>();
+                // (Both sides of a where constraint are instantiated with the
+                // substitution of the function's body, as in
+                // `Decl_instantiate`.)
                 let where_constraints = ft
                     .where_constraints
                     .iter()
                     .map(|WhereConstraint(ty1, ck, ty2)| {
-                        WhereConstraint(subst.instantiate(ty1), *ck, outer_subst.instantiate(ty2))
+                        WhereConstraint(subst.instantiate(ty1), *ck, subst.instantiate(ty2))
                     })
                     .collect::<Box<[_]>>();
                 Ty_::Tfun(Box::new(FunType {
@@ -176,7 +312,10 @@ impl<'a, R: Reason> Substitution<'a, R> {
             }
             Ty_::Tshape(params) => match &**params {
                 ShapeType::Simple(ShapeTypeSimple(shape_kind, fdm)) => {
-                    let shape_kind = self.instantiate(shape_kind);
+                    // TODO(shapes) s_unknown_value should likely be
+                    // instantiated (`Decl_instantiate` leaves it alone, and so
+                    // does this.)
+                    let shape_kind = shape_kind.clone();
                     let fdm = fdm
                         .iter()
                         .map(|(f, sft)| {

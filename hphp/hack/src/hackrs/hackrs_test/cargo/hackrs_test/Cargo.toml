@@ -22,7 +22,6 @@ hh24_test = { path = "../../../../utils/cargo/hh24_test" }
 itertools = "0.15.0"
 maplit = "1.0"
 naming_provider = { path = "../../../naming_provider/cargo/naming_provider" }
-ocamlrep = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main" }
 oxidized = { path = "../../../../oxidized" }
 pos = { path = "../../../pos/cargo/pos" }
 relative_path = { path = "../../../../utils/rust/relative_path" }

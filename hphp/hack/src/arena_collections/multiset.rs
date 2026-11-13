@@ -25,8 +25,6 @@ use std::fmt::Debug;
 
 use arena_trait::TrivialDrop;
 use bumpalo::Bump;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Serialize;
 
 use crate::AssocList;
@@ -583,23 +581,34 @@ impl<'a, T: Ord> From<MultiSetMut<'a, T>> for SortedSet<'a, T> {
     }
 }
 
-impl<T: ToOcamlRep + Ord> ToOcamlRep for SortedSet<'_, T> {
-    fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
-        let len = self.len();
-        let mut iter = self.iter().map(|x| x.to_ocamlrep(alloc));
-        let (value, _) = ocamlrep::sorted_iter_to_ocaml_set(&mut iter, alloc, len);
-        value
-    }
-}
+// ---- OCaml interop (feature "ocamlrep") ----
+#[cfg(feature = "ocamlrep")]
+mod ocamlrep_impls {
+    #[allow(unused_imports)]
+    use super::*;
+    #[allow(unused_imports)]
+    use ocamlrep::FromOcamlRepIn;
+    #[allow(unused_imports)]
+    use ocamlrep::ToOcamlRep;
 
-impl<'a, T: FromOcamlRepIn<'a> + Ord> FromOcamlRepIn<'a> for SortedSet<'a, T> {
-    fn from_ocamlrep_in(
-        value: ocamlrep::Value<'_>,
-        alloc: &'a bumpalo::Bump,
-    ) -> Result<Self, ocamlrep::FromError> {
-        let mut list = bumpalo::collections::Vec::new_in(alloc);
-        ocamlrep::vec_from_ocaml_set_in(value, &mut list, alloc)?;
-        let list = SortedAssocList::from_slice(list.into_bump_slice());
-        Ok(Self { list })
+    impl<T: ToOcamlRep + Ord> ToOcamlRep for SortedSet<'_, T> {
+        fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
+            let len = self.len();
+            let mut iter = self.iter().map(|x| x.to_ocamlrep(alloc));
+            let (value, _) = ocamlrep::sorted_iter_to_ocaml_set(&mut iter, alloc, len);
+            value
+        }
+    }
+
+    impl<'a, T: FromOcamlRepIn<'a> + Ord> FromOcamlRepIn<'a> for SortedSet<'a, T> {
+        fn from_ocamlrep_in(
+            value: ocamlrep::Value<'_>,
+            alloc: &'a bumpalo::Bump,
+        ) -> Result<Self, ocamlrep::FromError> {
+            let mut list = bumpalo::collections::Vec::new_in(alloc);
+            ocamlrep::vec_from_ocaml_set_in(value, &mut list, alloc)?;
+            let list = SortedAssocList::from_slice(list.into_bump_slice());
+            Ok(Self { list })
+        }
     }
 }

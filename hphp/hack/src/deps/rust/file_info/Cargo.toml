@@ -16,8 +16,6 @@ arena_trait = { path = "../../../arena_trait" }
 eq_modulo_pos = { path = "../../../utils/eq_modulo_pos" }
 naming_types = { path = "../../../naming/rust/naming_types" }
 no_pos_hash = { path = "../../../utils/no_pos_hash" }
-ocamlrep = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main" }
-ocamlrep_caml_builtins = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main" }
 parser_core_types = { path = "../../../parser/cargo/core_types" }
 rc_pos = { path = "../../../utils/rust/pos" }
 relative_path = { path = "../../../utils/rust/relative_path" }
@@ -25,3 +23,10 @@ rusqlite = { version = "0.40.0", features = ["backup", "blob", "bundled", "colum
 serde = { version = "1.0.229", features = ["derive", "rc"] }
 thiserror = "2.0.21"
 typing_deps_hash = { path = "../../cargo/typing_deps_hash" }
+ocamlrep = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main", optional = true }
+ocamlrep_caml_builtins = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main", optional = true }
+
+[features]
+# The conversions to and from OCaml values, for the crates that the OCaml
+# typechecker links, which turn the feature on.
+ocamlrep = ["dep:ocamlrep", "dep:ocamlrep_caml_builtins", "arena_deserializer/ocamlrep", "eq_modulo_pos/ocamlrep", "naming_types/ocamlrep", "no_pos_hash/ocamlrep", "parser_core_types/ocamlrep", "rc_pos/ocamlrep", "relative_path/ocamlrep", "typing_deps_hash/ocamlrep"]

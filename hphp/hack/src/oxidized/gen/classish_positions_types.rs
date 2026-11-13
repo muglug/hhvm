@@ -10,8 +10,6 @@
 
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -26,31 +24,26 @@ use crate::*;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, ord, show)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum Pos<P> {
     /// Use the precomputed position.
     Precomputed(P),
     /// Position at the end of the class body. Will return a zero-length
     /// position just before the closing brace.
-    #[rust_to_ocaml(name = "Classish_end_of_body")]
     ClassishEndOfBody(String),
     /// Position at the start of the class body. Will return a zero-length
     /// position just after the opening brace.
-    #[rust_to_ocaml(name = "Classish_start_of_body")]
     ClassishStartOfBody(String),
     /// Position encompassing the full range of the closing brace of
     /// the class body.
-    #[rust_to_ocaml(name = "Classish_closing_brace")]
     ClassishClosingBrace(String),
 }
 
@@ -61,17 +54,15 @@ pub enum Pos<P> {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(prefix = "classish_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ClassishPositions<P> {
     /// Zero-length position indicating the start of the class body
     /// (should be right after the opening brace)

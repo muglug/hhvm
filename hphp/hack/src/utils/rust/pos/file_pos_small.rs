@@ -5,9 +5,6 @@
 
 use std::fmt;
 
-use ocamlrep::FromOcamlRep;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -60,6 +57,17 @@ const MAX_BOL: usize = mask(BOL_BITS);
 const DUMMY: u64 = u64::MAX;
 
 impl FilePosSmall {
+    /// The packed representation (for `Pos`, which packs it in turn).
+    #[inline]
+    pub(crate) const fn to_bits(self) -> u64 {
+        self.0
+    }
+
+    #[inline]
+    pub(crate) const fn from_bits(bits: u64) -> Self {
+        FilePosSmall(bits)
+    }
+
     #[inline]
     pub const fn make_dummy() -> Self {
         FilePosSmall(DUMMY)
@@ -209,23 +217,36 @@ impl fmt::Debug for FilePosSmall {
     }
 }
 
-impl ToOcamlRep for FilePosSmall {
-    fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, _alloc: &'a A) -> ocamlrep::Value<'a> {
-        ocamlrep::Value::int(self.0 as isize)
-    }
-}
+// ---- OCaml interop (feature "ocamlrep") ----
+#[cfg(feature = "ocamlrep")]
+mod ocamlrep_impls {
+    #[allow(unused_imports)]
+    use super::*;
+    #[allow(unused_imports)]
+    use ocamlrep::FromOcamlRep;
+    #[allow(unused_imports)]
+    use ocamlrep::FromOcamlRepIn;
+    #[allow(unused_imports)]
+    use ocamlrep::ToOcamlRep;
 
-impl FromOcamlRep for FilePosSmall {
-    fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
-        Ok(Self(ocamlrep::from::expect_int(value)? as u64))
+    impl ToOcamlRep for FilePosSmall {
+        fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, _alloc: &'a A) -> ocamlrep::Value<'a> {
+            ocamlrep::Value::int(self.0 as isize)
+        }
     }
-}
 
-impl<'a> FromOcamlRepIn<'a> for FilePosSmall {
-    fn from_ocamlrep_in(
-        value: ocamlrep::Value<'_>,
-        _alloc: &'a ocamlrep::Bump,
-    ) -> Result<Self, ocamlrep::FromError> {
-        Self::from_ocamlrep(value)
+    impl FromOcamlRep for FilePosSmall {
+        fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
+            Ok(Self(ocamlrep::from::expect_int(value)? as u64))
+        }
+    }
+
+    impl<'a> FromOcamlRepIn<'a> for FilePosSmall {
+        fn from_ocamlrep_in(
+            value: ocamlrep::Value<'_>,
+            _alloc: &'a ocamlrep::Bump,
+        ) -> Result<Self, ocamlrep::FromError> {
+            Self::from_ocamlrep(value)
+        }
     }
 }

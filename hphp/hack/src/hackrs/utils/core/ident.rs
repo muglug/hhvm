@@ -7,14 +7,11 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use eq_modulo_pos::EqModuloPos;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, EqModuloPos, PartialOrd, Ord)]
 #[derive(Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 pub struct Ident(u64);
 
 impl From<u64> for Ident {

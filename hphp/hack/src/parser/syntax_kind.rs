@@ -17,11 +17,10 @@
  *
  */
 
-use ocamlrep::{FromOcamlRep, ToOcamlRep};
-
 use crate::token_kind::TokenKind;
 
-#[derive(Debug, Copy, Clone, FromOcamlRep, ToOcamlRep, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum SyntaxKind {
     Missing,
     Token(TokenKind),

@@ -8,8 +8,6 @@ use std::fmt;
 
 use eq_modulo_pos::EqModuloPos;
 use hcons::Hc;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use oxidized::aast;
 pub use oxidized::aast_defs::PackageMembership;
 pub use oxidized::aast_defs::ReifyKind;
@@ -65,7 +63,6 @@ pub enum Exact {
 
 // c.f. ast_defs::XhpEnumValue
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 pub enum XhpEnumValue {
     XEVInt(isize),
     XEVString(Symbol),
@@ -77,7 +74,6 @@ walkable!(XhpEnumValue => {
 });
 
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 pub enum CeVisibility {
     Public,
     Private(TypeName),
@@ -129,13 +125,11 @@ pub enum ShapeFieldNamePos<P> {
 }
 
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 pub enum DependentType {
     Texpr(Ident),
 }
 
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 pub enum UserAttributeParam {
     Classname(TypeName),
     EnumClassLabel(Symbol),
@@ -146,7 +140,6 @@ pub enum UserAttributeParam {
 walkable!(UserAttributeParam);
 
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 pub struct UserAttribute<P> {
     pub name: Positioned<TypeName, P>,
     pub params: Box<[UserAttributeParam]>,
@@ -175,7 +168,6 @@ impl<P> UserAttribute<P> {
 walkable!(impl<R: Reason> for UserAttribute<R::Pos> => [name, params]);
 
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason")]
 pub enum DeclConstraintRequirement<R: Reason> {
     DCREqual(Ty<R>),
@@ -188,7 +180,6 @@ walkable!(impl<R: Reason> for DeclConstraintRequirement<R> => {
 });
 
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason, TY: Serialize + DeserializeOwned")]
 pub struct Tparam<R: Reason, TY> {
     pub variance: ast_defs::Variance,
@@ -201,18 +192,15 @@ pub struct Tparam<R: Reason, TY> {
 walkable!(impl<R: Reason, TY> for Tparam<R, TY> => [constraints]);
 
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 pub struct WhereConstraint<TY>(pub TY, pub ast_defs::ConstraintKind, pub TY);
 
 walkable!(impl<R: Reason, TY> for WhereConstraint<TY> => [0, 1, 2]);
 
 #[derive(Clone, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason")]
 pub struct Ty<R: Reason>(R, Hc<Ty_<R>>);
 
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason")]
 pub struct TypedefCaseTypeVariant<R: Reason> {
     pub hint: Ty<R>,
@@ -222,7 +210,6 @@ pub struct TypedefCaseTypeVariant<R: Reason> {
 walkable!(TypedefCaseTypeVariant<R> => [hint, where_constraints]);
 
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason")]
 pub enum TypedefTypeAssignment<R: Reason> {
     SimpleTypeDef(aast::TypedefVisibility, Ty<R>),
@@ -510,7 +497,6 @@ impl<R: Reason> crate::visitor::Walkable<R> for TupleExtra<R> {
 
 /// A Type const access expression of the form <type expr>::C.
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason, TY: Serialize + DeserializeOwned")]
 pub struct TaccessType<R: Reason, TY> {
     /// Type expression to the left of `::`
@@ -538,7 +524,6 @@ walkable!(impl<R: Reason> for TrefinementType<Ty<R>> => [ty, refinement]);
 
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq)]
 #[derive(Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "TY: Serialize + DeserializeOwned")]
 pub struct ClassRefinement<TY> {
     pub consts: BTreeMap<TypeConstName, RefinedConst<TY>>,
@@ -549,7 +534,6 @@ walkable!(impl<R: Reason> for ClassRefinement<Ty<R>> => [consts]);
 /// Constant refinements (either `type` or `ctx`)
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq)]
 #[derive(Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "TY: Serialize + DeserializeOwned")]
 pub struct RefinedConst<TY> {
     pub bound: RefinedConstBound<TY>,
@@ -560,7 +544,6 @@ walkable!(impl<R: Reason> for RefinedConst<Ty<R>> => [bound]);
 
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq)]
 #[derive(Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "TY: Serialize + DeserializeOwned")]
 pub enum RefinedConstBound<TY> {
     Exact(TY),
@@ -574,7 +557,6 @@ walkable!(impl<R: Reason, TY> for RefinedConstBound<TY> => {
 
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq)]
 #[derive(Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "TY: Serialize + DeserializeOwned")]
 pub struct RefinedConstBounds<TY> {
     pub lower: Box<[TY]>,
@@ -584,7 +566,6 @@ pub struct RefinedConstBounds<TY> {
 walkable!(impl<R: Reason, TY> for RefinedConstBounds<TY> => [lower, upper]);
 
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason, TY: Serialize + DeserializeOwned")]
 pub enum Capability<R: Reason, TY> {
     CapDefaults(R::Pos),
@@ -599,7 +580,6 @@ walkable!(impl<R: Reason, TY> for Capability<R, TY> => {
 /// Companion to fun_params type, intended to consolidate checking of
 /// implicit params for functions.
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason, TY: Serialize + DeserializeOwned")]
 pub struct FunImplicitParams<R: Reason, TY> {
     pub capability: Capability<R, TY>,
@@ -609,7 +589,6 @@ walkable!(impl<R: Reason, TY> for FunImplicitParams<R, TY> => [capability]);
 
 /// The type of a function AND a method.
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason, TY: Serialize + DeserializeOwned")]
 pub struct FunType<R: Reason, TY> {
     pub tparams: Box<[Tparam<R, TY>]>,
@@ -627,7 +606,6 @@ walkable!(impl<R: Reason, TY> for FunType<R, TY> => [
 ]);
 
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason, TY: Serialize + DeserializeOwned")]
 pub struct FunParam<R: Reason, TY> {
     pub pos: R::Pos,
@@ -656,7 +634,6 @@ pub type FunParams<R, TY> = Box<[FunParam<R, TY>]>;
 ///
 /// class_const_from encodes the origin (class vs self).
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 pub enum ClassConstFrom {
     Self_,
     From(TypeName),
@@ -668,7 +645,6 @@ pub enum ClassConstFrom {
 /// `CVLargeInt`, which stores the literal's source text verbatim (not
 /// canonicalized) so it marshals without truncation.
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 pub enum ConstValue {
     CVInt(isize),
     CVLargeInt(String),
@@ -693,11 +669,9 @@ pub enum ConstValue {
 /// Currently the syntax of constants allows direct references to another class
 /// like D::A, or self references using self::A.
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 pub struct ClassConstRef(pub ClassConstFrom, pub Symbol);
 
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason")]
 pub struct ConstDecl<R: Reason> {
     pub pos: R::Pos,
@@ -711,7 +685,6 @@ walkable!(ConstDecl<R> => [ty]);
 walkable!(PackageMembership);
 
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason")]
 pub struct FunElt<R: Reason> {
     pub deprecated: Option<Bytes>,
@@ -732,7 +705,6 @@ pub struct FunElt<R: Reason> {
 walkable!(FunElt<R> => [ty]);
 
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason")]
 pub struct AbstractTypeconst<R: Reason> {
     pub as_constraint: Option<Ty<R>>,
@@ -743,7 +715,6 @@ pub struct AbstractTypeconst<R: Reason> {
 walkable!(AbstractTypeconst<R> => [as_constraint, super_constraint, default]);
 
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason")]
 pub struct ConcreteTypeconst<R: Reason> {
     pub ty: Ty<R>,
@@ -752,7 +723,6 @@ pub struct ConcreteTypeconst<R: Reason> {
 walkable!(ConcreteTypeconst<R> => [ty]);
 
 #[derive(Clone, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason")]
 pub enum Typeconst<R: Reason> {
     TCAbstract(AbstractTypeconst<R>),
@@ -774,7 +744,6 @@ impl<R: Reason> fmt::Debug for Typeconst<R> {
 }
 
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason")]
 pub struct EnumType<R: Reason> {
     pub base: Ty<R>,
@@ -785,7 +754,6 @@ pub struct EnumType<R: Reason> {
 walkable!(EnumType<R> => [base, constraint, includes]);
 
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason")]
 pub struct TypedefType<R: Reason> {
     pub module: Option<Positioned<ModuleName, R::Pos>>,
@@ -806,7 +774,6 @@ walkable!(TypedefType<R> => [tparams, as_constraint, super_constraint, type_assi
 walkable!(ast_defs::ConstraintKind);
 
 #[derive(Clone, Debug, Eq, EqModuloPos, Hash, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 pub struct ModuleDefType<R: Reason> {
     pub pos: R::Pos,
 }

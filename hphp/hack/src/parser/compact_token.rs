@@ -50,6 +50,7 @@ struct LargeToken {
 }
 
 impl CompactToken {
+    #[inline]
     pub fn new(
         kind: TokenKind,
         offset: usize,
@@ -269,6 +270,7 @@ impl LexableToken for CompactToken {
 }
 
 impl SimpleTokenFactory for CompactToken {
+    #[inline]
     fn make(
         kind: TokenKind,
         offset: usize,

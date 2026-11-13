@@ -21,7 +21,6 @@ lowerer = { path = "../../lowerer" }
 mode_parser = { path = "../mode_parser" }
 namespaces_rust = { path = "../namespaces" }
 naming_special_names_rust = { path = "../../../naming" }
-ocamlrep = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main" }
 oxidized = { path = "../../../oxidized" }
 parser_core_types = { path = "../core_types" }
 positioned_by_ref_parser = { path = "../../api/cargo/positioned_by_ref_parser" }
@@ -29,3 +28,9 @@ rust_aast_parser_types = { path = "../rust_aast_parser_types" }
 rust_parser_errors = { path = "../errors" }
 smart_constructors = { path = "../smart_constructors" }
 stack_limit = { path = "../../../utils/stack_limit" }
+ocamlrep = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main", optional = true }
+
+[features]
+# The conversions to and from OCaml values, for the crates that the OCaml
+# typechecker links, which turn the feature on.
+ocamlrep = ["dep:ocamlrep", "oxidized/ocamlrep", "parser_core_types/ocamlrep", "rust_aast_parser_types/ocamlrep", "smart_constructors/ocamlrep"]

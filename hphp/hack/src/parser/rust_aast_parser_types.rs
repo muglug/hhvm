@@ -8,8 +8,6 @@ use std::time::Duration;
 use file_info::Mode;
 use hash::HashSet;
 use lint_rust::LintError;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use oxidized::aast::Program;
 use oxidized::diagnostics::Diagnostic;
 use oxidized::experimental_features::FeatureName;
@@ -20,7 +18,8 @@ use oxidized::pos::Pos;
 use oxidized::scoured_comments::ScouredComments;
 use parser_core_types::syntax_error::SyntaxError;
 
-#[derive(Clone, Debug, FromOcamlRep, ToOcamlRep)]
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct Env {
     pub mode: NamespaceMode,
     pub php5_compat_mode: bool,
@@ -51,7 +50,8 @@ impl Default for Env {
     }
 }
 
-#[derive(Debug, ToOcamlRep)]
+#[derive(Debug)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::ToOcamlRep))]
 pub struct ParserResult {
     pub file_mode: Mode,
     pub scoured_comments: ScouredComments,
@@ -60,9 +60,9 @@ pub struct ParserResult {
     pub syntax_errors: Vec<SyntaxError>,
     pub errors: Vec<Diagnostic>,
     pub lint_errors: Vec<LintError>,
-    #[ocamlrep(skip)]
+    #[cfg_attr(feature = "ocamlrep", ocamlrep(skip))]
     pub profile: ParserProfile,
-    #[ocamlrep(skip)]
+    #[cfg_attr(feature = "ocamlrep", ocamlrep(skip))]
     pub active_experimental_features: HashSet<FeatureName>,
 }
 

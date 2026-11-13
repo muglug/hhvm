@@ -6,7 +6,6 @@
 use std::cmp::Ordering;
 
 use arena_deserializer::DeserializeInArena;
-use ocamlrep::FromOcamlRepIn;
 use serde::Deserializer;
 
 use crate::diagnostics::*;
@@ -365,15 +364,6 @@ impl Default for Format {
     }
 }
 
-impl<'a> FromOcamlRepIn<'a> for Axiom {
-    fn from_ocamlrep_in(
-        _value: ocamlrep::Value<'_>,
-        _arena: &'a bumpalo::Bump,
-    ) -> Result<Self, ocamlrep::FromError> {
-        panic!("Axioms are internal to inference and should not appear in decls")
-    }
-}
-
 impl<'a> DeserializeInArena<'a> for &Axiom {
     fn deserialize_in_arena<D>(
         _arena: &'a bumpalo::Bump,
@@ -383,5 +373,23 @@ impl<'a> DeserializeInArena<'a> for &Axiom {
         D: Deserializer<'a>,
     {
         panic!("Axioms are internal to inference and should not appear in decls")
+    }
+}
+
+// ---- OCaml interop (feature "ocamlrep") ----
+#[cfg(feature = "ocamlrep")]
+mod ocamlrep_impls {
+    #[allow(unused_imports)]
+    use super::*;
+    #[allow(unused_imports)]
+    use ocamlrep::FromOcamlRepIn;
+
+    impl<'a> FromOcamlRepIn<'a> for Axiom {
+        fn from_ocamlrep_in(
+            _value: ocamlrep::Value<'_>,
+            _arena: &'a bumpalo::Bump,
+        ) -> Result<Self, ocamlrep::FromError> {
+            panic!("Axioms are internal to inference and should not appear in decls")
+        }
     }
 }

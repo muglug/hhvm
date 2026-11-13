@@ -4,5 +4,4 @@ pub mod visitor;
 
 pub mod decl;
 pub mod decl_error;
-mod ocamlrep;
 pub mod reason;

@@ -6,14 +6,13 @@
 
 mod operator_generated;
 
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use parser_core_types::parser_env::ParserEnv;
 use parser_core_types::token_kind::TokenKind;
 
 pub use crate::operator_generated::*;
 
-#[derive(PartialEq, FromOcamlRep, ToOcamlRep, Debug)]
+#[derive(PartialEq, Debug)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum Assoc {
     LeftAssociative,
     RightAssociative,

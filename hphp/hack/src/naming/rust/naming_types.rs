@@ -10,9 +10,6 @@
 use arena_trait::TrivialDrop;
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -31,18 +28,15 @@ use crate::*;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep,
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (show, eq)")]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum KindOfType {
     TClass,
     TTypedef,
@@ -56,24 +50,18 @@ arena_deserializer::impl_deserialize_in_arena!(KindOfType);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep,
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (show, eq)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum NameKind {
-    #[rust_to_ocaml(name = "Type_kind")]
     TypeKind(KindOfType),
-    #[rust_to_ocaml(name = "Fun_kind")]
     FunKind,
-    #[rust_to_ocaml(name = "Const_kind")]
     ConstKind,
-    #[rust_to_ocaml(name = "Module_kind")]
     ModuleKind,
 }

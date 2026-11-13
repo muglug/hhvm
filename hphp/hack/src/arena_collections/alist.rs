@@ -25,8 +25,6 @@ use std::fmt::Debug;
 
 use arena_trait::TrivialDrop;
 use bumpalo::Bump;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -960,29 +958,40 @@ impl<'a, K: Ord, V> From<AssocListMut<'a, K, V>> for SortedAssocList<'a, K, V> {
     }
 }
 
-impl<K: ToOcamlRep + Ord, V: ToOcamlRep> ToOcamlRep for SortedAssocList<'_, K, V> {
-    fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
-        let len = self.len();
-        let mut iter = self
-            .iter()
-            .map(|(k, v)| (k.to_ocamlrep(alloc), v.to_ocamlrep(alloc)));
-        let (value, _) = ocamlrep::sorted_iter_to_ocaml_map(&mut iter, alloc, len);
-        value
-    }
-}
+// ---- OCaml interop (feature "ocamlrep") ----
+#[cfg(feature = "ocamlrep")]
+mod ocamlrep_impls {
+    #[allow(unused_imports)]
+    use super::*;
+    #[allow(unused_imports)]
+    use ocamlrep::FromOcamlRepIn;
+    #[allow(unused_imports)]
+    use ocamlrep::ToOcamlRep;
 
-impl<'a, K, V> FromOcamlRepIn<'a> for SortedAssocList<'a, K, V>
-where
-    K: FromOcamlRepIn<'a> + Ord,
-    V: FromOcamlRepIn<'a>,
-{
-    fn from_ocamlrep_in(
-        value: ocamlrep::Value<'_>,
-        alloc: &'a bumpalo::Bump,
-    ) -> Result<Self, ocamlrep::FromError> {
-        let mut entries = bumpalo::collections::Vec::new_in(alloc);
-        ocamlrep::vec_from_ocaml_map_in(value, &mut entries, alloc)?;
-        let entries = entries.into_bump_slice();
-        Ok(Self { entries })
+    impl<K: ToOcamlRep + Ord, V: ToOcamlRep> ToOcamlRep for SortedAssocList<'_, K, V> {
+        fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
+            let len = self.len();
+            let mut iter = self
+                .iter()
+                .map(|(k, v)| (k.to_ocamlrep(alloc), v.to_ocamlrep(alloc)));
+            let (value, _) = ocamlrep::sorted_iter_to_ocaml_map(&mut iter, alloc, len);
+            value
+        }
+    }
+
+    impl<'a, K, V> FromOcamlRepIn<'a> for SortedAssocList<'a, K, V>
+    where
+        K: FromOcamlRepIn<'a> + Ord,
+        V: FromOcamlRepIn<'a>,
+    {
+        fn from_ocamlrep_in(
+            value: ocamlrep::Value<'_>,
+            alloc: &'a bumpalo::Bump,
+        ) -> Result<Self, ocamlrep::FromError> {
+            let mut entries = bumpalo::collections::Vec::new_in(alloc);
+            ocamlrep::vec_from_ocaml_map_in(value, &mut entries, alloc)?;
+            let entries = entries.into_bump_slice();
+            Ok(Self { entries })
+        }
     }
 }

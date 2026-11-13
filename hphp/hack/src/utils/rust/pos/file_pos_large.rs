@@ -3,9 +3,6 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the "hack" directory of this source tree.
 
-use ocamlrep::FromOcamlRep;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -148,39 +145,6 @@ impl From<FilePosSmall> for FilePosLarge {
     }
 }
 
-impl ToOcamlRep for FilePosLarge {
-    fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
-        let mut block = alloc.block_with_size(3);
-        alloc.set_field(&mut block, 0, alloc.add(&self.lnum));
-        alloc.set_field(&mut block, 1, alloc.add(&self.bol));
-        alloc.set_field(&mut block, 2, alloc.add_copy(self.offset as isize));
-        block.build()
-    }
-}
-
-impl FromOcamlRep for FilePosLarge {
-    fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
-        let block = ocamlrep::from::expect_tuple(value, 3)?;
-        let lnum = ocamlrep::from::field(block, 0)?;
-        let bol = ocamlrep::from::field(block, 1)?;
-        let offset: isize = ocamlrep::from::field(block, 2)?;
-        Ok(Self {
-            lnum,
-            bol,
-            offset: offset as usize,
-        })
-    }
-}
-
-impl<'a> FromOcamlRepIn<'a> for FilePosLarge {
-    fn from_ocamlrep_in(
-        value: ocamlrep::Value<'_>,
-        _alloc: &'a ocamlrep::Bump,
-    ) -> Result<Self, ocamlrep::FromError> {
-        Self::from_ocamlrep(value)
-    }
-}
-
 impl WithErasedLines for (FilePosLarge, FilePosLarge) {
     fn with_erased_lines(self) -> Self {
         let (start, end) = self;
@@ -205,5 +169,51 @@ impl WithErasedLines for (FilePosLarge, FilePosLarge) {
             offset: end_offset - start_bol,
         };
         (start, end)
+    }
+}
+
+// ---- OCaml interop (feature "ocamlrep") ----
+#[cfg(feature = "ocamlrep")]
+mod ocamlrep_impls {
+    #[allow(unused_imports)]
+    use super::*;
+    #[allow(unused_imports)]
+    use ocamlrep::FromOcamlRep;
+    #[allow(unused_imports)]
+    use ocamlrep::FromOcamlRepIn;
+    #[allow(unused_imports)]
+    use ocamlrep::ToOcamlRep;
+
+    impl ToOcamlRep for FilePosLarge {
+        fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
+            let mut block = alloc.block_with_size(3);
+            alloc.set_field(&mut block, 0, alloc.add(&self.lnum));
+            alloc.set_field(&mut block, 1, alloc.add(&self.bol));
+            alloc.set_field(&mut block, 2, alloc.add_copy(self.offset as isize));
+            block.build()
+        }
+    }
+
+    impl FromOcamlRep for FilePosLarge {
+        fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
+            let block = ocamlrep::from::expect_tuple(value, 3)?;
+            let lnum = ocamlrep::from::field(block, 0)?;
+            let bol = ocamlrep::from::field(block, 1)?;
+            let offset: isize = ocamlrep::from::field(block, 2)?;
+            Ok(Self {
+                lnum,
+                bol,
+                offset: offset as usize,
+            })
+        }
+    }
+
+    impl<'a> FromOcamlRepIn<'a> for FilePosLarge {
+        fn from_ocamlrep_in(
+            value: ocamlrep::Value<'_>,
+            _alloc: &'a ocamlrep::Bump,
+        ) -> Result<Self, ocamlrep::FromError> {
+            Self::from_ocamlrep(value)
+        }
     }
 }

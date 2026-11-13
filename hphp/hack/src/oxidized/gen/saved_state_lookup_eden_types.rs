@@ -10,8 +10,6 @@
 
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -27,24 +25,19 @@ use crate::*;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum SavedStateError {
-    #[rust_to_ocaml(name = "No_saved_state")]
     NoSavedState,
-    #[rust_to_ocaml(name = "Query_error")]
     QueryError(String),
-    #[rust_to_ocaml(name = "Other_error")]
     OtherError(String),
-    #[rust_to_ocaml(name = "Future_timeout")]
     FutureTimeout,
 }
 
@@ -54,16 +47,15 @@ pub enum SavedStateError {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct LookupArgs {
     pub timeout_secs: isize,
     pub project_name: String,

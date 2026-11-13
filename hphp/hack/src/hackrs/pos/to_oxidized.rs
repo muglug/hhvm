@@ -7,12 +7,11 @@ use std::collections::BTreeMap;
 
 use indexmap::IndexMap;
 use indexmap::IndexSet;
-use ocamlrep::ToOcamlRep;
 use oxidized::s_map::SMap;
 use oxidized::s_set::SSet;
 
 pub trait ToOxidized {
-    type Output: Clone + ToOcamlRep;
+    type Output: Clone;
 
     fn to_oxidized(self) -> Self::Output;
 }

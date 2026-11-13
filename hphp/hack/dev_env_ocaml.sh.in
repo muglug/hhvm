@@ -1,0 +1,18 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the "hack" directory of this source tree.
+
+# Do not use this file directly - use dev_env.sh. It holds what the OCaml
+# build of Hack (dune, in an opam switch) needs on top of dev_env_common.sh.
+# The Rust build (dev_env_rust_only.sh) does not read it.
+
+export OPAMROOT="@OPAMROOT@"
+export PYTHONPATH="@HPHP_HOME@" # needed for verify.py for `hack_dune_test`
+export DUNE_BUILD_DIR="@DUNE_BUILD_DIR@"
+export PATH="$(dirname "@OPAM_EXECUTABLE@"):$PATH"
+
+export HACK_EXTRA_INCLUDE_PATHS="@extra_include_paths@"
+export HACK_EXTRA_LINK_OPTS="@extra_link_opts@"
+export HACK_EXTRA_LIB_PATHS="@extra_lib_paths@"
+export HACK_EXTRA_NATIVE_LIBRARIES="@extra_native_libraries@"

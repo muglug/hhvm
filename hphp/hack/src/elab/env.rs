@@ -83,6 +83,9 @@ pub struct Env {
     errors: RefCell<Vec<NamingPhaseError>>,
     pub consistent_ctor_level: isize,
     pub active_experimental_features: HashSet<FeatureName>,
+    typed_open_shapes: bool,
+    named_variadic_type: bool,
+    variadic_named_parameters: bool,
 }
 
 impl Default for Env {
@@ -106,6 +109,9 @@ impl Env {
             errors: RefCell::new(vec![]),
             consistent_ctor_level: tco.tco_explicit_consistent_constructors,
             active_experimental_features,
+            typed_open_shapes: tco.tco_typed_open_shapes,
+            named_variadic_type: tco.tco_named_variadic_type,
+            variadic_named_parameters: tco.tco_variadic_named_parameters,
         }
     }
 
@@ -117,8 +123,25 @@ impl Env {
         assert!(self.errors.borrow().is_empty());
     }
 
+    /// The errors emitted so far, which are forgotten.
+    pub fn take_errors(&self) -> Vec<NamingPhaseError> {
+        std::mem::take(&mut *self.errors.borrow_mut())
+    }
+
     pub fn into_errors(self) -> Vec<NamingPhaseError> {
         self.errors.into_inner()
+    }
+
+    pub fn typed_open_shapes(&self) -> bool {
+        self.typed_open_shapes
+    }
+
+    pub fn named_variadic_type(&self) -> bool {
+        self.named_variadic_type
+    }
+
+    pub fn variadic_named_parameters(&self) -> bool {
+        self.variadic_named_parameters
     }
 
     pub fn soft_as_like(&self) -> bool {

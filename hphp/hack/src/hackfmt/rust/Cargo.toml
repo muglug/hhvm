@@ -1,0 +1,23 @@
+[package]
+name = "hackfmt"
+version = "0.0.0"
+edition = "2024"
+repository = "https://github.com/facebook/hhvm"
+license = "MIT"
+
+[lib]
+name = "hackfmt"
+path = "src/lib.rs"
+
+[[bin]]
+name = "hackfmt"
+path = "src/main.rs"
+
+[dependencies]
+bstr = { version = "1.13.1", features = ["serde", "std", "unicode"] }
+bumpalo = { version = "3.20.3", features = ["allocator_api", "collections"] }
+libc = "0.2.189"
+operator = { path = "../../parser/cargo/operator" }
+parser_core_types = { path = "../../parser/cargo/core_types" }
+positioned_by_ref_parser = { path = "../../parser/api/cargo/positioned_by_ref_parser" }
+relative_path = { path = "../../utils/rust/relative_path" }

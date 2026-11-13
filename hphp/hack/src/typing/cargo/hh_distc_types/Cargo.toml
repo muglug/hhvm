@@ -14,5 +14,4 @@ path = "../../hh_distc_types/lib.rs"
 diagnostics = { package = "diagnostics_rs", path = "../../../diagnostics/cargo/diagnostics" }
 eq_modulo_pos = { path = "../../../utils/eq_modulo_pos" }
 no_pos_hash = { path = "../../../utils/no_pos_hash" }
-ocamlrep = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main" }
 serde = { version = "1.0.229", features = ["derive", "rc"] }

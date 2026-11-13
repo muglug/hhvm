@@ -9,8 +9,6 @@ use std::fmt;
 use eq_modulo_pos::EqModuloPos;
 use hash::IndexMap;
 use hash::IndexSet;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use oxidized::ast::PackageMembership;
 pub use oxidized::ast_defs::Abstraction;
 pub use oxidized::ast_defs::ClassishKind;
@@ -45,7 +43,6 @@ use crate::decl_error::DeclError;
 use crate::reason::Reason;
 
 #[derive(Debug, Clone, Eq, EqModuloPos, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 pub struct FoldedElement {
     // note(sf, 2022-01-28): c.f. `Decl_defs.element`
     pub flags: ClassEltFlags,
@@ -87,7 +84,6 @@ pub struct FoldedElement {
 /// via a require extends type. This information is relevant when folding
 /// `substs` during inheritance. See the `inherit` module.
 #[derive(Debug, Clone, Eq, EqModuloPos, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason")]
 pub struct SubstContext<R: Reason> {
     // note(sf, 2022-01-28): c.f. `Decl_defs.subst_context`
@@ -103,7 +99,6 @@ impl<R: Reason> SubstContext<R> {
 }
 
 #[derive(Debug, Clone, Eq, EqModuloPos, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason")]
 pub struct TypeConst<R: Reason> {
     // note(sf, 2022-02-08): c.f. `Typing_defs.typeconst_type`
@@ -127,7 +122,6 @@ impl<R: Reason> TypeConst<R> {
 }
 
 #[derive(Debug, Clone, Eq, EqModuloPos, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason")]
 pub struct ClassConst<R: Reason> {
     // note(sf, 2022-02-08): c.f. `Typing_defs.class_const`
@@ -170,7 +164,6 @@ impl<R: Reason> TypeConst<R> {
 /// }
 /// ```
 #[derive(Clone, Eq, EqModuloPos, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason")]
 pub struct Requirement<R: Reason> {
     pub pos: R::Pos,
@@ -178,7 +171,6 @@ pub struct Requirement<R: Reason> {
 }
 
 #[derive(Clone, Debug, Eq, EqModuloPos, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason")]
 pub enum ConstraintRequirement<R: Reason> {
     CREqual(Requirement<R>),
@@ -186,7 +178,6 @@ pub enum ConstraintRequirement<R: Reason> {
 }
 
 #[derive(Clone, Debug, Eq, EqModuloPos, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 pub struct Constructor {
     pub elt: Option<FoldedElement>,
     pub consistency: ConsistentKind,

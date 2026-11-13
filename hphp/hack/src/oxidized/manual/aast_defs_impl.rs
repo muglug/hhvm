@@ -112,15 +112,6 @@ impl std::fmt::Display for Visibility {
     }
 }
 
-impl<'a> ocamlrep::FromOcamlRepIn<'a> for PackageMembership {
-    fn from_ocamlrep_in(
-        value: ocamlrep::Value<'_>,
-        _alloc: &'a bumpalo::Bump,
-    ) -> Result<Self, ocamlrep::FromError> {
-        use ocamlrep::FromOcamlRep;
-        Self::from_ocamlrep(value)
-    }
-}
 arena_deserializer::impl_deserialize_in_arena!(PackageMembership);
 
 impl EqModuloPos for PackageMembership {
@@ -137,6 +128,23 @@ impl PackageMembership {
         match self {
             PackageConfigAssignment(x) => arena.alloc(PackageConfigAssignment(x.clone())),
             PackageOverride(p, x) => arena.alloc(PackageOverride(p.clone(), x.clone())),
+        }
+    }
+}
+
+// ---- OCaml interop (feature "ocamlrep") ----
+#[cfg(feature = "ocamlrep")]
+mod ocamlrep_impls {
+    #[allow(unused_imports)]
+    use super::*;
+
+    impl<'a> ocamlrep::FromOcamlRepIn<'a> for PackageMembership {
+        fn from_ocamlrep_in(
+            value: ocamlrep::Value<'_>,
+            _alloc: &'a bumpalo::Bump,
+        ) -> Result<Self, ocamlrep::FromError> {
+            use ocamlrep::FromOcamlRep;
+            Self::from_ocamlrep(value)
         }
     }
 }

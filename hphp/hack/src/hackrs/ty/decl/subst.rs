@@ -5,8 +5,6 @@
 
 use eq_modulo_pos::EqModuloPos;
 use hash::IndexMap;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use pos::TypeName;
 use serde::Deserialize;
 use serde::Serialize;
@@ -17,7 +15,6 @@ use crate::reason::Reason;
 
 /// Maps type names to types with which to replace them.
 #[derive(Debug, Clone, Eq, EqModuloPos, PartialEq, Serialize, Deserialize)]
-#[derive(ToOcamlRep, FromOcamlRep)]
 #[serde(bound = "R: Reason")]
 pub struct Subst<R: Reason>(pub IndexMap<TypeName, Ty<R>>);
 

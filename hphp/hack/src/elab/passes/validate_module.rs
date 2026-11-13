@@ -12,7 +12,7 @@ use crate::prelude::*;
 pub struct ValidateModulePass;
 
 impl Pass for ValidateModulePass {
-    fn on_ty_module_def_bottom_up(&mut self, env: &Env, module: &mut ModuleDef) -> ControlFlow<()> {
+    fn on_ty_module_def_top_down(&mut self, env: &Env, module: &mut ModuleDef) -> ControlFlow<()> {
         if !env.allow_module_declarations() {
             env.emit_error(NamingError::ModuleDeclarationOutsideAllowedFiles(
                 module.span.clone(),
@@ -58,8 +58,6 @@ mod tests {
             span: Pos::NONE,
             mode: oxidized::file_info::Mode::Mstrict,
             doc_comment: None,
-            exports: None,
-            imports: None,
         }
     }
 
@@ -71,6 +69,7 @@ mod tests {
                 allow_module_declarations: false,
                 ..Default::default()
             },
+            Default::default(),
         );
         let mut module = mk_module("foo");
         module.transform(&env, &mut ValidateModulePass);

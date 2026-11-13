@@ -10,16 +10,14 @@ use std::path::PathBuf;
 
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[derive(Deserialize, Serialize)]
-#[derive(EqModuloPos, FromOcamlRep, FromOcamlRepIn, ToOcamlRep, NoPosHash)]
+#[derive(EqModuloPos, NoPosHash)]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum Prefix {
     Root,
     Hhi,
@@ -218,24 +216,6 @@ impl<'de> Deserialize<'de> for RelativePath {
     }
 }
 
-impl ToOcamlRep for RelativePath {
-    fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
-        let mut block = alloc.block_with_size(2);
-        alloc.set_field(&mut block, 0, alloc.add(&self.prefix));
-        alloc.set_field(&mut block, 1, alloc.add(self.path()));
-        block.build()
-    }
-}
-
-impl FromOcamlRep for RelativePath {
-    fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
-        let block = ocamlrep::from::expect_tuple(value, 2)?;
-        let prefix = ocamlrep::from::field(block, 0)?;
-        let path: PathBuf = ocamlrep::from::field(block, 1)?;
-        Ok(Self::make(prefix, path))
-    }
-}
-
 pub type Map<T> = std::collections::BTreeMap<RelativePath, T>;
 
 pub mod map {
@@ -282,5 +262,36 @@ mod tests {
             Err("prefix 22 is not defined".to_string()),
             Prefix::try_from(invalid_prefix)
         )
+    }
+}
+
+// ---- OCaml interop (feature "ocamlrep") ----
+#[cfg(feature = "ocamlrep")]
+mod ocamlrep_impls {
+    #[allow(unused_imports)]
+    use super::*;
+    #[allow(unused_imports)]
+    use ocamlrep::FromOcamlRep;
+    #[allow(unused_imports)]
+    use ocamlrep::FromOcamlRepIn;
+    #[allow(unused_imports)]
+    use ocamlrep::ToOcamlRep;
+
+    impl ToOcamlRep for RelativePath {
+        fn to_ocamlrep<'a, A: ocamlrep::Allocator>(&'a self, alloc: &'a A) -> ocamlrep::Value<'a> {
+            let mut block = alloc.block_with_size(2);
+            alloc.set_field(&mut block, 0, alloc.add(&self.prefix));
+            alloc.set_field(&mut block, 1, alloc.add(self.path()));
+            block.build()
+        }
+    }
+
+    impl FromOcamlRep for RelativePath {
+        fn from_ocamlrep(value: ocamlrep::Value<'_>) -> Result<Self, ocamlrep::FromError> {
+            let block = ocamlrep::from::expect_tuple(value, 2)?;
+            let prefix = ocamlrep::from::field(block, 0)?;
+            let path: PathBuf = ocamlrep::from::field(block, 1)?;
+            Ok(Self::make(prefix, path))
+        }
     }
 }

@@ -259,9 +259,8 @@ impl<Id: InternId> InternTable<Id, Id::Intern> {
         AsInterned<Id>: Borrow<Id::Lookup>,
     {
         let wt = t.borrow();
-        // Optimistically try to write lock (because it only requires
-        // one lock acquisition check for the new-string case), but if
-        // there's write contention take a slower path.
+        // Looks up under a shared lock, and takes the write lock only when
+        // `t` is new (see `ShardedSet::get_or_insert_lock`).
         let shards = self.shards();
         let mut insert_lock = match shards.get_or_insert_lock(wt) {
             Ok(AsInterned(id)) => return id,

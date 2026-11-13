@@ -11,5 +11,4 @@
 #[allow(unused_imports)]
 use crate::*;
 
-#[rust_to_ocaml(attr = "deriving (compare, eq, sexp, show)")]
 pub type PattVar = String;

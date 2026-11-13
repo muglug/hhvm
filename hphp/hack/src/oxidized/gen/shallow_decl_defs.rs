@@ -10,8 +10,6 @@
 
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 pub use typing_defs::ConstDecl;
@@ -26,18 +24,15 @@ use crate::*;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
-#[rust_to_ocaml(prefix = "scc_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ShallowClassConst {
     pub abstract_: typing_defs::ClassConstKind,
     pub name: typing_defs::PosId,
@@ -67,18 +62,15 @@ pub struct ShallowClassConst {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
-#[rust_to_ocaml(prefix = "stc_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ShallowTypeconst {
     pub name: typing_defs::PosId,
     pub kind: typing_defs::Typeconst,
@@ -93,18 +85,15 @@ pub struct ShallowTypeconst {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
-#[rust_to_ocaml(prefix = "sp_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ShallowProp {
     pub name: typing_defs::PosId,
     pub xhp_attr: Option<XhpAttr>,
@@ -119,18 +108,15 @@ pub struct ShallowProp {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
-#[rust_to_ocaml(prefix = "sm_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ShallowMethod {
     pub name: typing_defs::PosId,
     pub type_: Ty,
@@ -141,7 +127,6 @@ pub struct ShallowMethod {
     pub package_requirement: PackageRequirement,
 }
 
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 pub type XhpEnumValues = s_map::SMap<Vec<ast_defs::XhpEnumValue>>;
 
 #[derive(
@@ -150,21 +135,17 @@ pub type XhpEnumValues = s_map::SMap<Vec<ast_defs::XhpEnumValue>>;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum DeclConstraintRequirement {
-    #[rust_to_ocaml(name = "DCR_Equal")]
     DCREqual(Ty),
-    #[rust_to_ocaml(name = "DCR_Subtype")]
     DCRSubtype(Ty),
 }
 
@@ -174,18 +155,15 @@ pub enum DeclConstraintRequirement {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
-#[rust_to_ocaml(prefix = "sc_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ShallowClass {
     pub mode: file_info::Mode,
     pub final_: bool,
@@ -220,16 +198,12 @@ pub struct ShallowClass {
     pub package: Option<aast_defs::PackageMembership>,
 }
 
-#[rust_to_ocaml(attr = "deriving show")]
 pub type FunDecl = FunElt;
 
-#[rust_to_ocaml(attr = "deriving show")]
 pub type ClassDecl = ShallowClass;
 
-#[rust_to_ocaml(attr = "deriving show")]
 pub type TypedefDecl = TypedefType;
 
-#[rust_to_ocaml(attr = "deriving show")]
 pub type ModuleDecl = typing_defs::ModuleDefType;
 
 #[derive(
@@ -238,17 +212,15 @@ pub type ModuleDecl = typing_defs::ModuleDefType;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving show")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum Decl {
     Class(ClassDecl),
     Fun(FunDecl),
@@ -263,17 +235,15 @@ pub enum Decl {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving show")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum NamedDecl {
     NClass(String, ClassDecl),
     NFun(String, FunDecl),

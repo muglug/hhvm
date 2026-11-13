@@ -6,8 +6,6 @@
 use std::cmp::Ordering;
 
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -15,7 +13,8 @@ use crate::local_id::LocalId;
 use crate::typing_reason::Blame;
 
 #[derive(Clone, Debug, Eq, Hash, Ord)]
-#[derive(Deserialize, FromOcamlRep, NoPosHash, Serialize, ToOcamlRep)]
+#[derive(Deserialize, NoPosHash, Serialize)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct IdWithBlame(pub LocalId, Blame);
 
 impl PartialEq for IdWithBlame {

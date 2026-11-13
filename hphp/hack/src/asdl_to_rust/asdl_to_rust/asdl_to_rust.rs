@@ -150,8 +150,8 @@ fn make_valid_type_name(s: &str) -> String {
 
 static TYPE_HERALD: &[u8] = b"
 #[derive(Clone, Debug, PartialEq, PartialOrd)]\n
-#[derive(Serialize, Deserialize, ToOcamlRep, FromOcamlRep)]\n
-#[rust_to_ocaml(and)]";
+#[derive(Serialize, Deserialize)]\n
+";
 
 static RUST_KEYWORDS: &[&str] = &[
     "as", "break", "const", "continue", "crate", "else", "enum", "extern", "false", "fn", "for",

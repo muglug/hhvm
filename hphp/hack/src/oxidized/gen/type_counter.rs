@@ -11,9 +11,6 @@
 use arena_trait::TrivialDrop;
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 pub use pos::Pos;
 use serde::Deserialize;
 use serde::Serialize;
@@ -27,17 +24,15 @@ use crate::*;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (ord, yojson_of)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum Entity {
     Class(String),
     Function(String),
@@ -49,17 +44,15 @@ pub enum Entity {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (ord, yojson_of)")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct EntityPos(pub Pos, pub Entity);
 
 #[derive(
@@ -69,18 +62,15 @@ pub struct EntityPos(pub Pos, pub Entity);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (ord, yojson_of)")]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum LoggedType {
     Like,
     NonLike,
@@ -100,25 +90,19 @@ arena_deserializer::impl_deserialize_in_arena!(LoggedType);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (ord, yojson_of)")]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum Category {
     Expression,
-    #[rust_to_ocaml(name = "Obj_get_receiver")]
     ObjGetReceiver,
-    #[rust_to_ocaml(name = "Class_get_receiver")]
     ClassGetReceiver,
-    #[rust_to_ocaml(name = "Class_const_receiver")]
     ClassConstReceiver,
     Property,
     Parameter,
@@ -133,17 +117,15 @@ arena_deserializer::impl_deserialize_in_arena!(Category);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving yojson_of")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct Count {
     /// The position of the entity for which this count holds
     pub entity_pos: EntityPos,
@@ -162,18 +144,15 @@ pub struct Count {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving yojson_of")]
-#[rust_to_ocaml(prefix = "num_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct Summary {
     pub like_types: isize,
     pub captured_like_types: isize,
@@ -187,5 +166,4 @@ pub struct Summary {
     pub tany: isize,
 }
 
-#[rust_to_ocaml(attr = "deriving yojson_of")]
 pub type TypeCounter = relative_path::map::Map<Summary>;

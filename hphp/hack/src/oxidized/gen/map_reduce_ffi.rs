@@ -10,8 +10,6 @@
 
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::ToOcamlRep;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -26,26 +24,19 @@ use crate::*;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving yojson_of")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct MapReduceFfi {
-    #[rust_to_ocaml(attr = "yojson.option")]
     pub tast_hashes: Option<tast_hashes::TastHashes>,
-    #[rust_to_ocaml(attr = "yojson.option")]
     pub tast_collector: Option<tast_collector::TastCollector>,
-    #[rust_to_ocaml(attr = "yojson.option")]
     pub type_counter: Option<type_counter::TypeCounter>,
-    #[rust_to_ocaml(attr = "yojson.option")]
     pub reason_collector: Option<reason_collector::ReasonCollector>,
-    #[rust_to_ocaml(attr = "yojson.option")]
     pub refinement_counter: Option<refinement_counter::RefinementCounter>,
 }

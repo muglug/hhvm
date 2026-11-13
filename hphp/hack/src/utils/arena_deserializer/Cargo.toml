@@ -13,5 +13,10 @@ path = "lib.rs"
 [dependencies]
 bstr = { version = "1.13.1", features = ["serde", "std", "unicode"] }
 bumpalo = { version = "3.20.3", features = ["allocator_api", "collections"] }
-ocamlrep_caml_builtins = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main" }
 serde = { version = "1.0.229", features = ["derive", "rc"] }
+ocamlrep_caml_builtins = { version = "0.1.0", git = "https://github.com/facebook/ocamlrep/", branch = "main", optional = true }
+
+[features]
+# The conversions to and from OCaml values, for the crates that the OCaml
+# typechecker links, which turn the feature on.
+ocamlrep = ["dep:ocamlrep_caml_builtins"]

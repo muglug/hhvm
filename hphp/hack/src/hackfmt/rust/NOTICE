@@ -1,0 +1,8 @@
+The formatter is a Rust port of hackfmt from HHVM, hphp/hack/src/hackfmt.
+Copyright (c) Meta Platforms, Inc. and affiliates.
+Copyright (c) Facebook, Inc. and its affiliates.
+The upstream MIT license is included in LICENSE.
+
+It started from the Rust port of hackfmt in Slack's Hakana (hakana-core,
+src/formatter, MIT licensed), as of the revision before Hakana moved the
+formatter to its own parser, and was brought in line with the OCaml sources.

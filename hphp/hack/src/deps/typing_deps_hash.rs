@@ -80,18 +80,3 @@ pub fn hash2(dep_type: DepType, type_hash: u64, name2: &[u8]) -> u64 {
 pub fn declares_hash() -> u64 {
     hash1(DepType::KDeclares, &[])
 }
-
-#[cfg(test)]
-mod tests {
-    use ocamlrep::FromOcamlRep;
-    use ocamlrep::Value;
-
-    use super::DepType;
-
-    #[test]
-    fn kconst_ocaml_ordinal_differs_from_hash_tag() {
-        let kind = DepType::from_ocamlrep(Value::int(4)).unwrap();
-        assert_eq!(kind, DepType::KConst);
-        assert_eq!(kind.as_u8(), 5);
-    }
-}

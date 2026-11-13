@@ -11,12 +11,10 @@
 use arena_trait::TrivialDrop;
 use eq_modulo_pos::EqModuloPos;
 use no_pos_hash::NoPosHash;
-use ocamlrep::FromOcamlRep;
-use ocamlrep::FromOcamlRepIn;
-use ocamlrep::ToOcamlRep;
 pub use reason::PosId;
 use serde::Deserialize;
 use serde::Serialize;
+use transform_markers::TransformMarkers;
 
 pub use crate::t_shape_map;
 pub use crate::typing_reason as reason;
@@ -29,23 +27,20 @@ use crate::*;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, ord, show)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum CeVisibility {
     Vpublic,
     Vprivate(String),
     Vprotected(String),
     Vinternal(String),
-    #[rust_to_ocaml(name = "Vprotected_internal")]
     VprotectedInternal {
         class_id: String,
         module__: String,
@@ -59,18 +54,15 @@ pub enum CeVisibility {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving eq")]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum ValKind {
     Lval,
     LvalSubexpr,
@@ -90,25 +82,21 @@ arena_deserializer::impl_deserialize_in_arena!(ValKind);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, hash, ord, show)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum TypeOrigin {
     /// When we do not have any origin for the type. It is always
     /// correct to use [Missing_origin]; so when in doubt, use it.
-    #[rust_to_ocaml(name = "Missing_origin")]
     MissingOrigin,
     /// A type with origin [From_alias orig] is equivalent to
     /// the expansion of the alias [orig].
-    #[rust_to_ocaml(name = "From_alias")]
     FromAlias(String, Option<pos_or_decl::PosOrDecl>),
 }
 
@@ -118,20 +106,17 @@ pub enum TypeOrigin {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, hash, ord, show)")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct PosString(pub pos_or_decl::PosOrDecl, pub String);
 
-#[rust_to_ocaml(attr = "deriving (eq, hash, ord, show)")]
 pub type TByteString = String;
 
 #[derive(
@@ -140,17 +125,15 @@ pub type TByteString = String;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, hash, ord, show)")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct PosByteString(pub pos_or_decl::PosOrDecl, pub bstr::BString);
 
 /// This is similar to Aast.shape_field_name, but contains Pos_or_decl.t
@@ -162,23 +145,18 @@ pub struct PosByteString(pub pos_or_decl::PosOrDecl, pub bstr::BString);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, hash, ord, show)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum TshapeFieldName {
-    #[rust_to_ocaml(name = "TSFregex_group")]
     TSFregexGroup(PosString),
-    #[rust_to_ocaml(name = "TSFlit_str")]
     TSFlitStr(PosByteString),
-    #[rust_to_ocaml(name = "TSFclass_const")]
     TSFclassConst(PosId, PosString),
 }
 
@@ -189,18 +167,15 @@ pub enum TshapeFieldName {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum ParamMode {
     FPnormal,
     FPinout,
@@ -208,7 +183,6 @@ pub enum ParamMode {
 impl TrivialDrop for ParamMode {}
 arena_deserializer::impl_deserialize_in_arena!(ParamMode);
 
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 pub type XhpAttr = xhp_attribute::XhpAttribute;
 
 /// Denotes the categories of requirements we apply to constructor overrides.
@@ -225,18 +199,15 @@ pub type XhpAttr = xhp_attribute::XhpAttribute;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, show)")]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum ConsistentKind {
     Inconsistent,
     ConsistentConstruct,
@@ -251,17 +222,15 @@ arena_deserializer::impl_deserialize_in_arena!(ConsistentKind);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, hash, show)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum UserAttributeParam {
     Classname(String),
     EnumClassLabel(String),
@@ -275,18 +244,15 @@ pub enum UserAttributeParam {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, hash, show)")]
-#[rust_to_ocaml(prefix = "ua_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct UserAttribute {
     pub name: PosId,
     pub params: Vec<UserAttributeParam>,
@@ -299,18 +265,15 @@ pub struct UserAttribute {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, hash, show, map)")]
-#[rust_to_ocaml(prefix = "tp_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct Tparam {
     pub variance: ast_defs::Variance,
     pub name: PosId,
@@ -325,17 +288,15 @@ pub struct Tparam {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, hash, show, map)")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct WhereConstraint(pub Ty, pub ast_defs::ConstraintKind, pub Ty);
 
 #[derive(
@@ -345,18 +306,15 @@ pub struct WhereConstraint(pub Ty, pub ast_defs::ConstraintKind, pub Ty);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
-    FromOcamlRepIn,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, hash, show, ord)")]
 #[repr(u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::FromOcamlRepIn, ocamlrep::ToOcamlRep))]
 pub enum Enforcement {
     /// The consumer doesn't enforce the type at runtime
     Unenforced,
@@ -376,17 +334,15 @@ arena_deserializer::impl_deserialize_in_arena!(Enforcement);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, hash, (show { with_path = false }), map)")]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum Capability {
     /// Should not be used for lambda inference
     CapDefaults(pos_or_decl::PosOrDecl),
@@ -401,17 +357,15 @@ pub enum Capability {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, hash, (show { with_path = false }), map)")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct FunImplicitParams {
     pub capability: Capability,
 }
@@ -422,21 +376,16 @@ pub struct FunImplicitParams {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, hash, (show { with_path = false }), map)")]
-#[rust_to_ocaml(prefix = "fp_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct FunParam {
-    #[rust_to_ocaml(attr = "hash.ignore")]
-    #[rust_to_ocaml(attr = "equal fun _ _ -> true")]
     pub pos: pos_or_decl::PosOrDecl,
     /// Only type-relevant when
     ///  `Option.is_some (Typing_defs.Named_params.name_of_named_param fp_name)`
@@ -449,7 +398,6 @@ pub struct FunParam {
     pub def_value: Option<String>,
 }
 
-#[rust_to_ocaml(attr = "deriving (eq, hash, (show { with_path = false }), map)")]
 pub type FunParams = Vec<FunParam>;
 
 /// The type of a function AND a method
@@ -459,18 +407,15 @@ pub type FunParams = Vec<FunParam>;
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(attr = "deriving (eq, hash, (show { with_path = false }), map)")]
-#[rust_to_ocaml(prefix = "ft_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct FunType {
     pub tparams: Vec<Tparam>,
     pub where_constraints: Vec<WhereConstraint>,
@@ -483,18 +428,9 @@ pub struct FunType {
 }
 
 /// Private type: use mk to construct, deref/get_node/get_reason to access.
-#[derive(
-    Clone,
-    Debug,
-    Deserialize,
-    EqModuloPos,
-    FromOcamlRep,
-    Hash,
-    NoPosHash,
-    Serialize,
-    ToOcamlRep
-)]
+#[derive(Clone, Debug, Deserialize, EqModuloPos, Hash, NoPosHash, Serialize)]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct Ty(pub reason::T_, pub Box<Ty_>);
 
 /// A shape may specify whether or not fields are required. For example, consider
@@ -512,18 +448,15 @@ pub struct Ty(pub reason::T_, pub Box<Ty_>);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(prefix = "sft_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ShapeFieldType {
     pub optional: bool,
     pub ty: Ty,
@@ -534,17 +467,16 @@ pub struct ShapeFieldType {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum Ty_ {
     /// The late static bound type of a class
     Tthis,
@@ -626,11 +558,10 @@ pub enum Ty_ {
     ///   Tunion []  is the "nothing" type, with no values
     ///   Tunion [int;float] is the same as num
     ///   Tunion [null;t] is the same as Toption t
-    #[rust_to_ocaml(attr = "transform.explicit")]
+    #[transform(explicit)]
     Tunion(Vec<Ty>),
     Tintersection(Vec<Ty>),
     /// Tvec_or_dict (ty1, ty2) => "vec_or_dict<ty1, ty2>"
-    #[rust_to_ocaml(name = "Tvec_or_dict")]
     TvecOrDict(Ty, Ty),
     /// Name of class, name of type const, remaining names of type consts
     Taccess(TaccessType),
@@ -638,7 +569,6 @@ pub enum Ty_ {
     /// it takes an arbitrary type. In the future, it should only take a string
     /// that is a class name, and be named Tclass. The current Tclass would be
     /// renamed to Tinstance, where a Tinstance is an instantiation of a Tclass
-    #[rust_to_ocaml(name = "Tclass_ptr")]
     TclassPtr(Ty),
 }
 
@@ -648,17 +578,15 @@ pub enum Ty_ {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(and)]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct TaccessType(pub Ty, pub PosId);
 
 /// Class refinements are for type annotations like
@@ -670,17 +598,15 @@ pub struct TaccessType(pub Ty, pub PosId);
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(and)]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ClassRefinement {
     pub cr_consts: s_map::SMap<RefinedConst>,
 }
@@ -691,18 +617,15 @@ pub struct ClassRefinement {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(prefix = "rc_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct RefinedConst {
     pub bound: RefinedConstBound,
     pub is_ctx: bool,
@@ -714,17 +637,15 @@ pub struct RefinedConst {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(and)]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum RefinedConstBound {
     /// for `=` constraints
     TRexact(Ty),
@@ -738,18 +659,15 @@ pub enum RefinedConstBound {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(prefix = "tr_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct RefinedConstBounds {
     pub lower: Vec<Ty>,
     pub upper: Vec<Ty>,
@@ -763,20 +681,18 @@ pub struct RefinedConstBounds {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
     Serialize,
-    ToOcamlRep
+    TransformMarkers
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(prefix = "s_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ShapeTypeSimple {
-    #[rust_to_ocaml(attr = "transform.opaque")]
+    #[transform(opaque)]
     pub origin: TypeOrigin,
     pub unknown_value: Ty,
     pub fields: t_shape_map::TShapeMap<ShapeFieldType>,
@@ -788,17 +704,15 @@ pub struct ShapeTypeSimple {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(and)]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct ShapeTypeSplat {
     pub ss_elems: Vec<Ty>,
 }
@@ -809,21 +723,17 @@ pub struct ShapeTypeSplat {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(and)]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum ShapeType {
-    #[rust_to_ocaml(name = "Shape_simple")]
     ShapeSimple(ShapeTypeSimple),
-    #[rust_to_ocaml(name = "Shape_splat")]
     ShapeSplat(ShapeTypeSplat),
 }
 
@@ -842,18 +752,15 @@ pub enum ShapeType {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
+    Serialize
 )]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(prefix = "t_")]
 #[repr(C)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub struct TupleType {
     pub required: Vec<Ty>,
     pub optional: Vec<Ty>,
@@ -866,20 +773,15 @@ pub struct TupleType {
     Deserialize,
     Eq,
     EqModuloPos,
-    FromOcamlRep,
     Hash,
     NoPosHash,
     Ord,
     PartialEq,
     PartialOrd,
-    Serialize,
-    ToOcamlRep
-)]
-#[rust_to_ocaml(and)]
-#[rust_to_ocaml(
-    attr = r#"deriving (hash, (transform ~maps:["S_map.t"; "TShapeMap.t"; "fun_type"]))"#
+    Serialize
 )]
 #[repr(C, u8)]
+#[cfg_attr(feature = "ocamlrep", derive(ocamlrep::FromOcamlRep, ocamlrep::ToOcamlRep))]
 pub enum TupleExtra {
     Tvariadic(Ty),
     Tsplat(Ty),
