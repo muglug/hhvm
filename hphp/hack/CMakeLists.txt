@@ -303,17 +303,23 @@ target_link_libraries(hack_rust_ffi_bridge PRIVATE Folly::folly hack_rust_ffi_br
 target_include_directories(hack_rust_ffi_bridge INTERFACE "${RUST_FFI_BUILD_ROOT}")
 target_include_directories(hack_rust_ffi_bridge PRIVATE "${RUST_FFI_CARGO_TARGET_DIR}/cxxbridge")
 
-# The Rust typechecker: `hh` (`hh check ROOT`, `hh single FILE`) and
-# `hh_server`, which takes the command line of the OCaml hh_server for its
-# batch mode (`hh_server --check [--json] ROOT`), as CI runs it.
+# The Rust typechecker: `hh` (`hh check ROOT`, `hh single FILE`),
+# `hh_server_rust`, which takes the command line of the OCaml hh_server
+# (its batch mode, `hh_server --check [--json] ROOT`, as CI runs it, and the
+# daemon), and `hh_client_rust`, the client of that daemon.
+#
+# The client and the server carry the `_rust` suffix so that they can be
+# installed next to the OCaml `hh_client` and `hh_server`: each finds the
+# other, and `hackfmt_rust`, by its own suffix (src/hh/src/rt/exe_suffix.rs).
 #
 # The typing core is behind the `port` feature and the hh_server command line
 # and its output behind `server`: without `port`, `hh` is only the placeholder
-# checker. Both binaries come from one cargo invocation so the library is
+# checker. The binaries come from one cargo invocation so the library is
 # compiled once.
 set(HH_CARGO_TARGET_DIR "${HACK_BUILD_DIR}/hh")
 set(HH_EXECUTABLE "${HH_CARGO_TARGET_DIR}/${PROFILE}/hh")
-set(HH_SERVER_EXECUTABLE "${HH_CARGO_TARGET_DIR}/${PROFILE}/hh_server")
+set(HH_SERVER_EXECUTABLE "${HH_CARGO_TARGET_DIR}/${PROFILE}/hh_server_rust")
+set(HH_CLIENT_EXECUTABLE "${HH_CARGO_TARGET_DIR}/${PROFILE}/hh_client_rust")
 add_custom_target(
   hh
   COMMAND
@@ -323,7 +329,8 @@ add_custom_target(
       --package hh
       --features port,server
       --bin hh
-      --bin hh_server
+      --bin hh_server_rust
+      --bin hh_client_rust
       --target-dir "${HH_CARGO_TARGET_DIR}"
       ${HHVM_RUST_FFI_PROFILE_ARGS}
   COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/bin"
@@ -332,12 +339,16 @@ add_custom_target(
       "${HH_EXECUTABLE}" "${CMAKE_CURRENT_BINARY_DIR}/bin/hh"
   COMMAND
     ${CMAKE_COMMAND} -E copy_if_different
-      "${HH_SERVER_EXECUTABLE}" "${CMAKE_CURRENT_BINARY_DIR}/bin/hh_server"
-  COMMENT "Building the Hack typechecker (hh, hh_server)"
+      "${HH_SERVER_EXECUTABLE}" "${CMAKE_CURRENT_BINARY_DIR}/bin/hh_server_rust"
+  COMMAND
+    ${CMAKE_COMMAND} -E copy_if_different
+      "${HH_CLIENT_EXECUTABLE}" "${CMAKE_CURRENT_BINARY_DIR}/bin/hh_client_rust"
+  COMMENT "Building the Hack typechecker (hh, hh_server_rust, hh_client_rust)"
   USES_TERMINAL
 )
 
-# The formatter (`hackfmt`, src/hackfmt/rust).
+# The formatter (src/hackfmt/rust), installed as `hackfmt_rust`: the name
+# `hh_server_rust` looks for (the OCaml formatter is `hackfmt`).
 set(HACKFMT_CARGO_TARGET_DIR "${HACK_BUILD_DIR}/hackfmt")
 set(HACKFMT_EXECUTABLE "${HACKFMT_CARGO_TARGET_DIR}/${PROFILE}/hackfmt")
 add_custom_target(
@@ -352,8 +363,8 @@ add_custom_target(
   COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/bin"
   COMMAND
     ${CMAKE_COMMAND} -E copy_if_different
-      "${HACKFMT_EXECUTABLE}" "${CMAKE_CURRENT_BINARY_DIR}/bin/hackfmt"
-  COMMENT "Building the Hack formatter (hackfmt)"
+      "${HACKFMT_EXECUTABLE}" "${CMAKE_CURRENT_BINARY_DIR}/bin/hackfmt_rust"
+  COMMENT "Building the Hack formatter (hackfmt_rust)"
   USES_TERMINAL
 )
 
@@ -504,11 +515,15 @@ install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hh
   DESTINATION bin
   COMPONENT dev
   OPTIONAL)
-install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hh_server
+install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hh_server_rust
   DESTINATION bin
   COMPONENT dev
   OPTIONAL)
-install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hackfmt
+install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hh_client_rust
+  DESTINATION bin
+  COMPONENT dev
+  OPTIONAL)
+install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hackfmt_rust
   DESTINATION bin
   COMPONENT dev
   OPTIONAL)

@@ -327,8 +327,11 @@ pub fn is_likely_from_interactive_shell(init_proc_stack: &[String]) -> bool {
         let parts: Vec<&str> = cmdline.split(' ').collect();
         match parts.as_slice() {
             [] => false,
-            ["/bin/bash", cmd, ..] | [cmd, ..] => ["hh", "hh_client", "hh_server"]
-                .contains(&crate::rt::ocaml_filename::basename(cmd).as_str()),
+            // (And the names the Rust binaries are installed under.)
+            ["/bin/bash", cmd, ..] | [cmd, ..] => {
+                ["hh", "hh_client", "hh_server", "hh_client_rust", "hh_server_rust"]
+                    .contains(&crate::rt::ocaml_filename::basename(cmd).as_str())
+            }
         }
     };
     // After stripping binary/wrapper, if what's left has the form "-bash" or "/usr/bin/bash --init-file ..."

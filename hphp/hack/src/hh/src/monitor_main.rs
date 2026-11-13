@@ -996,7 +996,12 @@ fn update_status_(
                     {
                         true
                     }
-                    _ => check_dmesg_for_oom(process.pid, "hh_server")?,
+                    // (The name of the process: `hh_server` and the suffix of
+                    // this executable, `hh_server_rust` as it is installed.)
+                    _ => check_dmesg_for_oom(
+                        process.pid,
+                        &format!("hh_server{}", crate::rt::exe_suffix::executable_suffix()),
+                    )?,
                 };
                 let (exit_type, exit_code) = proc_stat.unpack();
                 let time_taken = ocaml_unix::gettimeofday().floor() - process.start_t;

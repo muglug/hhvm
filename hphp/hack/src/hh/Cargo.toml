@@ -13,13 +13,16 @@ path = "src/lib.rs"
 name = "hh"
 path = "src/main.rs"
 
+# The client and the server are built under suffixed names, so that they can
+# be installed next to the OCaml `hh_client` and `hh_server`: each finds its
+# siblings by its own suffix (`src/rt/exe_suffix.rs`).
 [[bin]]
-name = "hh_client"
+name = "hh_client_rust"
 path = "src/bin/hh_client.rs"
 required-features = ["server"]
 
 [[bin]]
-name = "hh_server"
+name = "hh_server_rust"
 path = "src/bin/hh_server.rs"
 required-features = ["server"]
 

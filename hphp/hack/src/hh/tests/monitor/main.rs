@@ -166,7 +166,7 @@ fn take_client(fd: RawFd) {
 
 // ~~ Helpers ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-const HH_CLIENT: &str = env!("CARGO_BIN_EXE_hh_client");
+const HH_CLIENT: &str = env!("CARGO_BIN_EXE_hh_client_rust");
 
 struct Scratch {
     root: PathBuf,
