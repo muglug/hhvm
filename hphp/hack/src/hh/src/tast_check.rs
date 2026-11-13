@@ -26,6 +26,7 @@ use crate::discarded_awaitable_check;
 use crate::disjoint_types;
 use crate::duplicate_properties;
 use crate::dynamic_call_check;
+use crate::dynamic_return_check;
 use crate::enforceable_hint_check;
 use crate::enum_check;
 use crate::enum_duplicate_value_check;
@@ -46,6 +47,8 @@ use crate::provider_context;
 use crate::pseudofunctions_check;
 use crate::readonly_check;
 use crate::redundant_generics_check;
+use crate::private_member_variance_check;
+use crate::redundant_concurrent;
 use crate::redundant_nullsafe;
 use crate::reified_check;
 use crate::rvalue_check;
@@ -142,6 +145,10 @@ pub fn warning_checks<'a>() -> Vec<handler::warning::S<'a>> {
             handler: redundant_nullsafe::handler,
         },
         handler::warning::S {
+            error_codes: redundant_concurrent::error_codes,
+            handler: redundant_concurrent::handler,
+        },
+        handler::warning::S {
             error_codes: set_or_keyset_array_get::error_codes,
             handler: set_or_keyset_array_get::handler,
         },
@@ -152,6 +159,10 @@ pub fn warning_checks<'a>() -> Vec<handler::warning::S<'a>> {
         handler::warning::S {
             error_codes: dynamic_call_check::error_codes,
             handler: dynamic_call_check::handler,
+        },
+        handler::warning::S {
+            error_codes: dynamic_return_check::error_codes,
+            handler: dynamic_return_check::handler,
         },
     ]
 }
@@ -239,6 +250,7 @@ fn visitor_<'a>(ctx: &Arc<Ctx>, record_warnings: bool) -> tast_visitor::IterWith
             None
         },
         Some(class_pointer_check::handler()),
+        Some(private_member_variance_check::handler()),
         Some(no_disjoint_union_check::handler()),
         Some(simplihack_check::handler()),
     ];

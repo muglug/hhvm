@@ -496,6 +496,12 @@ pub mod duplicate_properties;
 #[cfg(feature = "port")]
 pub mod dynamic_call_check;
 #[cfg(feature = "port")]
+pub mod dynamic_return_check;
+#[cfg(feature = "port")]
+pub mod private_member_variance_check;
+#[cfg(feature = "port")]
+pub mod redundant_concurrent;
+#[cfg(feature = "port")]
 pub mod enforceable_hint_check;
 #[cfg(feature = "port")]
 pub mod enum_check;

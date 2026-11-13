@@ -558,13 +558,15 @@ fn get_typarams(
             union(optional, union(required, vs))
         }
         d::Ty_::Tshape(st) => match &**st {
-            d::ShapeType::Simple(d::ShapeTypeSimple(_, m)) => {
+            d::ShapeType::Simple(d::ShapeTypeSimple(s_unknown_value, m)) => {
                 // TShapeMap.fold: in the order of the names of the fields
                 let mut fields: Vec<_> = m.iter().collect();
                 fields.sort_by(|a, b| decl_tshape_field_name_compare(a.0, b.0));
                 fields
                     .into_iter()
-                    .fold(empty(), |res, (_, sft)| get_typarams_union(res, &sft.ty))
+                    .fold(get_typarams(s_unknown_value), |res, (_, sft)| {
+                        get_typarams_union(res, &sft.ty)
+                    })
             }
             d::ShapeType::Splat(ss_elems) => ss_elems
                 .iter()

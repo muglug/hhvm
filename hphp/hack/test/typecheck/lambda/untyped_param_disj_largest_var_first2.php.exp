@@ -1,2 +1,11 @@
-WARN: File "untyped_param_disj_largest_var_first2.php", line 9, characters 24-32:
-This `as` assertion will always succeed and hence is redundant. The expression on the left has a type `int` which is a subtype of `int`. (Warn[12011])
+warning: Warn[12011] This `as` assertion will always succeed and hence is redundant. The expression on the left has a type `int` which is a subtype of `int`. [1]
+
+untyped_param_disj_largest_var_first2.php:9:24
+ 7 | function f(): void {
+ 8 |   $t = ($hashes) ==> {
+ 9 |     mp($hashes, $h ==> $h as int);
+   |                        ^^^^^^^^^ [1]
+10 |   };
+11 |   $t(vec[1]);
+
+1 error found

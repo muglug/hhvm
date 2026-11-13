@@ -833,7 +833,8 @@ mod tests {
                 value::T::EnumConstant("\\NS\\E".to_string(), "A".to_string()),
                 value::T::EnumClassLabel("L".to_string()),
             ])),
-            "(true, E::A, #L)"
+            // `Utils.strip_ns`: the leading backslash only.
+            "(true, NS\\E::A, #L)"
         );
         // Constructors are ordered as they are declared.
         assert!(value::T::Null < value::T::Int("0".to_string()));

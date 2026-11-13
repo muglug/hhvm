@@ -527,6 +527,9 @@ struct Env<'a> {
     props: Props<'a>,
     parent_cstr_props: Props<'a>,
     init_not_required_props: Props<'a>,
+    /// The class, when `$this` must never escape its constructor because a
+    /// subclass may run it before initializing its own properties
+    overridable_class: Option<&'a str>,
 }
 
 impl<'a> Env<'a> {
@@ -596,12 +599,26 @@ impl<'a> Env<'a> {
         di_check::parent(typer.ctx, c, &mut props);
         let props = typer.filter_props_by_type(props);
 
+        let overridable_class = {
+            // A final constructor leaves subclasses without a constructor of their
+            // own, so their properties are initialized before it runs.
+            let cstr_final = match di_check::constructor(c) {
+                Some(cstr) => cstr.final_,
+                None => false,
+            };
+            (typer.ctx.tco.tco_ban_this_escape_in_overridable_constructors
+                && (matches!(c.kind, ClassishKind::Ctrait) || !c.final_)
+                && !cstr_final)
+                .then_some(c.name.1.as_str())
+        };
+
         Env {
             typer,
             methods,
             props,
             parent_cstr_props,
             init_not_required_props,
+            overridable_class,
         }
     }
 }
@@ -892,6 +909,18 @@ impl<'a, 'e> Checker<'a, 'e> {
         self.env.props.iter().all(|cv| set.mem(cv))
     }
 
+    /// `$this` escapes the constructor at [p]
+    fn escape(&mut self, p: &Pos, acc: &S<'a>) {
+        self.check_all_init(p, acc);
+        if let Some(class_name) = self.env.overridable_class {
+            self.errors
+                .add(NastCheckError::ThisEscapesOverridableConstructor {
+                    pos: p.clone(),
+                    class_name: class_name.to_string(),
+                })
+        }
+    }
+
     fn check_all_init(&mut self, pos: &Pos, acc: &S<'a>) {
         for prop_name in &self.env.props {
             if !acc.mem(prop_name) {
@@ -944,7 +973,7 @@ impl<'a, 'e> Checker<'a, 'e> {
                 self.expr(acc, e2)
             }),
             Expr_::This => {
-                self.check_all_init(p, &acc);
+                self.escape(p, &acc);
                 acc
             }
             Expr_::MethodCaller(_) | Expr_::EnumClassLabel(_) | Expr_::Id(_) => acc,
@@ -972,7 +1001,7 @@ impl<'a, 'e> Checker<'a, 'e> {
                     let p = &func.1;
                     return match self.env.methods.get(f.as_str()) {
                         None => {
-                            self.check_all_init(p, &acc);
+                            self.escape(p, &acc);
                             acc
                         }
                         Some(method) => match method.take() {

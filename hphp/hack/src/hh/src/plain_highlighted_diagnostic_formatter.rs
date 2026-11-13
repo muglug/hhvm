@@ -516,14 +516,14 @@ mod tests {
             let p = |start, end| fx::pos("new_static2.php", start, end);
             let class_a = || p((13, 15), (13, 16));
             let t = || p((13, 17), (13, 18));
-            let a_int = || p((22, 32), (22, 38));
-            let int = || p((22, 34), (22, 37));
-            let new_static = || p((23, 11), (23, 23));
+            let a_int = || p((24, 32), (24, 38));
+            let int = || p((24, 34), (24, 37));
+            let new_static = || p((25, 11), (25, 23));
             let invariant = "This type argument to `A` must match exactly (it is invariant)";
             vec![
                 fx::err(
                     4053,
-                    fx::msg(p((19, 8), (19, 11)), "No instance method `xxx` in `A`"),
+                    fx::msg(p((20, 8), (20, 11)), "No instance method `xxx` in `A`"),
                     vec![
                         fx::msg(p((15, 18), (15, 21)), "Did you mean `foo` instead?"),
                         fx::msg(class_a(), "This is why I think it is an object of type A"),
@@ -544,7 +544,7 @@ mod tests {
                     fx::msg(new_static(), "Invalid return type"),
                     vec![
                         fx::msg(a_int(), "Expected `A<int>`"),
-                        fx::msg(p((23, 15), (23, 21)), "But got `this as A<T>`"),
+                        fx::msg(p((25, 15), (25, 21)), "But got `this as A<T>`"),
                     ],
                 ),
                 fx::err(
@@ -608,10 +608,10 @@ mod tests {
                 let p = |start, end| fx::pos("new_static2.php", start, end);
                 let mut e = fx::err(
                     4110,
-                    fx::msg(p((18, 4), (18, 4)), "zero"),
+                    fx::msg(p((19, 4), (19, 4)), "zero"),
                     vec![
-                        fx::msg(p((18, 0), (18, 4)), "blank"),
-                        fx::msg(p((25, 1), (26, 1)), "past the end"),
+                        fx::msg(p((19, 0), (19, 4)), "blank"),
+                        fx::msg(p((27, 1), (28, 1)), "past the end"),
                     ],
                 );
                 e.custom_msgs = vec!["`custom` 1".to_string(), "custom 2".to_string()];
@@ -625,19 +625,19 @@ mod tests {
                  -> blank [2]\n\
                  -> past the end [3]\n\
                  \n\
-                 new_static2.php:18:5\n\
-                 16 | \n\
-                 17 |   public static function bar(): void {\n\
-                 18 |     $x = new static();\n\
+                 new_static2.php:19:5\n\
+                 17 |   <<__NeedsConcrete>>\n\
+                 18 |   public static function bar(): void {\n\
+                 19 |     $x = new static();\n\
                  \x20  |     ^ [1]\n\
-                 19 |     $x->xxx();\n\
-                 20 |   }\n\
+                 20 |     $x->xxx();\n\
+                 21 |   }\n\
                  \x20  :\n\
-                 23 |     return new static(); // Error - A<T> isn't subtype of A<int>\n\
-                 24 |   }\n\
-                 25 | }\n\
+                 25 |     return new static(); // Error - A<T> isn't subtype of A<int>\n\
+                 26 |   }\n\
+                 27 | }\n\
                  \x20  |  ^ [3]\n\
-                 26 | _\n\
+                 28 | _\n\
                  \x20  | ^ [3]\n\
                  \n\
                  `custom` 1\n\

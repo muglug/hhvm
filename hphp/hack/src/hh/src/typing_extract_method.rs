@@ -96,15 +96,6 @@ fn cons<T>(x: T, mut l: Vec<T>) -> Vec<T> {
     l
 }
 
-/// `String.concat ~sep:"::" (List.rev l)`
-fn concat_rev(l: &[String]) -> String {
-    l.iter()
-        .rev()
-        .map(String::as_str)
-        .collect::<Vec<_>>()
-        .join("::")
-}
-
 /// The `on_rc_bound` that every transformation of this module uses:
 /// `fun rc_bound ~ctx -> (ctx, `Continue rc_bound)`.
 fn continue_rc_bound<A: Clone>(
@@ -129,6 +120,48 @@ fn mk_tparam(pos: BPos, name: &str, tp_constraints: Vec<(ConstraintKind, DeclTy)
         reified: ReifyKind::Erased,
         user_attributes: [].into(),
     }
+}
+
+fn type_parameter_upper_bounds(
+    bounds: s_map::T<Vec<DeclTy>>,
+    tparams: &[DeclTparam],
+    where_constraints: &[d::WhereConstraint<DeclTy>],
+) -> s_map::T<Vec<DeclTy>> {
+    let bounds = tparams.iter().fold(bounds, |bounds, tp| {
+        let name = tp.name.id_ref().as_str();
+        let upper: Vec<DeclTy> = tp
+            .constraints
+            .iter()
+            .filter_map(|(kind, ty)| match kind {
+                ConstraintKind::ConstraintAs | ConstraintKind::ConstraintEq => Some(ty.clone()),
+                _ => None,
+            })
+            .collect();
+        bounds.update(name.to_string(), upper)
+    });
+    // `ty :: Option.value old ~default:[]`
+    let add_upper = |bounds: s_map::T<Vec<DeclTy>>, name: &str, ty: &DeclTy| {
+        let old = bounds.get(name).cloned().unwrap_or_default();
+        bounds.update(name.to_string(), cons(ty.clone(), old))
+    };
+    where_constraints
+        .iter()
+        .fold(bounds, |bounds, d::WhereConstraint(left, kind, right)| {
+            let bounds = match (left.node_ref(), kind) {
+                (
+                    d::Ty_::Tgeneric(name),
+                    ConstraintKind::ConstraintAs | ConstraintKind::ConstraintEq,
+                ) => add_upper(bounds, name.as_str(), right),
+                _ => bounds,
+            };
+            match (right.node_ref(), kind) {
+                (
+                    d::Ty_::Tgeneric(name),
+                    ConstraintKind::ConstraintSuper | ConstraintKind::ConstraintEq,
+                ) => add_upper(bounds, name.as_str(), left),
+                _ => bounds,
+            }
+        })
 }
 
 mod variance_analysis {
@@ -535,7 +568,61 @@ mod variance_analysis {
     /// contravariantly or invariantly. Purely covariant occurrences (a value of
     /// type [this] cannot be obtained from them) and occurrences of [this] as the
     /// root of a type constant access (e.g. [this::T]) are not counted.
-    pub fn count_obtainable_this_in_param(ty: &DeclTy, env: &Env) -> isize {
+    pub fn count_obtainable_this_in_param(
+        follow_bounds: bool,
+        upper_bounds: &s_map::T<Vec<DeclTy>>,
+        ty: &DeclTy,
+        env: &Env,
+    ) -> isize {
+        type Ctx = (s_map::T<Vec<DeclTy>>, s_set::T);
+        let on_ty = |ty: DeclTy, ctx: &Ctx| -> (Ctx, TransformTopDown<DeclTy>) {
+            let (upper_bounds, seen) = ctx;
+            match ty.node_ref() {
+                d::Ty_::Tgeneric(name) if !seen.contains(name.as_str()) => {
+                    match upper_bounds.get(name.as_str()) {
+                        Some(bounds) if !bounds.is_empty() => {
+                            // `List.dedup_and_sort bounds ~compare:compare_decl_ty`
+                            let mut bounds = bounds.clone();
+                            bounds.sort_by(|a, b| {
+                                crate::typing_defs_core::compare_decl_ty(None, a, b)
+                            });
+                            bounds.dedup_by(|a, b| {
+                                crate::typing_defs_core::compare_decl_ty(None, a, b)
+                                    == std::cmp::Ordering::Equal
+                            });
+                            let seen = seen.update(name.as_str().to_string());
+                            let ty = decl_intersection(ty.reason().clone(), bounds);
+                            ((upper_bounds.clone(), seen), TransformTopDown::Restart(ty))
+                        }
+                        _ => (ctx.clone(), TransformTopDown::Stop(ty)),
+                    }
+                }
+                d::Ty_::Tgeneric(_) => (ctx.clone(), TransformTopDown::Stop(ty)),
+                d::Ty_::Tfun(ft) => {
+                    let upper_bounds = type_parameter_upper_bounds(
+                        upper_bounds.clone(),
+                        &ft.tparams,
+                        &ft.where_constraints,
+                    );
+                    let seen = ft.tparams.iter().fold(seen.clone(), |seen, tparam| {
+                        seen.without(tparam.name.id_ref().as_str())
+                    });
+                    ((upper_bounds, seen), TransformTopDown::Continue(ty))
+                }
+                _ => (ctx.clone(), TransformTopDown::Continue(ty)),
+            }
+        };
+        let ty = if !follow_bounds {
+            ty.clone()
+        } else {
+            transform_top_down_decl_ty(
+                ty.clone(),
+                &on_ty,
+                &continue_rc_bound::<Ctx>,
+                &(upper_bounds.clone(), s_set::T::new()),
+            )
+        };
+        let ty = &ty;
         // [find] already excludes [this::T] (it does not descend into [Taccess])
         // and threads variance correctly through containers, function types and
         // declared class-level variance, so we just count the [this] nodes reached
@@ -942,18 +1029,18 @@ mod typeconst_analysis {
         fn merge_help(s1: &Status, s2: &Status) -> Option<Status> {
             match (s1, s2) {
                 (Status::Undefined, s) | (s, Status::Undefined) => Some(s.clone()),
-                (Status::Defined(t1), Status::Defined(t2)) => merge(t1, t2).map(Status::Defined),
+                (Status::Defined(t1), Status::Defined(t2)) => Some(Status::Defined(merge(t1, t2))),
             }
         }
 
-        pub fn merge(t1: &T, t2: &T) -> Option<T> {
+        pub fn merge(t1: &T, t2: &T) -> T {
             let combine: &dyn Fn(&String, &Status, &Status) -> Option<Status> =
                 &|_key, s1, s2| merge_help(s1, s2);
             let children = s_map::union(Some(combine), &t1.children, &t2.children);
-            Some(T {
+            T {
                 base: t1.base.clone(),
                 children,
-            })
+            }
         }
 
         pub fn transform(t: &T, f: &dyn Fn(DeclTy) -> DeclTy) -> T {
@@ -1136,6 +1223,19 @@ mod typeconst_analysis {
         }
     }
 
+    #[derive(Clone)]
+    struct Root {
+        root_name: String,
+        root_folded_class: folded_class::T,
+        root_trie: trie::T,
+    }
+
+    #[derive(Clone)]
+    struct State {
+        root: Root,
+        analysis: T,
+    }
+
     /// Pretty print an analysis for debugging
     #[allow(dead_code)]
     pub fn show(t: &T, env: &Env) -> String {
@@ -1156,11 +1256,15 @@ mod typeconst_analysis {
         lines.join("\n\n")
     }
 
-    fn find_trie_for(t: &T, class_name: &str) -> Option<trie::T> {
-        if class_name == t.this_name {
-            Some(t.this_trie.clone())
+    fn find_trie_for(state: &State, class_name: &str) -> Option<trie::T> {
+        let State {
+            root,
+            analysis: T { tries, .. },
+        } = state;
+        if class_name == root.root_name {
+            Some(root.root_trie.clone())
         } else {
-            t.tries.get(class_name).map(|(_, trie)| trie.clone())
+            tries.get(class_name).map(|(_, trie)| trie.clone())
         }
     }
 
@@ -1429,16 +1533,16 @@ mod typeconst_analysis {
         tys: Tys,
         const_: &Const,
         prefix: &[Const],
-        analysis: T,
+        state: State,
         env: &Env,
-    ) -> (trie::Status, Tys, T) {
+    ) -> (trie::Status, Tys, State) {
         let trie::T { children, base } = trie;
         let const_pos = const_.pos();
         let const_name = const_.id_ref().as_str();
         match children.get(const_name) {
             // Happy path - we've already seen the constant as part of some other path
             // so reuse the result
-            Some(status) => (status.clone(), tys, analysis),
+            Some(status) => (status.clone(), tys, state),
             // We haven't already seen this constant within this path we need to find the
             // definition within the current type we are projecting from
             None => match base {
@@ -1447,7 +1551,7 @@ mod typeconst_analysis {
                     // corresponding to that root directly - since we are at the root
                     // we don't need to rewrite `this` to make absolute
                     let typeconst_opt =
-                        typing_env::get_typeconst(env, &analysis.this_folded_class, const_name);
+                        typing_env::get_typeconst(env, &state.root.root_folded_class, const_name);
                     let (status, tys) = match typeconst_opt {
                         None => (trie::Status::Undefined, tys),
                         Some(ttc) => {
@@ -1464,7 +1568,7 @@ mod typeconst_analysis {
                             (status, tys)
                         }
                     };
-                    (status, tys, analysis)
+                    (status, tys, state)
                 }
                 trie::Base::Typeconst { typeconst, .. } => {
                     // If the root is a type constant we first need to get the type we're
@@ -1472,7 +1576,7 @@ mod typeconst_analysis {
                     // - for a 'concrete' type constant this is the definition;
                     // - for an 'abstract' type constant it is declared bounds
                     let ty_access = type_for_access(typeconst);
-                    access_typeconsts(ty_access, tys, const_, prefix, analysis, env)
+                    access_typeconsts(ty_access, tys, const_, prefix, state, env)
                 }
             },
         }
@@ -1483,27 +1587,27 @@ mod typeconst_analysis {
         tys: Tys,
         const_: &Const,
         prefix: &[Const],
-        analysis: T,
+        state: State,
         env: &Env,
-    ) -> (trie::Status, Tys, T) {
+    ) -> (trie::Status, Tys, State) {
         match ty_access {
             TypeForAccess::Constant(ty) => {
                 // Concrete type constant
-                access_typeconst(&ty, tys, const_, prefix, analysis, env)
+                access_typeconst(&ty, tys, const_, prefix, state, env)
             }
             TypeForAccess::UpperBound(ty) => {
                 // Abstract type constant with an [as] bound only
-                access_typeconst(&ty, tys, const_, prefix, analysis, env)
+                access_typeconst(&ty, tys, const_, prefix, state, env)
             }
             TypeForAccess::LowerBound(_) => {
                 // Abstract type constant with a [super] bound only; this is undefined
                 // since a type constant in a lower bound doesn't require that a concrete
                 // definition has such a constant
-                (trie::Status::Undefined, tys, analysis)
+                (trie::Status::Undefined, tys, state)
             }
             TypeForAccess::NoType => {
                 // Abstract type constant with no declared bounds
-                (trie::Status::Undefined, tys, analysis)
+                (trie::Status::Undefined, tys, state)
             }
             TypeForAccess::UpperAndLowerBounds { upper, lower } => {
                 // Abstract type constant with both [as] and [super] bounds;
@@ -1512,10 +1616,10 @@ mod typeconst_analysis {
                 // Since we are only elaborating here we treat this as though the user
                 // had instead declared the unsatisfiable bounds on a generic so we
                 // don't generate an error
-                let (status1, tys, analysis) =
-                    access_typeconst(&upper, tys, const_, prefix, analysis, env);
-                let (status2, tys, analysis) =
-                    access_typeconst(&lower, tys, const_, prefix, analysis, env);
+                let (status1, tys, state) =
+                    access_typeconst(&upper, tys, const_, prefix, state, env);
+                let (status2, tys, state) =
+                    access_typeconst(&lower, tys, const_, prefix, state, env);
                 let status = match (status1, status2) {
                     (status1 @ trie::Status::Defined(_), trie::Status::Undefined) => {
                         // Defined in upper bound but not present in the lower bound - this breaks
@@ -1547,7 +1651,7 @@ mod typeconst_analysis {
                     }
                 };
 
-                (status, tys, analysis)
+                (status, tys, state)
             }
         }
     }
@@ -1562,9 +1666,9 @@ mod typeconst_analysis {
         tys: Tys,
         const_: &Const,
         prefix: &[Const],
-        analysis: T,
+        state: State,
         env: &Env,
-    ) -> (trie::Status, Tys, T) {
+    ) -> (trie::Status, Tys, State) {
         let const_pos = const_.pos();
         let const_name = const_.id_ref().as_str();
         match base_ty.node_ref() {
@@ -1572,7 +1676,7 @@ mod typeconst_analysis {
                 // For this use the [folded_class] corresponding to the absolute root
                 // class for the analysis
                 let typeconst_opt =
-                    typing_env::get_typeconst(env, &analysis.this_folded_class, const_name);
+                    typing_env::get_typeconst(env, &state.root.root_folded_class, const_name);
                 let (status, tys) = match typeconst_opt {
                     None => (trie::Status::Undefined, tys),
                     Some(ttc) => {
@@ -1589,7 +1693,7 @@ mod typeconst_analysis {
                         (status, tys)
                     }
                 };
-                (status, tys, analysis)
+                (status, tys, state)
             }
             d::Ty_::Tapply(id_and_tys) => {
                 let class_name = id_and_tys.0.id_ref().as_str();
@@ -1613,7 +1717,7 @@ mod typeconst_analysis {
                         (status, tys)
                     }
                 };
-                (status, tys, analysis)
+                (status, tys, state)
             }
             d::Ty_::Trefinement(tr) => {
                 // If there is a refinement check if it contains the contant we want;
@@ -1628,9 +1732,9 @@ mod typeconst_analysis {
                         // analysis
                         let tys = accumulate_tys(&typeconst, tys);
                         let status = trie::status_of_typeconst(None, typeconst, const_pos.clone());
-                        (status, tys, analysis)
+                        (status, tys, state)
                     }
-                    None => access_typeconst(&tr.ty, tys, const_, prefix, analysis, env),
+                    None => access_typeconst(&tr.ty, tys, const_, prefix, state, env),
                 }
             }
             d::Ty_::Taccess(ta) => {
@@ -1638,25 +1742,25 @@ mod typeconst_analysis {
                 // ensure the path has been added then access the type constant through
                 // its definition or upper bound
                 let (ty, path) = access_path(&ta.ty, vec![ta.type_const.clone()]);
-                let (analysis, status_opt) = match ty.node_ref() {
+                let (state, status_opt) = match ty.node_ref() {
                     d::Ty_::Tthis => {
                         let paths = vec![Path::This(path.clone())];
-                        let analysis = add_paths(analysis, paths, env);
-                        let status_opt = trie::find_path(&analysis.this_trie, &path);
-                        (analysis, status_opt)
+                        let state = add_paths(state, paths, env);
+                        let status_opt = trie::find_path(&state.root.root_trie, &path);
+                        (state, status_opt)
                     }
                     d::Ty_::Tapply(id_and_tys) => {
                         let class_name = id_and_tys.0.id_ref().as_str().to_string();
                         let paths = vec![Path::Class(ty.clone(), class_name.clone(), path.clone())];
-                        let analysis = add_paths(analysis, paths, env);
-                        let status_opt = find_trie_for(&analysis, &class_name)
+                        let state = add_paths(state, paths, env);
+                        let status_opt = find_trie_for(&state, &class_name)
                             .and_then(|trie| trie::find_path(&trie, &path));
-                        (analysis, status_opt)
+                        (state, status_opt)
                     }
                     _ => {
                         // Here we assume the root must either be [Tapply] or [Tthis] -
                         // the other possibility, [Trefinement], is disallowed
-                        (analysis, None)
+                        (state, None)
                     }
                 };
                 let base_ty_opt = status_opt.and_then(|status| match status {
@@ -1677,8 +1781,8 @@ mod typeconst_analysis {
                     }
                 });
                 match base_ty_opt {
-                    None => (trie::Status::Undefined, tys, analysis),
-                    Some(base_ty) => access_typeconsts(base_ty, tys, const_, prefix, analysis, env),
+                    None => (trie::Status::Undefined, tys, state),
+                    Some(base_ty) => access_typeconsts(base_ty, tys, const_, prefix, state, env),
                 }
             }
             d::Ty_::Tintersection(members) => {
@@ -1689,23 +1793,23 @@ mod typeconst_analysis {
                 // NB: in the OCaml the pattern `Tintersection tys` shadows the
                 // accumulated [tys], so the fold starts from the elements of the
                 // intersection, and the [tys] passed in are dropped.
-                let (trie_opt, tys, analysis) = members.iter().fold(
-                    (None, members.to_vec(), analysis),
-                    |(acc, tys, analysis): (Option<trie::T>, Tys, T), ty| {
+                let (trie_opt, tys, state) = members.iter().fold(
+                    (None, members.to_vec(), state),
+                    |(acc, tys, state): (Option<trie::T>, Tys, State), ty| {
                         // The result is dropped when the constant is undefined
-                        let saved = (tys.clone(), analysis.clone());
-                        match access_typeconst(ty, tys, const_, prefix, analysis, env) {
+                        let saved = (tys.clone(), state.clone());
+                        match access_typeconst(ty, tys, const_, prefix, state, env) {
                             (trie::Status::Undefined, _, _) => {
-                                let (tys, analysis) = saved;
-                                (acc, tys, analysis)
+                                let (tys, state) = saved;
+                                (acc, tys, state)
                             }
-                            (trie::Status::Defined(trie2), tys, analysis) => {
+                            (trie::Status::Defined(trie2), tys, state) => {
                                 let reason = R::witness_from_decl(const_pos.clone());
                                 let acc = match acc {
                                     None => Some(trie2),
                                     Some(trie1) => meet_trie_opt(&trie1, &trie2, &reason),
                                 };
-                                (acc, tys, analysis)
+                                (acc, tys, state)
                             }
                         }
                     },
@@ -1714,7 +1818,7 @@ mod typeconst_analysis {
                     None => trie::Status::Undefined,
                     Some(trie) => trie::Status::Defined(trie),
                 };
-                (status, tys, analysis)
+                (status, tys, state)
             }
             d::Ty_::Tunion(members) => {
                 // For unions, we require the refinement to be present on all elements. If
@@ -1722,26 +1826,26 @@ mod typeconst_analysis {
                 //
                 // NB: as for intersections, the pattern `Tunion tys` of the OCaml
                 // shadows the accumulated [tys].
-                let (trie_opt_res, tys, analysis) = members.iter().fold(
-                    (Ok(None), members.to_vec(), analysis),
-                    |(acc, tys, analysis): (Result<Option<trie::T>, ()>, Tys, T), ty| match acc {
-                        Err(_) => (acc, tys, analysis),
+                let (trie_opt_res, tys, state) = members.iter().fold(
+                    (Ok(None), members.to_vec(), state),
+                    |(acc, tys, state): (Result<Option<trie::T>, ()>, Tys, State), ty| match acc {
+                        Err(_) => (acc, tys, state),
                         Ok(acc) => {
                             // The result is dropped when the constant is undefined
-                            let saved = (tys.clone(), analysis.clone());
-                            match access_typeconst(ty, tys, const_, prefix, analysis, env) {
+                            let saved = (tys.clone(), state.clone());
+                            match access_typeconst(ty, tys, const_, prefix, state, env) {
                                 (trie::Status::Undefined, _, _) => {
-                                    let (tys, analysis) = saved;
-                                    (Err(()), tys, analysis)
+                                    let (tys, state) = saved;
+                                    (Err(()), tys, state)
                                 }
-                                (trie::Status::Defined(trie2), tys, analysis) => {
+                                (trie::Status::Defined(trie2), tys, state) => {
                                     let reason = R::witness_from_decl(const_pos.clone());
                                     match acc {
-                                        None => (Ok(Some(trie2)), tys, analysis),
+                                        None => (Ok(Some(trie2)), tys, state),
                                         Some(trie1) => match meet_trie_opt(&trie1, &trie2, &reason)
                                         {
-                                            Some(trie) => (Ok(Some(trie)), tys, analysis),
-                                            _ => (Err(()), tys, analysis),
+                                            Some(trie) => (Ok(Some(trie)), tys, state),
+                                            _ => (Err(()), tys, state),
                                         },
                                     }
                                 }
@@ -1756,10 +1860,10 @@ mod typeconst_analysis {
                         Some(trie) => trie::Status::Defined(trie),
                     },
                 };
-                (status, tys, analysis)
+                (status, tys, state)
             }
             // We can't access type constants through any other type so return [Undefined]
-            _ => (trie::Status::Undefined, tys, analysis),
+            _ => (trie::Status::Undefined, tys, state),
         }
     }
 
@@ -1767,40 +1871,40 @@ mod typeconst_analysis {
         trie: trie::T,
         tys: Tys,
         (prefix, path): (Vec<Const>, &[Const]),
-        analysis: T,
+        state: State,
         env: &Env,
-    ) -> (trie::T, Tys, T) {
+    ) -> (trie::T, Tys, State) {
         match path.split_first() {
             None => {
                 // End of the type constant access path; return the updated trie and
                 // the types appearing in the definitions or bounds of type constants
                 // discovered
-                (trie, tys, analysis)
+                (trie, tys, state)
             }
             Some((const_, path)) => {
                 let const_name = const_.id_ref().as_str();
                 // Find the type constant [const_name]
-                match find_type_const(&trie, tys, const_, &prefix, analysis, env) {
-                    (trie::Status::Undefined, tys, analysis) => {
+                match find_type_const(&trie, tys, const_, &prefix, state, env) {
+                    (trie::Status::Undefined, tys, state) => {
                         // If it was undefined we have an error so we can't add the rest of the
                         // path
                         let trie = trie::update(trie, const_name, trie::Status::Undefined);
-                        (trie, tys, analysis)
+                        (trie, tys, state)
                     }
-                    (trie::Status::Defined(child), tys, analysis) => {
+                    (trie::Status::Defined(child), tys, state) => {
                         // We found the constant so continue adding the remainder of the path
-                        let (child, tys, analysis) = add_path(
+                        let (child, tys, state) = add_path(
                             child,
                             tys,
                             (cons(const_.clone(), prefix), path),
-                            analysis,
+                            state,
                             env,
                         );
                         // Update the trie with the subtrie for [child]
                         (
                             trie::update(trie, const_name, trie::Status::Defined(child)),
                             tys,
-                            analysis,
+                            state,
                         )
                     }
                 }
@@ -1808,78 +1912,80 @@ mod typeconst_analysis {
         }
     }
 
-    /// Add a number of type constant access [paths] to the analysis [t]
-    fn add_paths(t: T, paths: Vec<Path>, env: &Env) -> T {
-        // The OCaml recursion on the list of paths, as a loop: new paths go after
-        // the remaining ones (`List.concat (paths :: new_paths)`)
-        let mut t = t;
-        let mut paths: VecDeque<Path> = paths.into();
+    /// Add a number of type constant access [paths] while resolving from
+    /// [state.root]
+    fn add_paths(state: State, paths: Vec<Path>, env: &Env) -> State {
+        let mut pending: VecDeque<Path> = paths.into();
+        // `let rec aux state = match Queue.dequeue pending with ...`
+        let mut state = state;
         loop {
-            match paths.pop_front() {
-                None => return t,
+            match pending.pop_front() {
+                None => return state,
                 Some(Path::This(path)) => {
-                    let this_trie = t.this_trie.clone();
-                    let (this_trie, tys, t_) = add_path(this_trie, vec![], (vec![], &path), t, env);
+                    let root_trie = state.root.root_trie.clone();
+                    let (root_trie, tys, state_) =
+                        add_path(root_trie, vec![], (vec![], &path), state, env);
                     for ty in &tys {
-                        paths.extend(paths_of_ty(ty));
+                        pending.extend(paths_of_ty(ty));
                     }
-                    t = T { this_trie, ..t_ };
-                }
-                Some(Path::Class(this_ty, class_name, path)) if class_name == sn::classes::SELF => {
-                    paths.push_front(Path::Class(this_ty, t.this_name.clone(), path));
+                    let root = Root {
+                        root_trie,
+                        ..state_.root
+                    };
+                    state = State {
+                        root,
+                        analysis: state_.analysis,
+                    };
                 }
                 Some(Path::Class(this_ty, class_name, path)) => {
+                    let class_name = if class_name == sn::classes::SELF {
+                        state.root.root_name.clone()
+                    } else {
+                        class_name
+                    };
                     let folded_class_opt =
                         decl_entry::to_option(typing_env::get_class(env, &class_name));
                     match folded_class_opt {
                         None => {}
                         Some(folded_class) => {
-                            // Stash the current notion of this so we can restore after analysing
-                            // the path rooted in a different class
-                            let this_name = t.this_name.clone();
-                            let this_trie = t.this_trie.clone();
-                            let this_folded_class = t.this_folded_class.clone();
-                            // Find the exist trie for this class if it exists
+                            // Find the existing trie for this class if it exists
                             let class_trie =
-                                find_trie_for(&t, &class_name).unwrap_or_else(trie::empty);
+                                find_trie_for(&state, &class_name).unwrap_or_else(trie::empty);
                             // Add the path with the class as [this]
-                            let (class_trie, tys, t_) = {
-                                let t = T {
-                                    this_trie: class_trie.clone(),
-                                    this_name: class_name.clone(),
-                                    this_folded_class: folded_class,
-                                    ..t
-                                };
-                                add_path(class_trie, vec![], (vec![], &path), t, env)
+                            let class_root = Root {
+                                root_name: class_name.clone(),
+                                root_folded_class: folded_class,
+                                root_trie: class_trie.clone(),
                             };
+                            let State { root, analysis } = state;
+                            let class_state = State {
+                                root: class_root,
+                                analysis,
+                            };
+                            let (class_trie, tys, class_state) =
+                                add_path(class_trie, vec![], (vec![], &path), class_state, env);
                             // Add the paths ensuring that we replace occurrences of this with class type
                             for ty in &tys {
-                                paths.extend(paths_of_ty(&replace_this_with(ty.clone(), &this_ty)));
+                                pending
+                                    .extend(paths_of_ty(&replace_this_with(ty.clone(), &this_ty)));
                             }
                             // Move the trie for the current class in to the map
-                            let mut tries = t_.tries;
-                            let entry = match tries.get(&class_name) {
-                                None => Some((this_ty, class_trie)),
-                                Some((this_ty, existing_trie)) => {
-                                    trie::merge(existing_trie, &class_trie)
-                                        .map(|trie| (this_ty.clone(), trie))
+                            let analysis = {
+                                let mut tries = class_state.analysis.tries.clone();
+                                let entry = match tries.get(&class_name) {
+                                    None => (this_ty, class_trie),
+                                    Some((this_ty, existing_trie)) => (
+                                        this_ty.clone(),
+                                        trie::merge(existing_trie, &class_trie),
+                                    ),
+                                };
+                                tries.insert(class_name, entry);
+                                T {
+                                    tries,
+                                    ..class_state.analysis
                                 }
                             };
-                            match entry {
-                                Some(entry) => {
-                                    tries.insert(class_name, entry);
-                                }
-                                None => {
-                                    tries.remove(&class_name);
-                                }
-                            }
-                            // Restore the previous notion of [this]
-                            t = T {
-                                this_name,
-                                this_trie,
-                                this_folded_class,
-                                tries,
-                            };
+                            state = State { root, analysis };
                         }
                     }
                 }
@@ -1891,7 +1997,16 @@ mod typeconst_analysis {
 
     fn add_type(t: T, ty: &DeclTy, env: &Env) -> T {
         let paths = paths_of_ty(ty);
-        let t = add_paths(t, paths, env);
+        let root = Root {
+            root_name: t.this_name.clone(),
+            root_folded_class: t.this_folded_class.clone(),
+            root_trie: t.this_trie.clone(),
+        };
+        let State { root, analysis } = add_paths(State { root, analysis: t }, paths, env);
+        let t = T {
+            this_trie: root.root_trie,
+            ..analysis
+        };
         let T {
             this_name,
             this_trie,
@@ -1956,13 +2071,36 @@ mod typeconst_analysis {
     pub mod subst {
         use super::*;
 
+        pub mod path {
+            use super::*;
+
+            /// `type t = string list [@@deriving ord]`
+            pub type T = Vec<String>;
+
+            /// `module Map = Stdlib.Map.Make (Minimal)`
+            pub type Map<V> = BTreeMap<T, V>;
+        }
+
         #[derive(Clone)]
         pub struct T {
             pub this_name: String,
             pub this_ty: DeclTy,
             pub tparams: Vec<DeclTparam>,
-            pub this_subst: s_map::T<DeclTy>,
-            pub class_subst: s_map::T<s_map::T<DeclTy>>,
+            pub this_subst: path::Map<DeclTy>,
+            pub class_subst: s_map::T<path::Map<DeclTy>>,
+        }
+
+        mod projection {
+            use super::*;
+
+            #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+            pub enum T {
+                This(path::T),
+                Class(String, path::T),
+            }
+
+            /// `module Set = Stdlib.Set.Make (Minimal)`
+            pub type Set = im::OrdSet<T>;
         }
 
         // -- Application -------------------------------------------------------
@@ -1974,56 +2112,62 @@ mod typeconst_analysis {
                 class_subst,
                 ..
             } = t;
-            let on_ty = |ty: DeclTy, ctx: &s_set::T| -> (s_set::T, TransformTopDown<DeclTy>) {
+            let on_ty = |ty: DeclTy,
+                         ctx: &projection::Set|
+             -> (projection::Set, TransformTopDown<DeclTy>) {
                 match ty.node_ref() {
                     d::Ty_::Tthis => (ctx.clone(), TransformTopDown::Stop(this_ty.clone())),
                     d::Ty_::Taccess(ta) => {
-                        // Try and find a substibution for this type
+                        // Try and find a substitution for this type
                         let (root_ty, path) = access_path(&ta.ty, vec![ta.type_const.clone()]);
-                        let key = path
+                        let path: path::T = path
                             .iter()
-                            .map(|c| c.id_ref().as_str())
-                            .collect::<Vec<_>>()
-                            .join("::");
-                        if ctx.contains(&key) {
-                            // If we have made this subsitution before doing so again will
-                            // cause us to never terminate so we bail; in practice the
-                            // type constant cycle check should already have caught this
-                            // TODO(mjt) add error
-                            (ctx.clone(), TransformTopDown::Stop(ty))
-                        } else {
-                            // Try and find a substitution
-                            let subst_ty_opt = match root_ty.node_ref() {
-                                d::Ty_::Tthis => {
-                                    let ty_opt = this_subst.get(&key).cloned();
-                                    if ty_opt.is_some() {
-                                        ty_opt
-                                    } else {
-                                        let subst_opt = class_subst.get(this_name);
-                                        subst_opt.and_then(|subst| {
-                                            let key = path
-                                                .iter()
-                                                .map(|c| c.id_ref().as_str())
-                                                .collect::<Vec<_>>()
-                                                .join("::");
-                                            subst.get(&key).cloned()
-                                        })
+                            .map(|c| c.id_ref().as_str().to_string())
+                            .collect();
+                        let projection_opt = match root_ty.node_ref() {
+                            d::Ty_::Tthis => Some(projection::T::This(path.clone())),
+                            d::Ty_::Tapply(id_and_tys) => Some(projection::T::Class(
+                                id_and_tys.0.id_ref().as_str().to_string(),
+                                path.clone(),
+                            )),
+                            _ => None,
+                        };
+                        match projection_opt {
+                            None => (ctx.clone(), TransformTopDown::Stop(ty)),
+                            Some(projection) => {
+                                if ctx.contains(&projection) {
+                                    // If we have made this substitution before doing so again will
+                                    // cause us to never terminate so we bail; in practice the
+                                    // type constant cycle check should already have caught this
+                                    // TODO(mjt) add error
+                                    (ctx.clone(), TransformTopDown::Stop(ty))
+                                } else {
+                                    // Try and find a substitution
+                                    let subst_ty_opt = match &projection {
+                                        projection::T::This(_) => {
+                                            let ty_opt = this_subst.get(&path).cloned();
+                                            if ty_opt.is_some() {
+                                                ty_opt
+                                            } else {
+                                                let subst_opt = class_subst.get(this_name);
+                                                subst_opt
+                                                    .and_then(|subst| subst.get(&path).cloned())
+                                            }
+                                        }
+                                        projection::T::Class(class_name, _) => {
+                                            let subst_opt = class_subst.get(class_name);
+                                            subst_opt.and_then(|subst| subst.get(&path).cloned())
+                                        }
+                                    };
+                                    // If there is no substitution, stop; if there is record that we've
+                                    // seen the source key before and restart the rewrite
+                                    match subst_ty_opt {
+                                        None => (ctx.clone(), TransformTopDown::Stop(ty)),
+                                        Some(ty) => {
+                                            let ctx = ctx.update(projection);
+                                            (ctx, TransformTopDown::Restart(ty))
+                                        }
                                     }
-                                }
-                                d::Ty_::Tapply(id_and_tys) => {
-                                    let class_name = id_and_tys.0.id_ref().as_str();
-                                    let subst_opt = class_subst.get(class_name);
-                                    subst_opt.and_then(|subst| subst.get(&key).cloned())
-                                }
-                                _ => None,
-                            };
-                            // If there is no subsitution, stop; if there is record that we've
-                            // seen the source key before and restart the rewrite
-                            match subst_ty_opt {
-                                None => (ctx.clone(), TransformTopDown::Stop(ty)),
-                                Some(ty) => {
-                                    let ctx = ctx.update(key);
-                                    (ctx, TransformTopDown::Restart(ty))
                                 }
                             }
                         }
@@ -2031,7 +2175,12 @@ mod typeconst_analysis {
                     _ => (ctx.clone(), TransformTopDown::Continue(ty)),
                 }
             };
-            transform_top_down_decl_ty(ty, &on_ty, &continue_rc_bound::<s_set::T>, &s_set::T::new())
+            transform_top_down_decl_ty(
+                ty,
+                &on_ty,
+                &continue_rc_bound::<projection::Set>,
+                &projection::Set::new(),
+            )
         }
 
         pub fn apply_fun_ty(t: &T, fun_ty: DeclFunType) -> DeclFunType {
@@ -2052,9 +2201,14 @@ mod typeconst_analysis {
         }
 
         /// A substitution from paths of type constants (`A::B`) to types.
-        type Subst = s_map::T<DeclTy>;
+        type Subst = path::Map<DeclTy>;
         /// The generics introduced for abstract type constants.
         type Generics = s_map::T<GenericInfo>;
+
+        /// `List.rev rev_path`
+        fn rev(rev_path: &[String]) -> path::T {
+            rev_path.iter().rev().cloned().collect()
+        }
 
         // -- Build substitution for concrete type constants --------------------
 
@@ -2077,8 +2231,8 @@ mod typeconst_analysis {
                         ..
                     } => {
                         let (mut subst, generics) = acc;
-                        let key = concat_rev(&rev_path);
-                        subst.insert(key, tc_type.clone());
+                        let path = rev(&rev_path);
+                        subst.insert(path, tc_type.clone());
                         (subst, generics)
                     }
                     trie::Base::Typeconst {
@@ -2095,11 +2249,11 @@ mod typeconst_analysis {
                         let generic_name = typing_env::fresh_param_name(env, const_name);
                         let subst = {
                             let mut subst = subst;
-                            let key = concat_rev(&rev_path);
+                            let path = rev(&rev_path);
                             let reason = R::witness_from_decl(pos.clone());
                             let ty =
                                 DeclTy::new(reason, d::Ty_::Tgeneric(TypeName::new(&generic_name)));
-                            subst.insert(key, ty);
+                            subst.insert(path, ty);
                             subst
                         };
                         generics.insert(
@@ -2124,7 +2278,7 @@ mod typeconst_analysis {
                         }
                     })
             }
-            aux(env, trie, ("", vec![]), (s_map::T::new(), generics))
+            aux(env, trie, ("", vec![]), (path::Map::new(), generics))
         }
 
         fn class_subst(
@@ -2153,8 +2307,8 @@ mod typeconst_analysis {
             path: &[String],
             subst: &Subst,
         ) -> Rfmts {
-            let key = concat_rev(&cons(const_name.to_string(), path.to_vec()));
-            let ty_opt = subst.get(&key);
+            let full_path = rev(&cons(const_name.to_string(), path.to_vec()));
+            let ty_opt = subst.get(&full_path);
             match ty_opt {
                 None => rfmts,
                 Some(ty) => {
@@ -2193,6 +2347,23 @@ mod typeconst_analysis {
             }
         }
 
+        fn add_refinements(
+            children: &s_map::T<trie::Status>,
+            pred: &dyn Fn(&str) -> bool,
+            path: &[String],
+            subst: &Subst,
+            init: Rfmts,
+        ) -> Rfmts {
+            // `S_map.fold`, in increasing order of the keys
+            children.iter().fold(init, |rfmts, (const_name, _)| {
+                if pred(const_name) {
+                    add_refinement(rfmts, const_name, path, subst)
+                } else {
+                    rfmts
+                }
+            })
+        }
+
         fn refine_ty(
             env: &Env,
             decl_ty: &DeclTy,
@@ -2200,25 +2371,16 @@ mod typeconst_analysis {
             path: &[String],
             children: &s_map::T<trie::Status>,
         ) -> DeclTy {
-            let reason = decl_ty.reason().clone();
-            match decl_ty.node_ref() {
-                d::Ty_::Tapply(id_and_tys) => {
-                    let class_name = id_and_tys.0.id_ref().as_str();
-                    let abstr_consts: Vec<String> = children.keys().cloned().collect();
-                    if abstr_consts.is_empty() {
-                        decl_ty.clone()
-                    } else {
+            if children.is_empty() {
+                decl_ty.clone()
+            } else {
+                let reason = decl_ty.reason().clone();
+                match decl_ty.node_ref() {
+                    d::Ty_::Tapply(id_and_tys) => {
+                        let class_name = id_and_tys.0.id_ref().as_str();
                         let pred = should_refine(env, class_name);
                         let cr_consts =
-                            abstr_consts
-                                .iter()
-                                .fold(BTreeMap::new(), |rfmts, const_name| {
-                                    if pred(const_name) {
-                                        add_refinement(rfmts, const_name, path, subst)
-                                    } else {
-                                        rfmts
-                                    }
-                                });
+                            add_refinements(children, &*pred, path, subst, BTreeMap::new());
                         let class_refinements = d::ClassRefinement { consts: cr_consts };
                         let ty_ = d::Ty_::Trefinement(Box::new(d::TrefinementType {
                             ty: decl_ty.clone(),
@@ -2226,29 +2388,16 @@ mod typeconst_analysis {
                         }));
                         DeclTy::new(reason, ty_)
                     }
-                }
-                d::Ty_::Trefinement(tr) => {
-                    let inner_decl_ty = &tr.ty;
-                    let cr_consts = &tr.refinement.consts;
-                    let abstr_consts: Vec<String> = children.keys().cloned().collect();
-                    if abstr_consts.is_empty() {
-                        decl_ty.clone()
-                    } else {
+                    d::Ty_::Trefinement(tr) => {
+                        let inner_decl_ty = &tr.ty;
+                        let cr_consts = &tr.refinement.consts;
                         let pred: Box<dyn Fn(&str) -> bool + '_> =
                             match root_class_name_opt(inner_decl_ty) {
                                 None => Box::new(|_| true),
                                 Some(class_name) => should_refine(env, &class_name),
                             };
                         let cr_consts =
-                            abstr_consts
-                                .iter()
-                                .fold(cr_consts.clone(), |rfmts, const_name| {
-                                    if pred(const_name) {
-                                        add_refinement(rfmts, const_name, path, subst)
-                                    } else {
-                                        rfmts
-                                    }
-                                });
+                            add_refinements(children, &*pred, path, subst, cr_consts.clone());
                         let class_refinements = d::ClassRefinement { consts: cr_consts };
                         DeclTy::new(
                             reason,
@@ -2258,22 +2407,22 @@ mod typeconst_analysis {
                             })),
                         )
                     }
+                    d::Ty_::Tunion(tys) => {
+                        let tys: Vec<DeclTy> = tys
+                            .iter()
+                            .map(|ty| refine_ty(env, ty, subst, path, children))
+                            .collect();
+                        DeclTy::new(reason, d::Ty_::Tunion(tys.into()))
+                    }
+                    d::Ty_::Tintersection(tys) => {
+                        let tys: Vec<DeclTy> = tys
+                            .iter()
+                            .map(|ty| refine_ty(env, ty, subst, path, children))
+                            .collect();
+                        DeclTy::new(reason, d::Ty_::Tintersection(tys.into()))
+                    }
+                    _ => decl_ty.clone(),
                 }
-                d::Ty_::Tunion(tys) => {
-                    let tys: Vec<DeclTy> = tys
-                        .iter()
-                        .map(|ty| refine_ty(env, ty, subst, path, children))
-                        .collect();
-                    DeclTy::new(reason, d::Ty_::Tunion(tys.into()))
-                }
-                d::Ty_::Tintersection(tys) => {
-                    let tys: Vec<DeclTy> = tys
-                        .iter()
-                        .map(|ty| refine_ty(env, ty, subst, path, children))
-                        .collect();
-                    DeclTy::new(reason, d::Ty_::Tintersection(tys.into()))
-                }
-                _ => decl_ty.clone(),
             }
         }
 
@@ -2291,7 +2440,7 @@ mod typeconst_analysis {
             match typeconst {
                 d::Typeconst::TCConcrete(d::ConcreteTypeconst { ty: tc_type }) => {
                     let (mut subst, generics) = acc;
-                    subst.insert(concat_rev(path), tc_type.clone());
+                    subst.insert(rev(path), tc_type.clone());
                     (subst, generics)
                 }
                 d::Typeconst::TCAbstract(d::AbstractTypeconst {
@@ -2303,11 +2452,10 @@ mod typeconst_analysis {
                     let generic_name = typing_env::fresh_param_name(env, key);
                     let subst = {
                         let mut subst = subst;
-                        let key = concat_rev(path);
                         let reason = R::witness_from_decl(pos.clone());
                         let ty =
                             DeclTy::new(reason, d::Ty_::Tgeneric(TypeName::new(&generic_name)));
-                        subst.insert(key, ty);
+                        subst.insert(rev(path), ty);
                         subst
                     };
                     let env: &Env = env;
@@ -2359,7 +2507,7 @@ mod typeconst_analysis {
                         },
                     })
             }
-            let init = (s_map::T::new(), generics);
+            let init = (path::Map::new(), generics);
             match base {
                 trie::Base::Root => aux(env, children, &[], init),
                 _ => init,
@@ -2367,43 +2515,31 @@ mod typeconst_analysis {
         }
 
         // -- Build all substitutions from the analysis ---------------------------
-        fn mk_tparam(
-            pos: BPos,
-            name: &str,
-            tp_constraints: Vec<(ConstraintKind, DeclTy)>,
-        ) -> DeclTparam {
-            d::Tparam {
-                variance: Variance::Invariant,
-                name: Positioned::new(pos, TypeName::new(name)),
-                constraints: tp_constraints.into(),
-                reified: ReifyKind::Erased,
-                user_attributes: [].into(),
-            }
-        }
-
         fn refine_this(this_ty: DeclTy, this_subst: &Subst, type_constants: &[String]) -> DeclTy {
             if type_constants.is_empty() {
                 this_ty
             } else {
+                let add_exact_refinements = |init: Rfmts| -> Rfmts {
+                    type_constants.iter().fold(init, |mut rfmts: Rfmts, name| {
+                        match this_subst.get(&vec![name.clone()]) {
+                            Some(ty) => {
+                                rfmts.insert(
+                                    TypeConstName::new(name),
+                                    d::RefinedConst {
+                                        bound: d::RefinedConstBound::Exact(ty.clone()),
+                                        is_ctx: false,
+                                    },
+                                );
+                                rfmts
+                            }
+                            None => rfmts,
+                        }
+                    })
+                };
                 let reason = this_ty.reason().clone();
                 match this_ty.node_ref() {
                     d::Ty_::Tapply(_) => {
-                        let cr_consts = type_constants.iter().fold(
-                            BTreeMap::new(),
-                            |mut rfmts: Rfmts, name| match this_subst.get(name) {
-                                Some(ty) => {
-                                    rfmts.insert(
-                                        TypeConstName::new(name),
-                                        d::RefinedConst {
-                                            bound: d::RefinedConstBound::Exact(ty.clone()),
-                                            is_ctx: false,
-                                        },
-                                    );
-                                    rfmts
-                                }
-                                _ => rfmts,
-                            },
-                        );
+                        let cr_consts = add_exact_refinements(BTreeMap::new());
                         let class_refinement = d::ClassRefinement { consts: cr_consts };
                         DeclTy::new(
                             reason,
@@ -2415,22 +2551,7 @@ mod typeconst_analysis {
                     }
                     d::Ty_::Trefinement(tr) => {
                         let this_ty = &tr.ty;
-                        let cr_consts = type_constants.iter().fold(
-                            tr.refinement.consts.clone(),
-                            |mut rfmts: Rfmts, name| match this_subst.get(name) {
-                                Some(ty) => {
-                                    rfmts.insert(
-                                        TypeConstName::new(name),
-                                        d::RefinedConst {
-                                            bound: d::RefinedConstBound::Exact(ty.clone()),
-                                            is_ctx: false,
-                                        },
-                                    );
-                                    rfmts
-                                }
-                                _ => rfmts,
-                            },
-                        );
+                        let cr_consts = add_exact_refinements(tr.refinement.consts.clone());
                         let class_refinement = d::ClassRefinement { consts: cr_consts };
                         DeclTy::new(
                             reason,
@@ -2489,7 +2610,7 @@ mod typeconst_analysis {
                             .flatten()
                             .collect()
                         };
-                        mk_tparam(pos.clone(), name, tp_constraints)
+                        crate::typing_extract_method::mk_tparam(pos.clone(), name, tp_constraints)
                     },
                 )
                 .collect()
@@ -2628,7 +2749,7 @@ mod typeconst_analysis {
                 "B",
                 trie::Status::Undefined,
             );
-            let t = trie::merge(&t1, &t2).unwrap();
+            let t = trie::merge(&t1, &t2);
             assert_eq!(trie::constants(&t), vec!["A", "B"]);
             assert!(matches!(
                 t.children.get("A"),
@@ -2708,17 +2829,34 @@ fn ty_generics(names: s_set::T, ty: &DeclTy) -> s_set::T {
 /// never counted.
 pub fn explicit_this_param_positions(
     has_implicit_this: Option<bool>,
+    class_tparams: Option<&[DeclTparam]>,
     env: &Env,
     fun_ty: &DeclFunType,
 ) -> Vec<PosOrDecl> {
     let has_implicit_this = has_implicit_this.unwrap_or(false);
+    let class_tparams = class_tparams.unwrap_or(&[]);
+    let upper_bounds = if !has_implicit_this {
+        s_map::T::new()
+    } else {
+        let tparams: Vec<DeclTparam> = class_tparams
+            .iter()
+            .chain(fun_ty.tparams.iter())
+            .cloned()
+            .collect();
+        type_parameter_upper_bounds(s_map::T::new(), &tparams, &fun_ty.where_constraints)
+    };
     let init = if has_implicit_this { 1 } else { 0 };
     // `positions` is consed in the OCaml and reversed at the end: here it is
     // pushed to, in the order of the parameters
     let (total, positions) = fun_ty.params.iter().fold(
         (init, vec![]),
         |(total, mut positions): (isize, Vec<PosOrDecl>), fp| {
-            match variance_analysis::count_obtainable_this_in_param(&fp.ty, env) {
+            match variance_analysis::count_obtainable_this_in_param(
+                has_implicit_this,
+                &upper_bounds,
+                &fp.ty,
+                env,
+            ) {
                 0 => (total, positions),
                 n => {
                     positions.push(PosOrDecl::from(fp.pos.clone()));
@@ -2751,34 +2889,45 @@ fn drop_unused_generics(fun_ty: DeclFunType, names: &s_set::T) -> DeclFunType {
                 ty_generics(ty_generics(names, ty1), ty2)
             })
     };
-    // Now add in any generics which are mentioned in constraints in those
-    // generics; repeat until we have discovered all transitively used generics
-    fn aux(ft_tparams: &[DeclTparam], (acc, delta): (s_set::T, s_set::T)) -> s_set::T {
-        let acc = delta.clone().union(acc);
-        let delta = ft_tparams.iter().fold(s_set::T::new(), |acc, tp| {
+    // `S_map.of_list`: a later binding of a name replaces an earlier one.
+    let dependencies: s_map::T<s_set::T> = fun_ty
+        .tparams
+        .iter()
+        .map(|tp| {
             let name = tp.name.id_ref().as_str();
-            if delta.contains(name) {
-                let generics = tp
-                    .constraints
-                    .iter()
-                    .fold(acc.clone(), |acc, (_, ty)| ty_generics(acc, ty));
-                // If the generic has an upper or lower bound which mentions the
-                // generic we would end up in an infinite loop
-                let generics = generics.without(name);
-                acc.union(generics)
-            } else {
-                acc
+            let dependencies = tp
+                .constraints
+                .iter()
+                .fold(s_set::T::new(), |dependencies, (_, ty)| {
+                    ty_generics(dependencies, ty)
+                });
+            (name.to_string(), dependencies.without(name))
+        })
+        .collect();
+    // `let rec close used pending = ...`: `pending` is a list, head first.
+    let names = {
+        let mut used = s_set::T::new();
+        let mut pending: Vec<String> = names.iter().cloned().collect();
+        pending.reverse();
+        // (The head of the list is the last element of the vector.)
+        while let Some(name) = pending.pop() {
+            if used.contains(&name) {
+                continue;
             }
-        });
-        // `S_set.diff delta acc`
-        let delta = delta.relative_complement(acc.clone());
-        if delta.is_empty() {
-            acc
-        } else {
-            aux(ft_tparams, (acc, delta))
+            used.insert(name.clone());
+            match dependencies.get(&name) {
+                None => {}
+                Some(dependencies) => {
+                    // `List.rev_append (S_set.elements dependencies) pending`:
+                    // the last element comes first.
+                    for dependency in dependencies.iter() {
+                        pending.push(dependency.clone())
+                    }
+                }
+            }
         }
-    }
-    let names = aux(&fun_ty.tparams, (s_set::T::new(), names));
+        used
+    };
     let ft_tparams: Vec<DeclTparam> = fun_ty
         .tparams
         .iter()
@@ -2819,6 +2968,41 @@ fn gen_this_name(ft_tparams: &[DeclTparam]) -> String {
 }
 
 fn apply_subst_generic(fun_ty: DeclFunType, subst: &s_map::T<DeclTy>) -> DeclFunType {
+    let names: s_set::T = subst.keys().cloned().collect();
+    let dependencies: s_map::T<s_set::T> = subst
+        .iter()
+        .map(|(name, ty)| {
+            // `S_set.inter names (ty_generics S_set.empty ty)`
+            let generics = ty_generics(s_set::T::new(), ty);
+            (name.clone(), names.clone().intersection(generics))
+        })
+        .collect();
+    let is_recursive = |name: &String| -> bool {
+        // `let rec visit seen = function ...`: the list, head first.
+        let mut seen = s_set::T::new();
+        let mut pending: VecDeque<String> = dependencies[name].iter().cloned().collect();
+        loop {
+            match pending.pop_front() {
+                None => return false,
+                Some(next) if *name == next => return true,
+                Some(next) if seen.contains(&next) => {}
+                Some(next) => {
+                    seen.insert(next.clone());
+                    // `S_set.elements next_dependencies @ rest`
+                    let next_dependencies = &dependencies[&next];
+                    for dependency in next_dependencies.iter().rev() {
+                        pending.push_front(dependency.clone())
+                    }
+                }
+            }
+        }
+    };
+    let subst: s_map::T<DeclTy> = subst
+        .iter()
+        .filter(|(name, _)| !is_recursive(name))
+        .map(|(name, ty)| (name.clone(), ty.clone()))
+        .collect();
+    let subst = &subst;
     let on_ty = |ty: DeclTy, ctx: &()| match ty.node_ref() {
         d::Ty_::Tgeneric(nm) => match subst.get(nm.as_str()) {
             Some(ty) => {

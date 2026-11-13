@@ -1,6 +1,21 @@
-ERROR: File "shape_fields_last_first.php", line 6, characters 66-69:
-You can only use the `void` type as the return type of a function or method (Naming[2063])
-ERROR: File "shape_fields_last_first.php", line 6, characters 9-70:
-Invalid `as` expression hint (Typing[4195])
-  File "shape_fields_last_first.php", line 6, characters 66-69:
-  The `as` operator cannot be used with the `void` type
+error: Naming[2063] You can only use the `void` type as the return type of a function or method [1]
+
+shape_fields_last_first.php:6:66
+4 | // (`TShapeMap.values`), and the first invalid one is reported.
+5 | function g(mixed $x): void {
+6 |   $x as shape('a' => (function(): void), 'b' => vec<int>, 'c' => void);
+  |                                                                  ^^^^ [1]
+7 | }
+
+error: Typing[4195] Invalid `as` expression hint [1]
+-> The `as` operator cannot be used with the `void` type [2]
+
+shape_fields_last_first.php:6:9
+4 | // (`TShapeMap.values`), and the first invalid one is reported.
+5 | function g(mixed $x): void {
+6 |   $x as shape('a' => (function(): void), 'b' => vec<int>, 'c' => void);
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ [1]
+  |                                                                  ^^^^ [2]
+7 | }
+
+2 errors found

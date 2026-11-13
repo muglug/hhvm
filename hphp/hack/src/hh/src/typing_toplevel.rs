@@ -322,6 +322,13 @@ fn fun_def_with_env(
     let local_tpenv = env::get_tpenv(env);
     let disable = mem(sn::user_attributes::DISABLE_TYPECHECKER_INTERNAL);
     typing_memoize::check_function(env, f);
+    typing_memoize::check_erased_generics(
+        env,
+        &f.user_attributes.0,
+        &fd.tparams,
+        &f.params,
+        &f.ret,
+    );
     let (tb, had_errors) = diagnostics_state::run_and_check_for_errors(|| {
         let native = typing_native::is_native_fun(env, f);
         crate::typing::fun_(
@@ -514,6 +521,7 @@ pub fn gconst_def(ctx: &Arc<Ctx>, cst: &nast::Gconst) -> tast::Gconst {
                 );
                 let env = &mut env;
                 env::set_current_package_membership(env, cst.package.clone());
+                env::make_depend_on_current_module(env);
                 let pos = cst.name.0.clone();
                 let restore_pos = env::set_inference_env_pos(env, Some(pos));
                 for err in typing_type_wellformedness::global_constant(env, cst) {

@@ -25,7 +25,7 @@ use oxidized::quickfix::Quickfix;
 use super::*;
 use crate::pos::APos;
 use crate::rt::ocaml_marshal::Value;
-use crate::rt::ocaml_marshal::tests::GOLDEN_ERRORS_FILES;
+use crate::rt::ocaml_marshal::tests::golden_errors_files;
 use crate::rt::ocaml_marshal::tests::errors_file_payloads;
 use crate::server_progress_lwt;
 use crate::server_progress_lwt::WatchError;
@@ -37,7 +37,12 @@ fn serial() -> MutexGuard<'static, ()> {
 }
 
 fn golden(name: &str) -> &'static [u8] {
-    GOLDEN_ERRORS_FILES.iter().find(|(n, _)| *n == name).unwrap().1
+    golden_errors_files()
+        .unwrap()
+        .iter()
+        .find(|(n, _)| *n == name)
+        .unwrap()
+        .1
 }
 
 fn golden_messages(name: &str) -> Vec<(Value, errors_file::Message)> {
@@ -110,7 +115,11 @@ fn expect_qitems(
 /// encode to the OCaml's bytes but for the sharing (see [`codec`]).
 #[test]
 fn golden_messages_decode_and_encode() {
-    for (name, file) in GOLDEN_ERRORS_FILES {
+    // (The golden errors files: see `rt/ocaml_marshal/tests.rs`.)
+    if golden_errors_files().is_none() {
+        return;
+    }
+    for (name, file) in &golden_errors_files().unwrap() {
         for (i, p) in errors_file_payloads(file).into_iter().enumerate() {
             let v = ocaml_marshal::from_bytes(p, 0).unwrap();
             let m = codec::message_of_ocaml(&v)
@@ -145,6 +154,10 @@ fn kinds(name: &str) -> Vec<String> {
 
 #[test]
 fn golden_message_sequences() {
+    // (The golden errors files: see `rt/ocaml_marshal/tests.rs`.)
+    if golden_errors_files().is_none() {
+        return;
+    }
     let header = ["VersionHeader", "Header clock"];
     let telemetry = [
         "Telemetry [to_recheck_count]",
@@ -342,6 +355,10 @@ fn read_all(file: &str) -> Vec<errors_file::Message> {
 /// and the sharing.
 #[test]
 fn report_writes_what_ocaml_writes() {
+    // (The golden errors files: see `rt/ocaml_marshal/tests.rs`.)
+    if golden_errors_files().is_none() {
+        return;
+    }
     let _serial = serial();
     for (name, root) in [("r1", "/private/tmp/hh-incr/err/r1/"), ("r2", "/private/tmp/hh-incr/err/r2/")] {
         let item = golden_messages(name)
@@ -445,6 +462,10 @@ fn open(file: &str) -> (std::fs::File, isize) {
 /// is gone.
 #[test]
 fn errors_complete() {
+    // (The golden errors files: see `rt/ocaml_marshal/tests.rs`.)
+    if golden_errors_files().is_none() {
+        return;
+    }
     let _serial = serial();
     let file = set_test_root("/nonexistent/hh_errors_test/complete");
     errors_write::new_empty_file(None, false, (String::new(), String::new()));
@@ -477,6 +498,10 @@ fn errors_complete() {
 /// server stops, each reads the end and its stream closes.
 #[test]
 fn errors_during() {
+    // (The golden errors files: see `rt/ocaml_marshal/tests.rs`.)
+    if golden_errors_files().is_none() {
+        return;
+    }
     let _serial = serial();
     let file = set_test_root("/nonexistent/hh_errors_test/during");
     errors_write::new_empty_file(None, false, (String::new(), String::new()));
@@ -544,6 +569,10 @@ fn errors_kill() {
 /// `Restarted` sentinel once the new file is in place.
 #[test]
 fn errors_existing_and_restarted() {
+    // (The golden errors files: see `rt/ocaml_marshal/tests.rs`.)
+    if golden_errors_files().is_none() {
+        return;
+    }
     let _serial = serial();
     let file = set_test_root("/nonexistent/hh_errors_test/existing");
     let mut child = std::process::Command::new("true").spawn().unwrap();
@@ -602,6 +631,10 @@ fn errors_existing_and_restarted() {
 
 #[test]
 fn bad_states_and_disabled_production() {
+    // (The golden errors files: see `rt/ocaml_marshal/tests.rs`.)
+    if golden_errors_files().is_none() {
+        return;
+    }
     let _serial = serial();
     let file = set_test_root("/nonexistent/hh_errors_test/states");
     let msg = |f: fn()| -> String {
@@ -695,6 +728,10 @@ fn version_mismatch() {
 /// uncaught `Malformed_Preamble_Exception`.
 #[test]
 fn truncated_files() {
+    // (The golden errors files: see `rt/ocaml_marshal/tests.rs`.)
+    if golden_errors_files().is_none() {
+        return;
+    }
     let _serial = serial();
     let file = set_test_root("/nonexistent/hh_errors_test/truncated");
     let r1 = golden("r1");

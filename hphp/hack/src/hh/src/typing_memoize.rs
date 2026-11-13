@@ -21,7 +21,12 @@ use oxidized::nast;
 use oxidized::pos::Pos;
 use oxidized::pos_or_decl::PosOrDecl;
 
+use ty::decl::ty as d;
+
+use crate::decl_entry;
 use crate::local_id;
+use crate::type_visitor::DeclTypeVisitor;
+use crate::typing_defs_core::DeclTy;
 use crate::naming_attributes;
 use crate::typing_defs::empty_expand_env;
 use crate::typing_defs_core::ShapeType;
@@ -306,6 +311,156 @@ fn check(env: &Env, user_attributes: &[nast::UserAttribute], params: &[nast::Fun
     {
         for param in params {
             check_param(env, param)
+        }
+    }
+}
+
+fn mentions_generic(name: &str, ty: &DeclTy) -> bool {
+    struct Visitor<'n> {
+        name: &'n str,
+    }
+    impl DeclTypeVisitor<bool> for Visitor<'_> {
+        fn on_tgeneric(&mut self, found: bool, _r: &crate::ctx::R, n: &str) -> bool {
+            found || n == self.name
+        }
+
+        // (`on_type found ty = found || parent#on_type found ty` only stops
+        // the traversal early.)
+    }
+    let mut visitor = Visitor { name };
+    visitor.on_type(false, ty)
+}
+
+/// Whether generic [name] occurs in the type arguments of an `IMemoizeParam`
+/// class in [ty]. Such an argument is keyed only by its `getInstanceKey()`.
+fn under_instance_key(env: &Env, name: &str, fuel: isize, ty: &DeclTy) -> bool {
+    let go = |ty: &DeclTy| under_instance_key(env, name, fuel, ty);
+    match ty.node_ref() {
+        d::Ty_::Tapply(apply) => {
+            let (cname, targs) = (apply.0.id_ref().as_str(), &apply.1);
+            match env::get_class(env, cname) {
+                decl_entry::T::Found(cls) => {
+                    crate::folded_class::has_ancestor(&cls, sn::classes::IMEMOIZE_PARAM)
+                        && targs.iter().any(|ty| mentions_generic(name, ty))
+                        || targs.iter().any(go)
+                }
+                decl_entry::T::DoesNotExist | decl_entry::T::NotYetAvailable => {
+                    match env::get_typedef(env, cname) {
+                        decl_entry::T::Found(td)
+                            if matches!(
+                                &td.type_assignment,
+                                d::TypedefTypeAssignment::SimpleTypeDef(..)
+                            ) && fuel > 0 =>
+                        {
+                            let body = match &td.type_assignment {
+                                d::TypedefTypeAssignment::SimpleTypeDef(_, body) => body,
+                                d::TypedefTypeAssignment::CaseType(..) => unreachable!(),
+                            };
+                            let subst = crate::decl_instantiate::make_subst(&td.tparams, targs);
+                            under_instance_key(
+                                env,
+                                name,
+                                fuel - 1,
+                                &crate::decl_instantiate::instantiate(&subst, body),
+                            )
+                        }
+                        _ => targs.iter().any(go),
+                    }
+                }
+            }
+        }
+        d::Ty_::Toption(ty) | d::Ty_::Tlike(ty) => go(ty),
+        d::Ty_::TvecOrDict(kv) => go(&kv.0) || go(&kv.1),
+        d::Ty_::Tunion(tyl) | d::Ty_::Tintersection(tyl) => tyl.iter().any(go),
+        d::Ty_::Ttuple(tuple) => {
+            let d::TupleType(t_required, t_optional, t_extra) = &**tuple;
+            t_required.iter().chain(t_optional.iter()).any(go)
+                || match t_extra {
+                    d::TupleExtra::Tvariadic(ty) | d::TupleExtra::Tsplat(ty) => go(ty),
+                }
+        }
+        d::Ty_::Tshape(shape) => match &**shape {
+            d::ShapeType::Simple(d::ShapeTypeSimple(_, s_fields)) => {
+                s_fields.values().any(|sft| go(&sft.ty))
+            }
+            d::ShapeType::Splat(_) => false,
+        },
+        _ => false,
+    }
+}
+
+/// The memoization cache ignores erased generics, so one cached result serves
+/// every instantiation.
+pub fn check_erased_generics(
+    env: &Env,
+    user_attributes: &[nast::UserAttribute],
+    tparams: &[nast::Tparam],
+    params: &[nast::FunParam],
+    ret: &nast::TypeHint,
+) {
+    if env::get_tcopt(env).tco_ban_memoize_erased_generic_return {
+        // `Option.first_some a b`: both are computed, `b` first.
+        let attr_pos_lsb =
+            naming_attributes::mem_pos(sn::user_attributes::MEMOIZE_LSB, user_attributes);
+        let attr_pos = naming_attributes::mem_pos(sn::user_attributes::MEMOIZE, user_attributes)
+            .or(attr_pos_lsb);
+        match (attr_pos, crate::aast::hint_of_type_hint(ret)) {
+            (Some(attr_pos), Some(hint)) => {
+                let ret_ty = crate::decl_hint::hint(&env.decl_env, hint);
+                let erased: Vec<&nast::Tparam> = tparams
+                    .iter()
+                    .filter(|tp| match tp.reified {
+                        aast::ReifyKind::Reified => false,
+                        aast::ReifyKind::Erased | aast::ReifyKind::SoftReified => true,
+                    })
+                    .collect();
+                let (positive, negative) =
+                    crate::typing_variance::get_positive_negative_generics(
+                        &erased.iter().map(|tp| tp.name.1.clone()).collect(),
+                        false,
+                        env,
+                        (im::OrdMap::new(), im::OrdMap::new()),
+                        &ret_ty,
+                    );
+                for tp in erased.iter() {
+                    let ast_defs::Id(pos, tparam_name) = &tp.name;
+                    let report = |via_param: Option<Pos>| {
+                        typing_error_utils::add_typing_error(
+                            &typing_error::primary(primary::T::Memoize_erased_generic_return {
+                                pos: pos.clone(),
+                                tparam_name: tparam_name.clone(),
+                                attr_pos: attr_pos.clone(),
+                                via_param,
+                            }),
+                            env,
+                        )
+                    };
+                    if negative.contains_key(tparam_name) {
+                        report(None)
+                    } else if positive.contains_key(tparam_name) {
+                        let via = params.iter().find_map(|param| {
+                            crate::aast::hint_of_type_hint(&param.type_hint)
+                                .as_ref()
+                                .and_then(|hint| {
+                                    if under_instance_key(
+                                        env,
+                                        tparam_name,
+                                        10,
+                                        &crate::decl_hint::hint(&env.decl_env, hint),
+                                    ) {
+                                        Some(param.pos.clone())
+                                    } else {
+                                        None
+                                    }
+                                })
+                        });
+                        if let Some(p) = via {
+                            report(Some(p))
+                        }
+                    }
+                }
+            }
+            _ => {}
         }
     }
 }

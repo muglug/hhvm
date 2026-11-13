@@ -848,21 +848,35 @@ mod tests {
         out
     }
 
-    /// Every type inside `ty` (and `ty` itself), each with its reason.
-    fn types_with_reasons(ty: &Ty<R>) -> Vec<String> {
+    /// Every type inside `ty` (and `ty` itself), each with its reason; with
+    /// `shape_kinds` unset, all but the types of the unknown fields of
+    /// shapes.
+    fn types_with_reasons(ty: &Ty<R>, shape_kinds: bool) -> Vec<String> {
+        use ty::decl::ty::ShapeType;
+        use ty::decl::ty::ShapeTypeSimple;
         use ty::visitor::Visitor;
         use ty::visitor::Walkable;
-        struct Collect(Vec<String>);
+        struct Collect(Vec<String>, bool);
         impl Visitor<R> for Collect {
             fn object(&mut self) -> &mut dyn Visitor<R> {
                 self
             }
             fn visit_decl_ty(&mut self, o: &Ty<R>) {
                 self.0.push(format!("{:?} with reason {:?}", o, o.reason()));
-                o.recurse(self)
+                match o.node_ref() {
+                    Ty_::Tshape(shape) if !self.1 => match &**shape {
+                        ShapeType::Simple(ShapeTypeSimple(_kind, fields)) => {
+                            for sft in fields.values() {
+                                sft.ty.accept(self)
+                            }
+                        }
+                        ShapeType::Splat(_) => o.recurse(self),
+                    },
+                    _ => o.recurse(self),
+                }
             }
         }
-        let mut collect = Collect(vec![]);
+        let mut collect = Collect(vec![], shape_kinds);
         ty.accept(&mut collect);
         collect.0
     }
@@ -896,8 +910,8 @@ mod tests {
             );
             // The reasons, type by type (all but those of the types of the
             // unknown fields of shapes).
-            let from_hint_parts = types_with_reasons(&from_hint);
-            let from_decl_parts = types_with_reasons(&from_decl);
+            let from_hint_parts = types_with_reasons(&from_hint, shape_kind_reasons);
+            let from_decl_parts = types_with_reasons(&from_decl, shape_kind_reasons);
             for (h, d) in from_hint_parts.iter().zip(from_decl_parts.iter()) {
                 assert_eq!(h, d, "{}", what);
             }

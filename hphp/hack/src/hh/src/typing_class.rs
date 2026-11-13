@@ -538,6 +538,13 @@ fn method_def_with_env(
     let param_tys =
         typing_param::make_param_local_tys(false, no_auto_likes, env, &params_decl_ty, &m.params);
     typing_memoize::check_method(env, m);
+    typing_memoize::check_erased_generics(
+        env,
+        &m.user_attributes.0,
+        &m.tparams,
+        &m.params,
+        &m.ret,
+    );
     typing_implemented_by::check_method(env, &ast_defs::Id(pos.clone(), cls::name(cls)), m);
     let can_read_globals = typing_subtype::is_sub_type(
         env,
@@ -2226,7 +2233,21 @@ fn check_class_require_non_strict_constraints(env: &mut Env, c: &nast::Class_, t
     let req_non_strict_constraints: Vec<DeclWhereConstraint> =
         cls::all_ancestor_req_class_requirements(tc)
             .into_iter()
-            .map(|r| WhereConstraint(this_ty(), ConstraintKind::ConstraintEq, r.ty))
+            .map(|r| {
+                let t = r.ty;
+                let constraint_kind = match crate::typing_utils::try_unwrap_class_type(&t) {
+                    Some((_, name, _)) => match env::get_class(env, name.id_ref().as_str()) {
+                        decl_entry::T::Found(cls) if !cls::final_(&cls) => {
+                            ConstraintKind::ConstraintAs
+                        }
+                        decl_entry::T::Found(_)
+                        | decl_entry::T::DoesNotExist
+                        | decl_entry::T::NotYetAvailable => ConstraintKind::ConstraintEq,
+                    },
+                    None => ConstraintKind::ConstraintEq,
+                };
+                WhereConstraint(this_ty(), constraint_kind, t)
+            })
             .chain(
                 cls::all_ancestor_req_this_as_requirements(tc)
                     .into_iter()
@@ -2789,6 +2810,7 @@ pub fn make_class_member_standalone_check_env(
     let restore_pos = env::set_inference_env_pos(&mut env, Some(pos));
     let name = ast_defs::get_id(&class_.name);
     decl_entry::to_option(env::get_class(&env, &name)).map(|cls| {
+        env::set_support_dynamic_type(&mut env, cls::get_support_dynamic_type(&cls));
         check_class_type_parameters_add_constraints(&mut env, class_, &cls);
         restore_pos(&mut env);
         (

@@ -541,7 +541,7 @@ fn bind_exact<K>(
 ///
 /// These belong to `hh single` only (`hh_server` does not declare them): see
 /// [`Ctx::add_magic_builtins`].
-const MAGIC_BUILTINS: (&str, &str) = (
+pub const MAGIC_BUILTINS: (&str, &str) = (
     "hh_single_type_check_magic.hhi",
     "<?hh
 namespace {

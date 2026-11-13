@@ -208,6 +208,25 @@ pub fn merge_env<E>(
     }
 }
 
+/// For a `combine` of [`merge_env`] that gives `None` on some bindings that
+/// only the first map has (which [`merge_env`] does not pass to it): removes
+/// from `merged` those for which `forget` holds.
+pub fn forget_first_only(
+    mut merged: T,
+    tpenv1: &T,
+    tpenv2: &T,
+    forget: impl Fn(&str) -> bool,
+) -> T {
+    if !tpenv1.tparams.ptr_eq(&tpenv2.tparams) {
+        for key in tpenv1.tparams.keys() {
+            if !tpenv2.tparams.contains_key(key) && forget(key) {
+                merged.tparams.remove_key(key);
+            }
+        }
+    }
+    merged
+}
+
 pub fn get_lower_bounds(tpenv: &T, name: &str) -> TparamBounds {
     match get(name, tpenv) {
         None => empty_bounds(),

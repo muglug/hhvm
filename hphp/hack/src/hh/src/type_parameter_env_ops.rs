@@ -88,7 +88,9 @@ fn join_upper_bounds(env: &mut Env, u1: ty_set::T, u2: ty_set::T) -> ty_set::T {
 ///     tpenv1 |- tpenv
 /// and tpenv2 |- tpenv
 ///
-/// If a type parameter is defined only on one input, we do not include it in tpenv.
+/// A type parameter defined on only one input is kept: it may be a fresh generic
+/// the other input never had. Under forget_one_branch_tconst_refinements, one in
+/// the global tpenv (a type constant) is dropped, leaving its global bounds.
 /// If it appears in both, supposing we have
 ///     l1 <: T <: u1 in tpenv1
 /// and l2 <: T <: u2 in tpenv2
@@ -99,11 +101,14 @@ pub fn join(env: &mut Env, tpenv1: &tp_env::T, tpenv2: &tp_env::T) -> tp_env::T 
     let merge_pos = |p1: &PosOrDecl, p2: &PosOrDecl| {
         if crate::pos::equal_none(p1) { p2.clone() } else { p1.clone() }
     };
-    tp_env::merge_env(
+    let forget_one_sided_global =
+        crate::typing_env::get_tcopt(env).tco_forget_one_branch_tconst_refinements;
+    let global_tpenv = crate::typing_env::get_global_tpenv(env);
+    let merged = tp_env::merge_env(
         env,
         tpenv1,
         tpenv2,
-        |env: &mut Env, _tparam, info1, info2| match (info1, info2) {
+        |env: &mut Env, tparam, info1, info2| match (info1, info2) {
             (Some((pos1, info1)), Some((pos2, info2))) => {
                 // When both bounds of the first are subsets of those of the
                 // second (always so for the binding that both maps share),
@@ -139,11 +144,24 @@ pub fn join(env: &mut Env, tpenv1: &tp_env::T, tpenv2: &tp_env::T) -> tp_env::T 
                     },
                 ))
             }
+            (Some(_), None) | (None, Some(_))
+                if forget_one_sided_global && tp_env::mem(tparam, &global_tpenv) =>
+            {
+                tp_env::Merged::Neither
+            }
             (Some(_), _) => tp_env::Merged::First,
             (_, Some(_)) => tp_env::Merged::Second,
             (_, _) => tp_env::Merged::Neither,
         },
-    )
+    );
+    // (`merge_env` does not pass the bindings that only the first has.)
+    if forget_one_sided_global {
+        tp_env::forget_first_only(merged, tpenv1, tpenv2, |tparam| {
+            tp_env::mem(tparam, &global_tpenv)
+        })
+    } else {
+        merged
+    }
 }
 
 fn get_tpenv_equal_bounds(env: &tp_env::T, name: &str) -> ty_set::T {

@@ -228,6 +228,20 @@ fn transform_shape_field(
             },
         );
     };
+    // HHVM can omit these: `generic_types` when `this` resolves to its
+    // class alone, `alias` unless the type went through an alias.
+    let acc_field_maybe_absent =
+        |env: &Env, shape: &mut ShapeMap, field: t_shape_map::Key, sft_ty: Ty| {
+            let sft_optional =
+                crate::typing_env::get_tcopt(env).tco_type_structure_fields_may_be_absent;
+            shape.insert(
+                field,
+                ShapeFieldType {
+                    optional: sft_optional,
+                    ty: sft_ty,
+                },
+            );
+        };
     let sft_ty = typing_env::expand_type(env, sft_ty);
     let r = get_reason(base_type).clone();
     match (get_node(&sft_ty), get_node(base_type)) {
@@ -237,8 +251,8 @@ fn transform_shape_field(
         (Ty_::Toption(fty), Ty_::Toption(_)) if is_lit_str(&field, "nullable") => {
             acc_field_with_type(shape, field, fty.clone())
         }
-        (Ty_::Toption(fty), _) if is_lit_str(&field, "classname") && is_enum_or_classish(ty) => {
-            acc_field_with_type(shape, field, fty.clone())
+        (_, _) if is_lit_str(&field, "classname") && is_enum_or_classish(ty) => {
+            acc_field_with_type(shape, field, sft_ty.clone())
         }
         // Required elements in a tuple type
         (
@@ -325,18 +339,15 @@ fn transform_shape_field(
         //
         // For test(TypeStructure<D>) there will not be a generic_types field
         (_, _) if is_lit_str(&field, "generic_types") && is_generic => {
-            acc_field_with_type(shape, field, sft_ty.clone())
+            acc_field_maybe_absent(env, shape, field, sft_ty.clone())
         }
         (_, Ty_::Tclass(_, _, tyl)) if is_lit_str(&field, "generic_types") && !tyl.is_empty() => {
             let tyl: Vec<Ty> = tyl.iter().map(|ty| make_ts(env, ty.clone())).collect();
-            acc_field_with_type(shape, field, make_type::tuple(r, tyl))
+            acc_field_maybe_absent(env, shape, field, make_type::tuple(r, tyl))
         }
-        (_, _)
-            if is_lit_str(&field, "kind")
-                || is_lit_str(&field, "name")
-                || is_lit_str(&field, "alias") =>
-        {
-            acc_field_with_type(shape, field, sft_ty.clone())
+        (_, _) if is_lit_str(&field, "kind") => acc_field_with_type(shape, field, sft_ty.clone()),
+        (_, _) if is_lit_str(&field, "name") || is_lit_str(&field, "alias") => {
+            acc_field_maybe_absent(env, shape, field, sft_ty.clone())
         }
         _ => {
             // If the field is marked optional (as it should be, apart from kind)

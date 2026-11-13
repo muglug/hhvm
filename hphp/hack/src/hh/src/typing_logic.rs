@@ -256,6 +256,15 @@ fn add_prop(p: SubtypeProp, mut ps: Vec<SubtypeProp>) -> Vec<SubtypeProp> {
     }
 }
 
+fn append_prop(mut ps: Vec<SubtypeProp>, p: SubtypeProp) -> Vec<SubtypeProp> {
+    if ps.iter().any(|p_| equal_subtype_prop(&p, p_)) {
+        ps
+    } else {
+        ps.push(p);
+        ps
+    }
+}
+
 enum PropResult {
     Valid,
     Invalid(Option<typing_error::T>),
@@ -284,12 +293,16 @@ fn append_disj(fail: Option<typing_error::T>, p1: SubtypeProp, p2: SubtypeProp) 
             let disj_err = intersect_opt3(fail, err1, err2);
             SubtypeProp::Disj(
                 disj_err,
-                ps2.into_iter().fold(ps1, |ps, p| add_prop(p, ps)),
+                ps2.into_iter().fold(ps1, append_prop),
             )
         }
-        (p, SubtypeProp::Disj(err, ps)) | (SubtypeProp::Disj(err, ps), p) => {
+        (p, SubtypeProp::Disj(err, ps)) => {
             let disj_err = intersect_opt3(fail, err, None);
             SubtypeProp::Disj(disj_err, add_prop(p, ps))
+        }
+        (SubtypeProp::Disj(err, ps), p) => {
+            let disj_err = intersect_opt3(fail, err, None);
+            SubtypeProp::Disj(disj_err, append_prop(ps, p))
         }
         (p1, p2) => SubtypeProp::Disj(fail, vec![p1, p2]),
     }
@@ -580,8 +593,8 @@ mod tests {
             structure(&disj(None, sub(1), sub(2))),
             "Disj[#1 <: int; #2 <: int]"
         );
-        // `add_prop` puts the new disjunct first, and drops it if it is
-        // already there.
+        // `add_prop` puts a disjunct on the left first, `append_prop` one on
+        // the right last, and both drop it if it is already there.
         assert_eq!(
             structure(&disj(
                 None,
@@ -592,7 +605,7 @@ mod tests {
         );
         assert_eq!(
             structure(&disj(None, Disj(None, vec![sub(1), sub(2)]), sub(3))),
-            "Disj[#3 <: int; #1 <: int; #2 <: int]"
+            "Disj[#1 <: int; #2 <: int; #3 <: int]"
         );
         assert_eq!(
             structure(&disj(None, Disj(None, vec![sub(1), sub(2)]), sub(2))),
@@ -604,7 +617,7 @@ mod tests {
                 Disj(None, vec![sub(1), sub(2)]),
                 Disj(None, vec![sub(2), sub(3), sub(4)])
             )),
-            "Disj[#4 <: int; #3 <: int; #1 <: int; #2 <: int]"
+            "Disj[#1 <: int; #2 <: int; #3 <: int; #4 <: int]"
         );
     }
 

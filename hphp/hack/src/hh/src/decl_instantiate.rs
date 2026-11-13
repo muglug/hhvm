@@ -362,8 +362,7 @@ fn instantiate_(subst: &DeclSubst, x: &Ty_<R>) -> Ty_<R> {
                 // decl shapes have no origin: `to_oxidized` gives every one of
                 // them `MissingOrigin`.)
                 Ty_::Tshape(Box::new(ShapeType::Simple(ShapeTypeSimple(
-                    // TODO(shapes) s_unknown_value should likely be instantiated
-                    shape_kind.clone(),
+                    instantiate(subst, shape_kind),
                     fdm,
                 ))))
             }
@@ -603,7 +602,7 @@ mod tests {
     }
 
     #[test]
-    fn shape_fields_are_instantiated_but_not_the_unknown_fields_type() {
+    fn shape_fields_and_the_unknown_fields_type_are_instantiated() {
         use ty::decl::ty::ShapeFieldNamePos;
         use ty::decl::ty::TshapeFieldName;
         let field = TshapeFieldName::TSFlitStr(pos::Bytes::new("a"));
@@ -627,7 +626,7 @@ mod tests {
         match ty.node_ref() {
             Ty_::Tshape(shape) => match &**shape {
                 ShapeType::Simple(ShapeTypeSimple(kind, fdm)) => {
-                    assert_eq!(kind.node_ref(), &Ty_::Tgeneric(name("T")));
+                    assert_eq!(kind.node_ref(), int().node_ref());
                     assert_eq!(fdm[&field].ty.node_ref(), int().node_ref());
                 }
                 ShapeType::Splat(_) => panic!(),

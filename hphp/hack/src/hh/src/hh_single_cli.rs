@@ -452,6 +452,14 @@ pub fn check_single(args: &[String]) -> Result<ExitCode> {
     };
     let mut ctx = Ctx::new(&ctx_root, tco)?;
     ctx.add_magic_builtins();
+    // Error messages show the source of positions in the magic builtins.
+    {
+        let (name, contents) = hh::ctx::MAGIC_BUILTINS;
+        hh::diagnostics_state::register_hhi_source(
+            hhi_absolute_path(name),
+            contents.to_string(),
+        );
+    }
 
     let mut decl_paths = ctx.hhi_paths.clone();
     for builtin in &extra_builtins {

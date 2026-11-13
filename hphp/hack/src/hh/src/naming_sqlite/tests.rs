@@ -676,8 +676,15 @@ fn ocaml_database_read_compared_and_rewritten() {
 #[test]
 fn local_changes_blob_of_the_ocaml() {
     setup_prefixes();
-    let ns: &[u8] = include_bytes!("fixtures/local_changes_ns.bin");
-    let shared: &[u8] = include_bytes!("fixtures/local_changes.bin");
+    // (The fixtures are not in the public repository: see
+    // `rt/ocaml_marshal/tests.rs`.)
+    use crate::rt::ocaml_marshal::tests::fixture_in;
+    let (Some(ns), Some(shared)) = (
+        fixture_in("naming_sqlite", "local_changes_ns.bin"),
+        fixture_in("naming_sqlite", "local_changes.bin"),
+    ) else {
+        return;
+    };
     let saved = |funs: &[&str], classes: &[&str], types: &[&str], consts: &[&str], modules: &[&str], hash, mode| {
         let set = |l: &[&str]| l.iter().map(|s| s.to_string()).collect();
         file_info::Saved::of_fields(

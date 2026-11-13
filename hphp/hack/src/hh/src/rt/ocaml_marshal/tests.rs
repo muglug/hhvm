@@ -16,17 +16,44 @@
 //!   check restarted by an interrupt) and `r4_second` (the file that
 //!   replaced it).
 
+//!
+//! The fixtures are not in the public repository (nor are their generators,
+//! or the oracle build that wrote the errors files), so they are read when
+//! the tests run rather than included: a test whose fixture is missing says
+//! so on stderr and checks nothing.
+
 use super::*;
 
-const VALUES: &[u8] = include_bytes!("fixtures/ocaml5_values.bin");
+/// The fixture `name` of `src/<dir>/fixtures`, if it is there.
+pub(crate) fn fixture_in(dir: &str, name: &str) -> Option<&'static [u8]> {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join(dir)
+        .join("fixtures")
+        .join(name);
+    match std::fs::read(&path) {
+        Ok(bytes) => Some(Box::leak(bytes.into_boxed_slice())),
+        Err(_) => {
+            eprintln!("skipped: the fixture {} is missing", path.display());
+            None
+        }
+    }
+}
 
-pub(crate) const GOLDEN_ERRORS_FILES: &[(&str, &[u8])] = &[
-    ("r1", include_bytes!("fixtures/r1.errors.bin")),
-    ("r2", include_bytes!("fixtures/r2.errors.bin")),
-    ("r3_stopped", include_bytes!("fixtures/r3_stopped.errors.bin")),
-    ("r4_restarted", include_bytes!("fixtures/r4_restarted.errors.bin")),
-    ("r4_second", include_bytes!("fixtures/r4_second.errors.bin")),
-];
+fn values_file() -> Option<&'static [u8]> {
+    fixture_in("rt/ocaml_marshal", "ocaml5_values.bin")
+}
+
+/// The golden errors files, by name; `None` when one is missing.
+pub(crate) fn golden_errors_files() -> Option<Vec<(&'static str, &'static [u8])>> {
+    ["r1", "r2", "r3_stopped", "r4_restarted", "r4_second"]
+        .into_iter()
+        .map(|name| {
+            let file = fixture_in("rt/ocaml_marshal", &format!("{}.errors.bin", name))?;
+            Some((name, file))
+        })
+        .collect()
+}
 
 /// The marshalled payloads of an errors file (each after its 5-byte
 /// preamble).
@@ -56,7 +83,10 @@ fn values(file: &[u8]) -> Vec<&[u8]> {
 
 #[test]
 fn ocaml_values_round_trip() {
-    let vs = values(VALUES);
+    let Some(values_file) = values_file() else {
+        return;
+    };
+    let vs = values(values_file);
     assert_eq!(vs.len(), 281);
     for (i, bytes) in vs.iter().enumerate() {
         let v = from_bytes(bytes, 0).unwrap_or_else(|e| panic!("value {}: {}", i, e));
@@ -69,7 +99,10 @@ fn ocaml_values_round_trip() {
 
 #[test]
 fn ocaml_values_decode() {
-    let vs = values(VALUES);
+    let Some(values_file) = values_file() else {
+        return;
+    };
+    let vs = values(values_file);
     let v = |i: usize| from_bytes(vs[i], 0).unwrap();
     let ints: Vec<i64> = Vec::from_ocaml(&v(0)).unwrap();
     assert_eq!(
@@ -142,7 +175,10 @@ fn ocaml_values_decode() {
 /// key list, and a `filter` of the map: the same shapes, so the same bytes.
 #[test]
 fn ocaml_maps_and_sets() {
-    let vs = values(VALUES);
+    let Some(values_file) = values_file() else {
+        return;
+    };
+    let vs = values(values_file);
     let cmp = |a: &i64, b: &i64| a.cmp(b);
     for o in 0..4 {
         let base = 119 + 3 * o;
@@ -188,7 +224,10 @@ fn ocaml_maps_and_sets() {
 /// and encodes back to the same bytes (shared references included).
 #[test]
 fn golden_errors_files_round_trip() {
-    for (name, file) in GOLDEN_ERRORS_FILES {
+    let Some(golden_errors_files) = golden_errors_files() else {
+        return;
+    };
+    for (name, file) in &golden_errors_files {
         for (i, m) in errors_file_payloads(file).into_iter().enumerate() {
             let v = from_bytes(m, 0).unwrap_or_else(|e| panic!("{} message {}: {}", name, i, e));
             assert!(to_bytes(&v, &[]).unwrap() == m, "{} message {}", name, i);

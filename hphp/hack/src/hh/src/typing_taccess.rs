@@ -216,6 +216,24 @@ struct RecursiveAccessInfo {
     scope: RecursiveAccessScope,
 }
 
+fn recursive_access_info(this_ty: &Ty) -> Option<RecursiveAccessInfo> {
+    match get_node(this_ty) {
+        Ty_::Tdependent(DependentType::DTexpr(expr_id), _) => Some(RecursiveAccessInfo {
+            this_name: expression_id::display(*expr_id),
+            scope: RecursiveAccessScope::Everywhere,
+        }),
+        Ty_::Tgeneric(s) if s == sn::typehints::THIS => Some(RecursiveAccessInfo {
+            this_name: s.clone(),
+            scope: RecursiveAccessScope::OnlyInRefinement,
+        }),
+        Ty_::Tgeneric(s) if dependent_kind::is_generic_dep_ty(s) => Some(RecursiveAccessInfo {
+            this_name: s.clone(),
+            scope: RecursiveAccessScope::Everywhere,
+        }),
+        _ => None,
+    }
+}
+
 /// Recursive class refinements (the "fluent builder" pattern) introduce
 /// self-referential bounds on abstract type constants:
 ///
@@ -275,21 +293,7 @@ struct RecursiveAccessInfo {
 /// is exactly the name that [type_of_result] will register in the typing
 /// environment with the refined upper bound, establishing the fixpoint.
 fn eliminate_recursive_access(ty: DeclTy, type_const_name: &str, this_ty: &Ty) -> DeclTy {
-    let this_info_opt = match get_node(this_ty) {
-        Ty_::Tdependent(DependentType::DTexpr(expr_id), _) => Some(RecursiveAccessInfo {
-            this_name: expression_id::display(*expr_id),
-            scope: RecursiveAccessScope::Everywhere,
-        }),
-        Ty_::Tgeneric(s) if s == sn::typehints::THIS => Some(RecursiveAccessInfo {
-            this_name: s.clone(),
-            scope: RecursiveAccessScope::OnlyInRefinement,
-        }),
-        Ty_::Tgeneric(s) if dependent_kind::is_generic_dep_ty(s) => Some(RecursiveAccessInfo {
-            this_name: s.clone(),
-            scope: RecursiveAccessScope::Everywhere,
-        }),
-        _ => None,
-    };
+    let this_info_opt = recursive_access_info(this_ty);
     // `Option.value_map this_info_opt ~default:ty ~f:(...)`
     match this_info_opt {
         None => ty,
@@ -324,6 +328,165 @@ fn eliminate_recursive_access(ty: DeclTy, type_const_name: &str, this_ty: &Ty) -
                 };
             let on_rc_bound = |rc_bound, _ctx: &bool| (true, TransformTopDown::Continue(rc_bound));
             transform_top_down_decl_ty(ty, &on_ty, &on_rc_bound, &false)
+        }
+    }
+}
+
+/// An abstract type constant with a [super this] lower bound can induce an
+/// infinitely deep chain when its upper bound defines the same type constant:
+///
+///   interface I extends IFields<this::T> {
+///     abstract const type T as I super this;
+///   }
+///
+/// If [C::T] is represented by the generic [C::T], expanding its upper bound
+/// [I] and projecting [T] again otherwise produces [C::T::T], then
+/// [C::T::T::T], and so on.
+///
+/// Polymorphic method extraction represents this finitely by refining class
+/// bounds with the generic allocated for the projection. Do the same here:
+///
+///   C::T as I::T super C
+///   I::T as I with { type T = C::T } super C::T
+///
+/// The exact refinement ties projection from the class bound back to the
+/// existing generic, producing a finite mutually constrained pair instead of
+/// an ever-deepening chain, without dropping either bound.
+fn refine_super_this_upper_bound(
+    env: &Env,
+    ty: DeclTy,
+    type_const_name: &str,
+    this_ty: &Ty,
+) -> DeclTy {
+    let generic_name_opt = match recursive_access_info(this_ty) {
+        Some(RecursiveAccessInfo {
+            this_name,
+            scope: RecursiveAccessScope::Everywhere,
+        }) => Some(format!("{}::{}", this_name, type_const_name)),
+        Some(RecursiveAccessInfo {
+            scope: RecursiveAccessScope::OnlyInRefinement,
+            ..
+        })
+        | None => None,
+    };
+    // `Option.value_map generic_name_opt ~default:ty ~f:(...)`
+    match generic_name_opt {
+        None => ty,
+        Some(generic_name) => {
+            let generic_ty = DeclTy::new(
+                ty.reason().clone(),
+                d::Ty_::Tgeneric(TypeName::new(generic_name)),
+            );
+            let class_defines_typeconst = |class_name: &str| -> bool {
+                match env_::get_class(env, class_name) {
+                    decl_entry::T::Found(class_) => {
+                        env_::get_typeconst(env, &class_, type_const_name).is_some()
+                    }
+                    decl_entry::T::DoesNotExist | decl_entry::T::NotYetAvailable => false,
+                }
+            };
+            let add_refinement = |reason: &crate::ctx::R,
+                                  inner_ty: DeclTy,
+                                  cr: ty::decl::ClassRefinement<DeclTy>|
+             -> DeclTy {
+                let cr = class_refinement::add_refined_const_decl(
+                    type_const_name.to_string(),
+                    ty::decl::RefinedConst {
+                        bound: ty::decl::RefinedConstBound::Exact(generic_ty.clone()),
+                        is_ctx: false,
+                    },
+                    cr,
+                );
+                DeclTy::new(
+                    reason.clone(),
+                    d::Ty_::Trefinement(Box::new(ty::decl::TrefinementType {
+                        ty: inner_ty,
+                        refinement: cr,
+                    })),
+                )
+            };
+            fn refine(
+                class_defines_typeconst: &dyn Fn(&str) -> bool,
+                add_refinement: &dyn Fn(
+                    &crate::ctx::R,
+                    DeclTy,
+                    ty::decl::ClassRefinement<DeclTy>,
+                ) -> DeclTy,
+                type_const_name: &str,
+                ty: DeclTy,
+            ) -> DeclTy {
+                let reason = ty.reason().clone();
+                match ty.node_ref() {
+                    d::Ty_::Tapply(apply) if class_defines_typeconst(apply.0.id_ref().as_str()) => {
+                        add_refinement(
+                            &reason,
+                            ty.clone(),
+                            ty::decl::ClassRefinement {
+                                consts: Default::default(),
+                            },
+                        )
+                    }
+                    d::Ty_::Trefinement(tr) => {
+                        let ty::decl::TrefinementType {
+                            ty: inner_ty,
+                            refinement: cr,
+                        } = &**tr;
+                        match inner_ty.node_ref() {
+                            d::Ty_::Tapply(apply)
+                                if class_defines_typeconst(apply.0.id_ref().as_str()) =>
+                            {
+                                match class_refinement::get_refined_const_decl(
+                                    &((), type_const_name.to_string()),
+                                    cr,
+                                ) {
+                                    Some(ty::decl::RefinedConst {
+                                        bound: ty::decl::RefinedConstBound::Exact(_),
+                                        ..
+                                    }) => ty.clone(),
+                                    Some(ty::decl::RefinedConst {
+                                        bound: ty::decl::RefinedConstBound::Loose(_),
+                                        ..
+                                    })
+                                    | None => add_refinement(&reason, inner_ty.clone(), cr.clone()),
+                                }
+                            }
+                            _ => ty.clone(),
+                        }
+                    }
+                    d::Ty_::Tunion(tys) => DeclTy::new(
+                        reason,
+                        d::Ty_::Tunion(
+                            tys.iter()
+                                .map(|ty| {
+                                    refine(
+                                        class_defines_typeconst,
+                                        add_refinement,
+                                        type_const_name,
+                                        ty.clone(),
+                                    )
+                                })
+                                .collect(),
+                        ),
+                    ),
+                    d::Ty_::Tintersection(tys) => DeclTy::new(
+                        reason,
+                        d::Ty_::Tintersection(
+                            tys.iter()
+                                .map(|ty| {
+                                    refine(
+                                        class_defines_typeconst,
+                                        add_refinement,
+                                        type_const_name,
+                                        ty.clone(),
+                                    )
+                                })
+                                .collect(),
+                        ),
+                    ),
+                    _ => ty,
+                }
+            }
+            refine(&class_defines_typeconst, &add_refinement, type_const_name, ty)
         }
     }
 }
@@ -449,7 +612,18 @@ fn create_root_from_type_constant(
                             super_constraint: lower,
                             ..
                         }) => {
-                            let upper = upper.clone().map(|ty| {
+                            let upper = match lower.as_ref().map(|ty| ty.node_ref()) {
+                                Some(d::Ty_::Tthis) => upper.clone().map(|upper| {
+                                    refine_super_this_upper_bound(
+                                        env,
+                                        upper,
+                                        type_const_name,
+                                        &ctx.ety_env.this_ty,
+                                    )
+                                }),
+                                _ => upper.clone(),
+                            };
+                            let upper = upper.map(|ty| {
                                 eliminate_recursive_access(
                                     ty,
                                     type_const_name,

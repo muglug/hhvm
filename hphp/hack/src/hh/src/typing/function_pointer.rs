@@ -205,7 +205,7 @@ pub(crate) fn validate_polymorphic_static_method(
     // there is nothing to abstract and the pointer is sound
     if !cls::final_(folded_class) {
         let positions: Vec<PosOrDecl> =
-            crate::typing_extract_method::explicit_this_param_positions(None, env, fun_ty);
+            crate::typing_extract_method::explicit_this_param_positions(None, None, env, fun_ty);
         for decl_pos in positions {
             add_primary(
                 primary::T::This_as_function_pointer_param {

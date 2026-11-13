@@ -38,13 +38,13 @@ pub fn flag_name(flag: Flag) -> FlagName {
 /// The `int` that the externals took is a `usize` on the Rust side:
 /// `ocaml_ffi!` converted it with `usize::from_ocaml(..).unwrap()`, whose
 /// panic on a negative one became the `Failure` raised to OCaml, with this
-/// message.
+/// message (how `TryFromIntError` is printed depends on the toolchain: this
+/// is the text of the one the OCaml binary is built with).
 fn rollout_flag_idx_to_usize(current_rolled_out_flag_idx: isize) -> usize {
     match usize::try_from(current_rolled_out_flag_idx) {
         Ok(idx) => idx,
-        Err(e) => panic!(
-            "called `Result::unwrap()` on an `Err` value: IntOutOfRange({:?})",
-            e
+        Err(_) => panic!(
+            "called `Result::unwrap()` on an `Err` value: IntOutOfRange(TryFromIntError(()))"
         ),
     }
 }
