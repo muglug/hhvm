@@ -685,6 +685,45 @@ let atomically_create_and_init_file
     ~(wr : bool)
     (file_perm : Unix.file_perm)
     ~(init : Unix.file_descr -> unit) : Unix.file_descr option =
+  if not (Stdlib.Sys.file_exists "/proc/self/fd") then begin
+    (* O_TMPFILE, and linking a file descriptor through /proc, are Linux's.
+       Elsewhere (macOS) the file is initialized under a temporary name in
+       the same directory and then hard-linked into place, which like linkat
+       fails if the path exists: the file still only appears fully formed. *)
+    let tmp = Printf.sprintf "%s.%d.tmp" path (Unix.getpid ()) in
+    let access =
+      if rd && wr then
+        Unix.O_RDWR
+      else if wr then
+        Unix.O_WRONLY
+      else
+        Unix.O_RDONLY
+    in
+    let fd = Unix.openfile tmp [Unix.O_CREAT; Unix.O_EXCL; access] file_perm in
+    try
+      init fd;
+      let linked =
+        try
+          Unix.link tmp path;
+          true
+        with
+        | Unix.Unix_error (Unix.EEXIST, _, _) -> false
+      in
+      Unix.unlink tmp;
+      if linked then
+        Some fd
+      else begin
+        Unix.close fd;
+        None
+      end
+    with
+    | exn ->
+      let e = Exception.wrap exn in
+      Unix.close fd;
+      (try Unix.unlink tmp with
+      | _ -> ());
+      Exception.reraise e
+  end else
   (* There's no way to pass O_TMPFILE to Unix.openfile. So, we need our own version... *)
   let fd = open_tmpfile ~rd ~wr ~dir:(Filename.dirname path) ~file_perm in
   try
