@@ -373,6 +373,8 @@ pub fn get() -> DeclStore {
 /// `Rust_provider_backend.Decl` does when theirs do, this panics if they do.
 pub fn rust_provider_backend_decl_store(ctx: Arc<Ctx>) -> DeclStore {
     fn store_result<A, E: std::fmt::Display>(what: &str, name: &str, result: Result<A, E>) -> A {
+        // (As a read of shared memory does: see `decl_provider::store_result`.)
+        crate::worker_cancel::raise_if_stop_requested();
         match result {
             Ok(x) => x,
             Err(err) => panic!("Rust_provider_backend.Decl.{} {}: {}", what, name, err),

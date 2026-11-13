@@ -261,6 +261,7 @@ pub(crate) fn check_paths(
     const CHUNK: usize = 4;
     // The outcome of each file, with the edges flushed by each thread.
     type Share = (Vec<(usize, FileOutcome)>, typing_deps::DepEdges);
+    let workers = crate::worker_cancel::Workers::new();
     let work = || -> Vec<Share> {
         rayon::broadcast(|broadcast| {
             // `Typing_deps.worker_id`, which names the files of
@@ -271,6 +272,9 @@ pub(crate) fn check_paths(
             }
             crate::file_provider::local_changes_push_sharedmem_stack();
             crate::ast_provider::local_changes_push_sharedmem_stack();
+            // This thread is a worker of this call: its master may ask it
+            // to stop (see `stop` below).
+            let _worker = workers.enter();
             let mut results = vec![];
             'share: loop {
                 let first = next.fetch_add(CHUNK, Ordering::Relaxed);
@@ -319,9 +323,29 @@ pub(crate) fn check_paths(
             Some(during) => {
                 let handle = scope.spawn(work);
                 let finished_all = || handle.is_finished();
-                let stop = || shared.stop.store(true, Ordering::Relaxed);
+                // `WorkerController.cancel handles`: the workers are asked to
+                // stop (`Worker_cancel.stop_workers ()`: the file a worker is
+                // in the middle of ends at its next read of a declaration,
+                // with `Worker_should_exit`), they are waited for
+                // (`wait_for_cancel`: `during` returns when they are all
+                // done), and then may work again
+                // (`Worker_cancel.resume_workers ()`).
+                let stop = || {
+                    shared.stop.store(true, Ordering::Relaxed);
+                    workers.stop_workers();
+                };
+                // (Also if `during` unwinds; nothing to do unless stopped.)
+                struct Resume<'a>(&'a crate::worker_cancel::Workers);
+                impl Drop for Resume<'_> {
+                    fn drop(&mut self) {
+                        self.0.resume_workers()
+                    }
+                }
+                let resume = Resume(&workers);
                 during(&finished_all, &stop, receiver.as_ref().unwrap());
-                handle.join()
+                let per_thread = handle.join();
+                drop(resume);
+                per_thread
             }
         };
         // The reader stops too (it waits for the files to be taken, and
@@ -407,6 +431,14 @@ fn check_one(
     ctx.files.set_read_ahead(None);
     let diagnostics = match checked {
         Ok(diagnostics) => diagnostics,
+        // `Worker_cancel.Worker_should_exit -> `Worker_cancelled` (`Worker`):
+        // the master asked the workers to stop. The file is not checked: it
+        // is one of the unfinished ones of the cancellation.
+        Err(panic) if panic.is::<crate::worker_cancel::WorkerShouldExit>() => {
+            crate::rt::decl_epoch::after_panic();
+            crate::typing_phase::forget_locl_cache();
+            return None;
+        }
         Err(panic) => {
             crate::rt::decl_epoch::after_panic();
             let what = panic

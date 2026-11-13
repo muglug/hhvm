@@ -153,7 +153,12 @@ fn naming_provider_get_class_path(ctx: &Arc<Ctx>, name: &str) -> Option<pos::Rel
 
 /// What a decl store answered. The stores of a `Ctx` do not fail; the
 /// functions of `Rust_provider_backend.Decl` raise when theirs do.
+///
+/// A store of a `Ctx` stands for a heap of `Decl_heap` in shared memory,
+/// whose reads raise `Worker_should_exit` in a worker that the master has
+/// asked to stop (`raise_if_should_exit` of `hh_shared.c`).
 fn store_result<A, E: std::fmt::Display>(what: &str, name: &str, result: Result<A, E>) -> A {
+    crate::worker_cancel::raise_if_stop_requested();
     match result {
         Ok(x) => x,
         Err(err) => panic!("Rust_provider_backend.Decl.{} {}: {}", what, name, err),
