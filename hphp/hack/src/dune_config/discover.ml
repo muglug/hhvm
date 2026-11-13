@@ -19,7 +19,16 @@ let () =
          *
          * This fix is included in ocaml 4.08
          * (https://github.com/ocaml/ocaml/pull/8673) - but we're still on 4.07 *)
-        | "macosx" -> flags @ ["-ccopt"; "-Wl,-keep_dwarf_unwind"]
+        (* The Rust iana-time-zone crate (via chrono) reads the system time
+         * zone through CoreFoundation on MacOS. *)
+        | "macosx" ->
+          flags
+          @ [
+              "-ccopt";
+              "-Wl,-keep_dwarf_unwind";
+              "-ccopt";
+              "-Wl,-framework,CoreFoundation";
+            ]
         | _ -> flags
       in
       C.Flags.write_sexp "ld-opts.sexp" flags)
