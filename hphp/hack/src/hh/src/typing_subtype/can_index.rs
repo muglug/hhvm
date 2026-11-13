@@ -64,6 +64,7 @@ use crate::typing_env as env;
 use crate::typing_env_types::Env;
 use crate::typing_error;
 use crate::typing_error::Lazy;
+use crate::typing_error::reasons_callback;
 use crate::typing_error::primary;
 use crate::typing_error_utils;
 use crate::typing_intersection;
@@ -1027,22 +1028,49 @@ pub(crate) fn simplify_(
             // from before `resolve_for_read`), the recursive call with the one
             // `resolve_for_read` returns.
             let env_do_shape = env.clone();
-            let read_ty = typing_corners::resolve_for_read(env, r_sub.clone(), ss_elems);
-            match get_node(&read_ty) {
-                Ty_::Tshape(ShapeType::ShapeSimple(ts)) => {
-                    *env = env_do_shape;
-                    do_shape(&r_sub, ts, env)
+            let result = typing_corners::resolve_for_read(env, r_sub.clone(), ss_elems);
+            match result {
+                Err(missing) => {
+                    let subtype_env = subtype_env::map_on_error(subtype_env.clone(), |on_error| {
+                        let position =
+                            typing_corners::missing_assignment::position(&missing).clone();
+                        reasons_callback::prepend_reason(
+                            on_error,
+                            Lazy::new(move || {
+                                Message(
+                                    position,
+                                    "Shape-splat dependency analysis failed before projection"
+                                        .into(),
+                                )
+                            }),
+                        )
+                    });
+                    let fail = subtype_env::fail(
+                        &subtype_env,
+                        InternalType::LoclType(ty_sub.clone()),
+                        InternalType::ConstraintType(mk_constraint_type((
+                            reason_super.clone(),
+                            ConstraintType_::TcanIndex(can_index.clone()),
+                        ))),
+                    );
+                    invalid(fail, env)
                 }
-                _ => simplify_(
-                    &subtype_env,
-                    this_ty,
-                    Lhs {
-                        sub_supportdyn: sub_supportdyn.clone(),
-                        ty_sub: &read_ty,
-                    },
-                    rhs,
-                    env,
-                ),
+                Ok(read_ty) => match get_node(&read_ty) {
+                    Ty_::Tshape(ShapeType::ShapeSimple(ts)) => {
+                        *env = env_do_shape;
+                        do_shape(&r_sub, ts, env)
+                    }
+                    _ => simplify_(
+                        &subtype_env,
+                        this_ty,
+                        Lhs {
+                            sub_supportdyn: sub_supportdyn.clone(),
+                            ty_sub: &read_ty,
+                        },
+                        rhs,
+                        env,
+                    ),
+                },
             }
         }
         Ty_::Tgeneric(_generic_nm) => {

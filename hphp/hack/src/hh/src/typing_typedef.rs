@@ -12,6 +12,7 @@ use oxidized::aast;
 use oxidized::ast_defs;
 use oxidized::nast;
 use oxidized::pos::Pos;
+use ty::decl::ty as d;
 
 use crate::ctx::Ctx;
 use crate::decl_counters;
@@ -35,6 +36,7 @@ use crate::typing_error;
 use crate::typing_error::primary;
 use crate::typing_error_utils;
 use crate::typing_phase as phase;
+use crate::typing_shape_disjointness;
 use crate::typing_type_wellformedness;
 use crate::typing_variance;
 
@@ -88,7 +90,8 @@ pub mod constraints {
             ConstraintDirection::As => (ty, cstr_ty),
             ConstraintDirection::Super => (cstr_ty, ty),
         };
-        crate::typing_ops::sub_type(None, 
+        crate::typing_ops::sub_type(
+            Some(false),
             t_pos.clone(),
             crate::typing_reason::Ureason::URnewtypeCstr,
             env,
@@ -354,6 +357,88 @@ fn check_where_clauses_with_recursive_mentions(
     }
 }
 
+fn strip_supportdyn_hint(hint: &aast::Hint) -> &aast::Hint {
+    let aast::Hint(_, hint_) = hint;
+    match &**hint_ {
+        aast::Hint_::Happly(ast_defs::Id(_, name), inners)
+            if inners.len() == 1 && name == sn::classes::SUPPORT_DYN =>
+        {
+            strip_supportdyn_hint(&inners[0])
+        }
+        _ => hint,
+    }
+}
+
+/// Report non-disjoint shape splats on a typedef carrying the
+/// [<<__DisjointShapeSplat>>] attribute. The decision procedure is
+/// [Typing_shape_disjointness].
+fn check_shape_splat_disjointness(env: &Env, t_pos: &Pos, hint: &aast::Hint) {
+    let hint = strip_supportdyn_hint(hint);
+    match &*hint.1 {
+        aast::Hint_::Hunion(hints) | aast::Hint_::Hintersection(hints) => {
+            for hint in hints {
+                check_shape_splat_disjointness(env, t_pos, hint)
+            }
+        }
+        aast::Hint_::Hoption(inner) | aast::Hint_::Hlike(inner) => {
+            check_shape_splat_disjointness(env, t_pos, inner)
+        }
+        aast::Hint_::Hshape(aast::NastShapeInfo {
+            field_map: nsi_field_map,
+            ..
+        }) if nsi_field_map.iter().any(|e| match e {
+            aast::ShapeElement::SESplat(_) => true,
+            aast::ShapeElement::SEField(_) => false,
+        }) =>
+        {
+            let decl_ty = decl_hint::hint(&env.decl_env, hint);
+            match decl_ty.node_ref() {
+                d::Ty_::Tshape(shape) => match &**shape {
+                    d::ShapeType::Splat(ss_elems) => {
+                        let ety_env = ExpandEnv {
+                            under_type_constructor: true,
+                            ..empty_expand_env()
+                        };
+                        // (The environment the localizations thread is used
+                        // for the check and for the error only.)
+                        let mut env = env.clone();
+                        let env = &mut env;
+                        // `rev_elems` is consed onto and reversed: here in order.
+                        let mut elems = vec![];
+                        for elem in ss_elems.iter() {
+                            let (_err, elem) = phase::localize(&ety_env, env, elem);
+                            elems.push(elem);
+                        }
+                        let violations = typing_shape_disjointness::violations(&elems, env);
+                        if !violations.is_empty() {
+                            typing_error_utils::add_typing_error(
+                                &typing_error::primary(primary::T::Shape_splat(
+                                    primary::shape_splat::T::Disjoint_shape_splat_violation {
+                                        pos: t_pos.clone(),
+                                        violations,
+                                    },
+                                )),
+                                env,
+                            )
+                        }
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+            for e in nsi_field_map {
+                match e {
+                    aast::ShapeElement::SESplat(inner) => {
+                        check_shape_splat_disjointness(env, t_pos, inner)
+                    }
+                    aast::ShapeElement::SEField(_) => {}
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 /// This is a helper for [Typing_toplevel.typedef_def]. Call that instead.
 pub fn typedef_def(ctx: &Arc<Ctx>, typedef: &nast::Typedef) -> tast::Typedef {
     let mut env = env_from_def::typedef_env(
@@ -436,6 +521,11 @@ pub fn typedef_def(ctx: &Arc<Ctx>, typedef: &nast::Typedef) -> tast::Typedef {
          (hint, constraints_opt): &(&aast::Hint, Option<&Vec<aast::WhereConstraintHint>>)| {
             let (localize_ty_err_opt, ty) = phase::localize_hint_no_subst(env, false, hint);
             add_typing_error_opt(env, &localize_ty_err_opt);
+            for err in typing_type_wellformedness::shape_splat_field_denotability_errors(
+                env, &t_name.0, hint, &ty,
+            ) {
+                typing_error_utils::add_typing_error(&err, env)
+            }
             let mut env_for_variant = match constraints_opt {
                 None => env.clone(),
                 Some(constraints) => {
@@ -451,6 +541,12 @@ pub fn typedef_def(ctx: &Arc<Ctx>, typedef: &nast::Typedef) -> tast::Typedef {
                     env
                 }
             };
+            if crate::naming_attributes::mem(
+                sn::user_attributes::DISJOINT_SHAPE_SPLAT,
+                t_user_attributes,
+            ) {
+                check_shape_splat_disjointness(&env_for_variant, &t_name.0, hint)
+            }
             let t_name = (&t_name.0, t_name.1.as_str());
             let t_as_constraint_err_opt = constraints::check(
                 &mut env_for_variant,

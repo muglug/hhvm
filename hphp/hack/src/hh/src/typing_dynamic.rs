@@ -37,6 +37,7 @@ use crate::typing_defs_core::FunType;
 use crate::typing_defs_core::ShapeFieldType;
 use crate::typing_defs_core::ShapeType;
 use crate::typing_defs_core::ShapeTypeSimple;
+use crate::typing_defs_core::ShapeTypeSplat;
 use crate::typing_defs_core::TupleExtra;
 use crate::typing_defs_core::TupleType;
 use crate::typing_defs_core::Ty;
@@ -439,6 +440,28 @@ pub fn try_push_like(env: &mut Env, ty: &Ty) -> Option<Ty> {
                         fields,
                     })),
                 )))
+            } else {
+                None
+            }
+        }
+        Ty_::Tshape(ShapeType::ShapeSplat(ShapeTypeSplat { ss_elems })) => {
+            let mut changed = false;
+            let ss_elems: Vec<Ty> = ss_elems
+                .iter()
+                .map(|elem| {
+                    let pushed = try_push_like(env, elem);
+                    match pushed {
+                        None => elem.clone(),
+                        Some(ty) => {
+                            changed = true;
+                            ty
+                        }
+                    }
+                })
+                .collect();
+            if changed {
+                let (_, ty) = crate::typing_shape_normalize::splat(None, r, ss_elems, env);
+                Some(ty)
             } else {
                 None
             }

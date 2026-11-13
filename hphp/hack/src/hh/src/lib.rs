@@ -323,6 +323,8 @@ pub mod typing_enforceability;
 #[cfg(feature = "port")]
 pub mod typing_shapes;
 #[cfg(feature = "port")]
+pub mod typing_shape_disjointness;
+#[cfg(feature = "port")]
 pub mod typing_shape_normalize;
 #[cfg(feature = "port")]
 pub mod typing_shape_splat_key;

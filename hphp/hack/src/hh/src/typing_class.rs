@@ -1496,7 +1496,8 @@ fn typeconst_def(
                             let (ty_err_opt1, as_) = phase::localize_hint_no_subst(env, false, as_);
                             match &ty_default_opt {
                                 Some(ty) => {
-                                    let ty_err_opt2 = typing_ops::sub_type(None, 
+                                    let ty_err_opt2 = typing_ops::sub_type(
+                                        Some(false),
                                         pos.clone(),
                                         Ureason::URtypeconstCstr,
                                         env,
@@ -1516,7 +1517,8 @@ fn typeconst_def(
                             let (te1, super_) = phase::localize_hint_no_subst(env, false, super_);
                             match &ty_default_opt {
                                 Some(ty) => {
-                                    let te2 = typing_ops::sub_type(None, 
+                                    let te2 = typing_ops::sub_type(
+                                        Some(false),
                                         pos.clone(),
                                         Ureason::URtypeconstCstr,
                                         env,
@@ -1776,7 +1778,10 @@ fn class_const_def(
                     hint_ty.clone(),
                 ),
             };
-            let user_attributes = if ast_defs::is_c_class(c.kind) || ast_defs::is_c_trait(c.kind) {
+            let user_attributes = if ast_defs::is_c_class(c.kind)
+                || ast_defs::is_c_trait(c.kind)
+                || ast_defs::is_c_interface(c.kind)
+            {
                 crate::typing::attributes_check_def(
                     env,
                     sn::attribute_kinds::CLS_CST,
@@ -1787,6 +1792,15 @@ fn class_const_def(
                 vec![]
             };
             add_typing_error_opt(env, &ty_err_opt);
+            match crate::naming_attributes::mem_pos(
+                sn::user_attributes::SHAPE_KEY,
+                &cc.user_attributes.0,
+            ) {
+                None => {}
+                Some(pos) => {
+                    crate::typing_shapes::check_shape_key_const(env, &pos, c, cls, cc, &kind)
+                }
+            }
             (
                 aast::ClassConst {
                     type_: cc.type_.clone(),

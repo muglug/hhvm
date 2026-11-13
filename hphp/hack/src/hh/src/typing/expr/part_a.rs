@@ -3413,15 +3413,176 @@ fn expr_shape(
 }
 
 /// The `has_splats` branch of `Shape fdm`: `shape(...$a, ...$b, 'x' => 1)`.
+///
+/// Expression-level splat: shape(...$a, ...$b, 'x' => 1)
+/// Build a Shape_splat from element types without performing any merge.
+/// Each splat expr contributes its type as an element.
+/// Consecutive literal fields are grouped into a Shape_simple element.
+/// Normalization/subtyping handles the rest.
 #[inline(never)]
 fn expr_shape_with_splats(
-    _expected: Option<&expected_ty::T>,
-    _ctxt: &context::T,
-    _env: &mut Env,
-    _p: &Pos,
-    _fdm: &[nast::ShapeExprField],
+    expected: Option<&expected_ty::T>,
+    ctxt: &context::T,
+    env: &mut Env,
+    p: &Pos,
+    fdm: &[nast::ShapeExprField],
 ) -> (tast::Expr, Ty) {
-    todo!("Typing.expr (Shape with SF_splat): needs Typing_corners.resolve_for_read")
+    let r = reason::shape_literal(p.clone());
+    // Resolve the expected shape once so fields that cannot be overwritten
+    // by a later splat keep bidirectional inference (lambda parameters,
+    // `[]`, `vec[]`, ...), mirroring the non-splat branch below.
+    let expected_field_info: Option<(Pos, Ureason, t_shape_map::T<ShapeFieldType>)> =
+        match env_help::expand_expected_opt(true, false, env, expected) {
+            Some((epos, eur, _, expected_ty, Ty_::Tshape(expected_shape), _)) => {
+                let expected_ty_result = match expected_shape {
+                    ShapeType::ShapeSimple(_) => Ok(expected_ty),
+                    ShapeType::ShapeSplat(ShapeTypeSplat { ss_elems }) => {
+                        crate::typing_corners::resolve_for_read(
+                            env,
+                            get_reason(&expected_ty).clone(),
+                            &ss_elems,
+                        )
+                    }
+                };
+                match expected_ty_result {
+                    Ok(expected_ty) => match get_node(&expected_ty) {
+                        Ty_::Tshape(ShapeType::ShapeSimple(ShapeTypeSimple {
+                            fields: expected_fdm,
+                            ..
+                        })) => Some((epos, eur, expected_fdm.clone())),
+                        _ => None,
+                    },
+                    Err(_) => {
+                        // The final shape check remains authoritative when contextual
+                        // projection fails.
+                        None
+                    }
+                }
+            }
+            _ => None,
+        };
+    // `List.fold_right`, the list in order.
+    let fdm_with_splat_to_right: Vec<(&nast::ShapeExprField, bool)> = {
+        let mut has_splat_to_right = false;
+        let mut acc = vec![];
+        for elem in fdm.iter().rev() {
+            acc.push((elem, has_splat_to_right));
+            has_splat_to_right = match elem {
+                aast::ShapeExprField::SFSplat(_) => true,
+                aast::ShapeExprField::SFField(_, _) => has_splat_to_right,
+            };
+        }
+        acc.reverse();
+        acc
+    };
+    let simple_of = |fields: t_shape_map::T<ShapeFieldType>| -> Ty {
+        mk((
+            r.clone(),
+            Ty_::Tshape(ShapeType::ShapeSimple(ShapeTypeSimple {
+                origin: TypeOrigin::MissingOrigin,
+                unknown_value: make_type::nothing(r.clone()),
+                fields,
+            })),
+        ))
+    };
+    // Fold over the elements and accumulate contiguous fields which are then
+    // lifted into a simple shape element when a non-field is reached
+    //
+    // (`typed_elems_rev` and `type_elems_rev` are consed onto and reversed:
+    // here in order.)
+    let mut typed_elems = vec![];
+    let mut type_elems: Vec<Ty> = vec![];
+    let mut pending: t_shape_map::T<ShapeFieldType> = t_shape_map::T::new();
+    for (elem, has_splat_to_right) in fdm_with_splat_to_right {
+        match elem {
+            aast::ShapeExprField::SFField(k, e) => {
+                let tk = t_shape_map::TShapeField(t_shape_field::of_ast(
+                    |p| pos_or_decl::of_raw_pos(p.clone()),
+                    k,
+                ));
+                let expected = if has_splat_to_right {
+                    None
+                } else {
+                    match &expected_field_info {
+                        Some((epos, eur, expected_fdm)) => match expected_fdm.get(&tk) {
+                            Some(sft) => Some(expected_ty::make(
+                                None,
+                                None,
+                                epos.clone(),
+                                eur.clone(),
+                                sft.ty.clone(),
+                            )),
+                            None => None,
+                        },
+                        None => None,
+                    }
+                };
+                // `expr_helper ?expected env (k, e)`
+                let (te, ty) = expr(expected.as_ref(), &sub_ctxt(ctxt, false), env, e);
+                // `TShapeMap.add` replaces the binding, key included (`insert` would
+                // keep the key, whose position may differ).
+                pending.remove(&tk);
+                pending.insert(
+                    tk,
+                    ShapeFieldType {
+                        optional: false,
+                        ty,
+                    },
+                );
+                typed_elems.push(aast::ShapeExprField::SFField(k.clone(), te));
+            }
+            aast::ShapeExprField::SFSplat(e) => {
+                let (te, ty) = expr(None, &sub_ctxt(ctxt, false), env, e);
+                might_throw(p, env);
+                // Flush pending fields as a Shape_simple element
+                if !pending.is_empty() {
+                    let simple = simple_of(std::mem::take(&mut pending));
+                    type_elems.push(simple);
+                }
+                {
+                    let (_, stripped) = crate::typing_utils::strip_supportdyn(env, ty.clone());
+                    let aast::Expr(_, e_pos, _) = e;
+                    let reason = reason::witness(e_pos.clone());
+                    let spreadable_ty =
+                        make_type::locl_like(reason.clone(), make_type::top_shape(reason));
+                    let error = typing_error::apply_reasons(
+                        crate::typing_error::secondary::T::Splat_not_a_shape(pos_or_decl::of_raw_pos(e_pos.clone())),
+                        reasons_callback::invalid_type_hint(e_pos.clone()),
+                    );
+                    let error_opt =
+                        sub_type::sub_type_or_fail(env, stripped, spreadable_ty, Some(error));
+                    add_typing_error_opt(env, &error_opt);
+                }
+                // Preserve the inferred operand type; row normalization owns
+                // recursive splat flattening.
+                type_elems.push(ty);
+                typed_elems.push(aast::ShapeExprField::SFSplat(te));
+                pending = t_shape_map::T::new();
+            }
+        }
+    }
+    // Flush any trailing pending fields
+    if !pending.is_empty() {
+        let trailing = simple_of(pending);
+        type_elems.push(trailing);
+    }
+    let (_, result_ty) = crate::typing_shape_normalize::splat(None, r.clone(), type_elems, env);
+    // Validate the literal field keys, which the fold above skipped. The
+    // non-splat branch below does the same; without this, key errors (e.g.
+    // a class-const key naming a missing constant) go unreported once a
+    // splat is present.
+    let keys: Vec<ast_defs::ShapeFieldName> = fdm
+        .iter()
+        .filter_map(|field| match field {
+            aast::ShapeExprField::SFField(k, _) => Some(k.clone()),
+            aast::ShapeExprField::SFSplat(_) => None,
+        })
+        .collect();
+    let key_errors = crate::typing_shapes::check_shape_keys_validity(env, &keys);
+    for err in &key_errors {
+        typing_error_utils::add_typing_error(err, env)
+    }
+    make_result(env, p.clone(), aast::Expr_::Shape(typed_elems), result_ty)
 }
 
 /// `EnumClassLabel (Some enum_name, name)`

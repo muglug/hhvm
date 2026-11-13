@@ -79,6 +79,7 @@ use crate::typechecker_options;
 use crate::typing_coeffects;
 use crate::typing_defs;
 use crate::typing_defs::named_params;
+use crate::typing_corners;
 use crate::typing_defs_constraints::InternalType;
 use crate::typing_defs_core;
 use crate::typing_defs_core::Capability;
@@ -108,6 +109,8 @@ use crate::typing_defs_core::get_ft_returns_readonly;
 use crate::typing_defs_core::get_node;
 use crate::typing_defs_core::get_pos;
 use crate::typing_defs_core::get_reason;
+use crate::typing_defs_core::ShapeFieldType;
+use crate::typing_defs_core::t_shape_map::TShapeField;
 use crate::typing_defs_core::mk;
 use crate::typing_dynamic;
 use crate::typing_dynamic_utils;
@@ -133,6 +136,7 @@ use crate::typing_named_params;
 use crate::typing_reason as reason;
 use crate::typing_reason::T as Reason;
 use crate::typing_set;
+use crate::typing_shape_normalize::row;
 use crate::typing_solver_utils;
 use crate::typing_subtype::common;
 use crate::typing_subtype::prelude::*;
@@ -147,6 +151,173 @@ pub struct Rhs<'a> {
     pub super_supportdyn: bool,
     pub super_like: bool,
     pub ty_super: &'a Ty,
+}
+
+/// `type shape_splat_failure`
+#[derive(Clone, Debug)]
+pub(crate) enum ShapeSplatFailure {
+    UnsupportedCycle(typing_corners::cycle_info::T),
+    MissingAssignment(typing_corners::missing_assignment::T),
+}
+
+/// `type 'a shape_splat_result = (env * 'a, env * shape_splat_failure) result`:
+/// the environment is the one that is threaded, in both cases.
+pub(crate) type ShapeSplatResult<A> = Result<A, ShapeSplatFailure>;
+
+pub(crate) fn project_shape_splat(
+    env: &mut Env,
+    row: &row::T,
+    label: Option<&TShapeField>,
+    assignment: &typing_corners::assignment::T,
+) -> ShapeSplatResult<ShapeFieldType> {
+    let result = typing_corners::proj(env, row, label, assignment);
+    match result {
+        Ok(field) => Ok(field),
+        Err(missing) => Err(ShapeSplatFailure::MissingAssignment(missing)),
+    }
+}
+
+pub(crate) fn shape_splat_assignments(
+    cache: &mut typing_corners::cache::T,
+    env: &mut Env,
+    live: &typing_corners::splat_elem::set::T,
+    label: Option<&TShapeField>,
+    r: &Reason,
+) -> ShapeSplatResult<Option<Vec<typing_corners::assignment::T>>> {
+    let result = typing_corners::corner_assignments(cache, env, live, label, r.clone());
+    match result {
+        Ok(typing_corners::Computation::Computed(assignments)) => Ok(Some(assignments)),
+        Ok(typing_corners::Computation::Empty) => Ok(None),
+        Ok(typing_corners::Computation::UnsupportedCycle(info)) => {
+            Err(ShapeSplatFailure::UnsupportedCycle(info))
+        }
+        Err(missing) => Err(ShapeSplatFailure::MissingAssignment(missing)),
+    }
+}
+
+/// `shape_splat_conj (env, left) right`: `right` runs first, from the
+/// environment given, and `( &&& )` then goes on from the environment it left.
+pub(crate) fn shape_splat_conj(
+    env: &mut Env,
+    left: tl::SubtypeProp,
+    right: impl FnOnce(&mut Env) -> ShapeSplatResult<tl::SubtypeProp>,
+) -> ShapeSplatResult<tl::SubtypeProp> {
+    let right = right(env)?;
+    let prop = and(env, left, |_| right);
+    Ok(prop)
+}
+
+pub(crate) fn missing_shape_splat_assignment(
+    subtype_env: &subtype_env::T,
+    env: &mut Env,
+    missing: &typing_corners::missing_assignment::T,
+    ty_sub: InternalType,
+    ty_super: InternalType,
+) -> tl::SubtypeProp {
+    let subtype_env = subtype_env::map_on_error(subtype_env.clone(), |on_error| {
+        let position = typing_corners::missing_assignment::position(missing).clone();
+        reasons_callback::prepend_reason(
+            on_error,
+            Lazy::new(move || {
+                Message(
+                    position,
+                    "Shape-splat dependency analysis failed before projection".into(),
+                )
+            }),
+        )
+    });
+    let fail = subtype_env::fail(&subtype_env, ty_sub, ty_super);
+    invalid(fail, env)
+}
+
+pub(crate) fn unsupported_cycle_position(
+    fallback: PosOrDecl,
+    cycle: &[typing_corners::dependency::T],
+    info: &typing_corners::cycle_info::T,
+) -> PosOrDecl {
+    match cycle {
+        [dependency, ..] => typing_corners::dependency::position(dependency),
+        [] => {
+            match typing_corners::splat_elem::set::choose_opt(&typing_corners::cycle_info::members(
+                info,
+            )) {
+                Some(member) => get_pos(&member),
+                None => fallback,
+            }
+        }
+    }
+}
+
+pub(crate) fn shape_splat_cycle_edge(
+    dependency: &typing_corners::dependency::T,
+) -> secondary::shape_splat_cycle::Edge {
+    use secondary::shape_splat_cycle::Edge;
+    use secondary::shape_splat_cycle::EdgeKind;
+    let kind = match typing_corners::dependency::kind(dependency) {
+        typing_corners::dependency::Kind::DirectUpper => EdgeKind::Direct_upper,
+        typing_corners::dependency::Kind::IndirectUpper => EdgeKind::Indirect_upper,
+        typing_corners::dependency::Kind::NestedUpper => EdgeKind::Nested_upper,
+        typing_corners::dependency::Kind::NestedLower => EdgeKind::Nested_lower,
+    };
+    Edge {
+        pos: typing_corners::dependency::position(dependency),
+        source: typing_corners::dependency::source(dependency),
+        target: typing_corners::dependency::target(dependency),
+        kind,
+    }
+}
+
+pub(crate) fn unsupported_cyclic_shape_splat_bounds(
+    subtype_env: &subtype_env::T,
+    env: &mut Env,
+    r: &Reason,
+    info: &typing_corners::cycle_info::T,
+    ty_sub: InternalType,
+    ty_super: InternalType,
+) -> tl::SubtypeProp {
+    let dependency_cycle = {
+        let cycle = typing_corners::cycle_info::dependency_cycle(info);
+        if cycle.is_empty() {
+            typing_corners::cycle_info::dependencies(info)
+        } else {
+            cycle
+        }
+    };
+    let position = unsupported_cycle_position(reason::to_pos(r), &dependency_cycle, info);
+    let cycle: Vec<secondary::shape_splat_cycle::Edge> =
+        dependency_cycle.iter().map(shape_splat_cycle_edge).collect();
+    let subtype_env = subtype_env::map_on_error(subtype_env.clone(), |on_error| {
+        reasons_callback::prepend_on_apply(
+            on_error,
+            secondary::T::Unsupported_cyclic_shape_splat_bounds {
+                pos: position,
+                cycle,
+            },
+        )
+    });
+    let fail = subtype_env::fail(&subtype_env, ty_sub, ty_super);
+    invalid(fail, env)
+}
+
+pub(crate) fn report_shape_splat_failure(
+    subtype_env: &subtype_env::T,
+    r: &Reason,
+    sub: &row::T,
+    super_: &row::T,
+    env: &mut Env,
+    failure: ShapeSplatFailure,
+) -> tl::SubtypeProp {
+    // `let ty_sub = ... and ty_super = ... in` (no effect)
+    let ty_sub = InternalType::LoclType(row::to_ty(r.clone(), sub));
+    let ty_super = InternalType::LoclType(row::to_ty(r.clone(), super_));
+    match failure {
+        ShapeSplatFailure::UnsupportedCycle(info) => {
+            unsupported_cyclic_shape_splat_bounds(subtype_env, env, r, &info, ty_sub, ty_super)
+        }
+        ShapeSplatFailure::MissingAssignment(missing) => {
+            missing_shape_splat_assignment(subtype_env, env, &missing, ty_sub, ty_super)
+        }
+    }
 }
 
 /// `module Log`
@@ -1703,15 +1874,8 @@ pub(crate) fn simplify_subtype_funs_attributes(
         }
     };
     let variadic_err: Result<(), Option<typing_error::T>> = {
-        fn positional_variadic_of(ft: &FunType) -> Option<&FunParam> {
-            if typing_defs::ft_has_positional_variadic(ft) {
-                typing_defs::ft_params_without_named_variadic(ft).last()
-            } else {
-                None
-            }
-        }
-        let ft_sub_variadic = positional_variadic_of(ft_sub);
-        let ft_super_variadic = positional_variadic_of(ft_super);
+        let ft_sub_variadic = typing_defs::ft_positional_variadic_param(ft_sub);
+        let ft_super_variadic = typing_defs::ft_positional_variadic_param(ft_super);
 
         match (ft_sub_variadic, ft_super_variadic) {
             (Some(FunParam { name: None, .. }), Some(FunParam { name: Some(_), .. })) => {
@@ -2112,6 +2276,62 @@ pub(crate) fn simplify_subtype_params(
             //   public function a(string $x = 0, string ... $args)
             // }
             // It should also check that string is a subtype of mixed.
+            // A lone variadic against a lone splat must package the variadic side
+            // into a tuple, e.g. `string...` against `...(string...)`. Comparing the
+            // splat tuple against the variadic element instead would be unsound:
+            // `(arraykey)...` against `...(arraykey)` passes reflexively, yet the
+            // implementation receives scalars where it declares 1-tuples.
+            (
+                [_],
+                [
+                    fp_super @ FunParam {
+                        type_: ty_super, ..
+                    },
+                ],
+            ) if variadic_sub_ty && get_fp_splat(fp_super) => {
+                let tuple_ty_sub = params_to_tuple(
+                    reason::to_pos(&r_sub),
+                    variadic_sub_ty,
+                    &positional_params_sub,
+                );
+                simplify(
+                    subtype_env,
+                    None,
+                    Lhs {
+                        sub_supportdyn: None,
+                        ty_sub: &ty_super,
+                    },
+                    Rhs {
+                        super_like: false,
+                        super_supportdyn: false,
+                        ty_super: &tuple_ty_sub,
+                    },
+                    env,
+                )
+            }
+            ([fp_sub @ FunParam { type_: ty_sub, .. }], [_])
+                if variadic_super_ty && get_fp_splat(fp_sub) =>
+            {
+                let tuple_ty = params_to_tuple(
+                    reason::to_pos(&r_super),
+                    variadic_super_ty,
+                    &positional_params_super,
+                );
+                simplify(
+                    subtype_env,
+                    None,
+                    Lhs {
+                        sub_supportdyn: None,
+                        ty_sub: &tuple_ty,
+                    },
+                    Rhs {
+                        super_like: false,
+                        super_supportdyn: false,
+                        ty_super: &ty_sub,
+                    },
+                    env,
+                )
+            }
             ([FunParam { type_: ty_sub, .. }], _) if variadic_sub_ty => {
                 simplify_subtype_params_with_variadic(
                     subtype_env,
@@ -2275,23 +2495,23 @@ pub(crate) fn simplify_subtype_params(
     })
 }
 
-/// Contravariant element-type subtyping for named-variadic parameters
-/// between two function types. Two obligations:
+/// Named-variadic subtyping between two function types. In each case, check
+/// both contravariant element types and parameter attributes. Three cases:
 ///
 /// 1. If the actual (sub) function has a named-variadic and the expected
-///    (super) function declares required named parameters that the sub
-///    does not declare by name, the sub's variadic absorbs them — but
-///    the super's declared param type must be a subtype of the sub's
-///    variadic element type (contravariance).
+///    (super) function declares named parameters that the sub does not
+///    declare by name, the sub's variadic absorbs them — but the super's
+///    declared param type must be a subtype of the sub's variadic element
+///    type (contravariance).
 ///
-/// 2. If both sides have a named-variadic, their element types must
-///    subtype contravariantly (super's element <: sub's element).
-///
-/// 3. If the expected function has a named-variadic and the actual function
+/// 2. If the expected function has a named-variadic and the actual function
 ///    has an optional named parameter not declared by the expected function,
 ///    the expected variadic's element type must be a subtype of that explicit
 ///    parameter's type. The explicit parameter shadows the actual function's
 ///    variadic for that name.
+///
+/// 3. If both sides have a named-variadic, their element types must
+///    subtype contravariantly (super's element <: sub's element).
 ///
 /// The "missing named-variadic on sub" and "extra required name on sub"
 /// cases are handled in [simplify_subtype_funs_attributes] via
@@ -2337,18 +2557,28 @@ pub(crate) fn simplify_subtype_named_variadic(
             env,
         )
     };
-    // Each super-declared named param not matched by name in sub is
-    // absorbed by sub's variadic (if sub has one). Check element-type
-    // compatibility for each such absorption.
+    let simplify_parameter_attributes =
+        |fn_param_sub: &FunParam, fn_param_super: &FunParam, env: &mut Env| {
+            let prop = simplify_param_readonly(subtype_env, fn_param_sub, fn_param_super, env);
+            and(env, prop, |env| {
+                simplify_param_accept_disposable(subtype_env, fn_param_sub, fn_param_super, env)
+            })
+        };
+    // Each unmatched named parameter is absorbed by the subtype's variadic.
     let prop = match sub_var {
         None => valid(env),
-        Some(FunParam {
-            type_: ty_sub_var, ..
-        }) => {
+        Some(
+            sub_var_fp @ FunParam {
+                type_: ty_sub_var, ..
+            },
+        ) => {
             let mut prop = valid(env);
             for super_fp in typing_defs::ft_params_without_named_variadic(ft_super) {
                 match named_params::name_of_named_param(super_fp) {
                     Some(name) if !sub_named_names.contains(&name) => {
+                        prop = and(env, prop, |env| {
+                            simplify_parameter_attributes(sub_var_fp, super_fp, env)
+                        });
                         prop = and(env, prop, |env| contra(&super_fp.type_, ty_sub_var, env));
                     }
                     _ => {}
@@ -2363,10 +2593,12 @@ pub(crate) fn simplify_subtype_named_variadic(
     let prop = match (sub_var, super_var) {
         (
             Some(_),
-            Some(FunParam {
-                type_: ty_super_var,
-                ..
-            }),
+            Some(
+                super_var_fp @ FunParam {
+                    type_: ty_super_var,
+                    ..
+                },
+            ),
         ) => {
             let mut prop = prop;
             for sub_fp in typing_defs::ft_params_without_named_variadic(ft_sub) {
@@ -2374,6 +2606,9 @@ pub(crate) fn simplify_subtype_named_variadic(
                     Some(name)
                         if get_fp_is_optional(sub_fp) && !super_named_names.contains(&name) =>
                     {
+                        prop = and(env, prop, |env| {
+                            simplify_parameter_attributes(sub_fp, super_var_fp, env)
+                        });
                         prop = and(env, prop, |env| contra(ty_super_var, &sub_fp.type_, env));
                     }
                     _ => {}
@@ -2385,14 +2620,21 @@ pub(crate) fn simplify_subtype_named_variadic(
     };
     and(env, prop, |env| match (sub_var, super_var) {
         (
-            Some(FunParam {
-                type_: ty_sub_var, ..
-            }),
-            Some(FunParam {
-                type_: ty_super_var,
-                ..
-            }),
-        ) => contra(ty_super_var, ty_sub_var, env),
+            Some(
+                sub_var_fp @ FunParam {
+                    type_: ty_sub_var, ..
+                },
+            ),
+            Some(
+                super_var_fp @ FunParam {
+                    type_: ty_super_var,
+                    ..
+                },
+            ),
+        ) => {
+            let prop = simplify_parameter_attributes(sub_var_fp, super_var_fp, env);
+            and(env, prop, |env| contra(ty_super_var, ty_sub_var, env))
+        }
         _ => valid(env),
     })
 }

@@ -710,11 +710,15 @@ fn this_appears_covariantly(contra: bool, env: &Env, ty: &DeclTy) -> bool {
             // []`) gives the bindings in decreasing order, so `exists` visits
             // the fields, and records the dependencies of
             // `get_class_or_typedef_tparams`, in the OCaml order.
-            ty::decl::ty::ShapeType::Simple(ty::decl::ty::ShapeTypeSimple(_, fm)) => fm
-                .values()
-                .rev()
-                .any(|f| this_appears_covariantly(contra, env, &f.ty)),
-            ty::decl::ty::ShapeType::Splat(_) => false,
+            ty::decl::ty::ShapeType::Simple(ty::decl::ty::ShapeTypeSimple(unknown, fm)) => {
+                fm.values()
+                    .rev()
+                    .any(|f| this_appears_covariantly(contra, env, &f.ty))
+                    || this_appears_covariantly(contra, env, unknown)
+            }
+            ty::decl::ty::ShapeType::Splat(ss_elems) => ss_elems
+                .iter()
+                .any(|ty| this_appears_covariantly(contra, env, ty)),
         },
         DeclTy_::Taccess(taccess) => this_appears_covariantly(contra, env, &taccess.ty),
         DeclTy_::Trefinement(trefinement) => {
@@ -1131,6 +1135,11 @@ fn obj_get_concrete_class_with_member_info(
                     .iter()
                     .map(|aast::Targ(_, hint)| hint.clone())
                     .collect(),
+            );
+            crate::typing_needs_concrete::check_reified_targs(
+                env,
+                &ft.tparams,
+                args.explicit_targs,
             );
             let ft: DeclFunType = typing_enforceability::compute_enforced_and_pessimize_fun_type(
                 Some(class_info),

@@ -5,6 +5,7 @@
 
 use nast::Class_;
 use nast::Expr_;
+use nast::Pos;
 use nast::ShapeExprField;
 use nast::ShapeFieldInfo;
 use nast::ShapeFieldName;
@@ -14,11 +15,14 @@ use crate::prelude::*;
 #[derive(Clone, Default)]
 pub struct ElabShapeFieldNamePass {
     current_class: Option<Rc<String>>,
+    /// Whether the current class is a trait (`Ast_defs.is_c_trait c_kind`).
+    in_trait: bool,
 }
 
 impl ElabShapeFieldNamePass {
     pub fn in_class(&mut self, cls: &Class_) {
         self.current_class = Some(Rc::new(cls.name.name().to_string()));
+        self.in_trait = cls.kind.is_ctrait();
     }
 }
 
@@ -33,7 +37,9 @@ impl Pass for ElabShapeFieldNamePass {
             for field in fields.iter_mut() {
                 match field {
                     ShapeExprField::SFField(nm, _) => {
-                        if let Err(err) = canonical_shape_name(nm, self.current_class.as_deref()) {
+                        if let Err(err) =
+                            canonical_shape_name(nm, self.current_class.as_deref(), self.in_trait)
+                        {
                             env.emit_error(err)
                         }
                     }
@@ -49,7 +55,11 @@ impl Pass for ElabShapeFieldNamePass {
         env: &Env,
         elem: &mut ShapeFieldInfo,
     ) -> ControlFlow<()> {
-        match canonical_shape_name(&mut elem.name, self.current_class.as_deref()) {
+        match canonical_shape_name(
+            &mut elem.name,
+            self.current_class.as_deref(),
+            self.in_trait,
+        ) {
             Ok(()) => Continue(()),
             Err(err) => {
                 env.emit_error(err);
@@ -68,15 +78,34 @@ impl Pass for ElabShapeFieldNamePass {
 fn canonical_shape_name(
     nm: &mut ShapeFieldName,
     current_class: Option<&String>,
+    in_trait: bool,
 ) -> Result<(), NamingError> {
     match nm {
-        ShapeFieldName::SFclassname(id) | ShapeFieldName::SFclassConst(id, _)
-            if id.name() == sn::classes::SELF =>
-        {
+        ShapeFieldName::SFclassname(id) if id.name() == sn::classes::SELF => match current_class {
+            Some(cls_nm) => {
+                id.1 = cls_nm.to_string();
+                Ok(())
+            }
+            None => {
+                id.1 = sn::classes::UNKNOWN.to_string();
+                Err(NamingError::SelfOutsideClass(id.0.clone()))
+            }
+        },
+        ShapeFieldName::SFclassConst(id, cst) if id.name() == sn::classes::SELF => {
             match current_class {
                 Some(cls_nm) => {
                     id.1 = cls_nm.to_string();
-                    Ok(())
+                    if in_trait {
+                        let (const_pos, const_name) = (&cst.0, &cst.1);
+                        // `Pos.btw class_pos const_pos`
+                        let pos = Pos::merge(&id.0, const_pos).unwrap_or_else(|_| id.0.clone());
+                        Err(NamingError::TraitSelfShapeKey {
+                            pos,
+                            key_name: format!("self::{}", const_name),
+                        })
+                    } else {
+                        Ok(())
+                    }
                 }
                 None => {
                     id.1 = sn::classes::UNKNOWN.to_string();

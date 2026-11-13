@@ -444,9 +444,11 @@ impl Fuel {
     /// consumes one unit of fuel per call to f plus the fuel consumed by f
     /// itself. When out of fuel, it appends the text doc
     /// "[out_of_fuel_message]" to the results.
+    ///
+    /// (An input for which `f` gives `None` consumes no fuel.)
     fn provide_list<I>(
         &mut self,
-        mut f: impl FnMut(I, &mut Fuel) -> Doc,
+        mut f: impl FnMut(I, &mut Fuel) -> Option<Doc>,
         inputs: impl IntoIterator<Item = I>,
         out_of_fuel_message: &str,
     ) -> Vec<Doc> {
@@ -456,8 +458,12 @@ impl Fuel {
                 acc.push(text(format!("[{}]", out_of_fuel_message)));
                 break;
             }
+            let fuel = *self;
             self.deplete();
-            acc.push(f(input, self));
+            match f(input, self) {
+                Some(doc) => acc.push(doc),
+                None => *self = fuel,
+            }
         }
         acc
     }
@@ -790,10 +796,10 @@ mod full {
         delimited_list(fuel, comma_sep(), false, ld, printer, items, rd)
     }
 
-    fn shape_map<'a, T>(
+    fn shape_filter_map<'a, T>(
         fuel: &mut Fuel,
         fdm: Vec<ShapeFieldView<'a, T>>,
-        f_field: impl FnMut(ShapeFieldView<'a, T>, &mut Fuel) -> Doc,
+        f_field: impl FnMut(ShapeFieldView<'a, T>, &mut Fuel) -> Option<Doc>,
     ) -> Vec<Doc> {
         let mut fields: Vec<(String, ShapeFieldView<'a, T>)> = fdm
             .into_iter()
@@ -1159,6 +1165,7 @@ mod full {
         fdm: Vec<ShapeFieldView<'_, T>>,
         open_mixed: bool,
     ) -> Doc {
+        let is_closed = is_nothing(shape_kind);
         let mut fields_doc = {
             let f_field = |field: ShapeFieldView<'_, T>, fuel: &mut Fuel| {
                 let ShapeFieldView {
@@ -1172,15 +1179,19 @@ mod full {
                     _ => Doc::Nothing,
                 };
                 if sft_optional && is_nothing {
-                    Doc::Concat(vec![
-                        text("absent "),
-                        key_delim(),
-                        to_doc(&tshape_field_name(&shape_map_key.0)),
-                        key_delim(),
-                    ])
+                    if is_closed {
+                        None
+                    } else {
+                        Some(Doc::Concat(vec![
+                            text("absent "),
+                            key_delim(),
+                            to_doc(&tshape_field_name(&shape_map_key.0)),
+                            key_delim(),
+                        ]))
+                    }
                 } else {
                     let sft_ty_doc = k(fuel, sft_ty);
-                    Doc::Concat(vec![
+                    Some(Doc::Concat(vec![
                         if sft_optional {
                             text("?")
                         } else {
@@ -1193,12 +1204,12 @@ mod full {
                         text("=>"),
                         Doc::Space,
                         sft_ty_doc,
-                    ])
+                    ]))
                 }
             };
-            shape_map(fuel, fdm, f_field)
+            shape_filter_map(fuel, fdm, f_field)
         };
-        if is_nothing(shape_kind) {
+        if is_closed {
         } else if open_mixed {
             fields_doc.push(text("..."));
         } else {
@@ -2018,9 +2029,38 @@ mod full {
                 is_open_mixed(env, &s.unknown_value),
             ),
             Tshape(locl::ShapeType::ShapeSplat(locl::ShapeTypeSplat { ss_elems })) => {
-                // Expand tvars and try to normalize
-                let expanded: Vec<Cow<'_, Ty>> =
-                    ss_elems.iter().map(|ty| env.expand_type(ty)).collect();
+                // A type variable can resolve to another splat after the row was first
+                // normalized. The ordinary printer recursion is bottom-up, so its child
+                // types have already become documents by the time the parent could merge
+                // them. Expand and flatten the types first, for display only.
+                fn expand_splat_elem<E: PrintEnv + ?Sized>(
+                    env: &E,
+                    seen: &TvidSet,
+                    ty: &Ty,
+                    acc: &mut Vec<Ty>,
+                ) {
+                    match ty.get_node() {
+                        Tvar(v) if !seen.contains(v) => {
+                            let ty = env.expand_type(ty).into_owned();
+                            let mut seen = seen.clone();
+                            seen.insert(*v);
+                            expand_splat_elem(env, &seen, &ty, acc)
+                        }
+                        Tshape(locl::ShapeType::ShapeSplat(locl::ShapeTypeSplat { ss_elems })) => {
+                            for ty in ss_elems.iter() {
+                                expand_splat_elem(env, seen, ty, acc)
+                            }
+                        }
+                        _ => acc.push(ty.clone()),
+                    }
+                }
+                let expanded: Vec<Ty> = {
+                    let mut acc = vec![];
+                    for ty in ss_elems.iter() {
+                        expand_splat_elem(env, st, ty, &mut acc)
+                    }
+                    acc
+                };
                 let all_simple = expanded.iter().all(|ty| {
                     matches!(ty.get_node(), Tshape(locl::ShapeType::ShapeSimple(_)))
                 });

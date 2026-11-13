@@ -1167,7 +1167,7 @@ pub(crate) fn subrow_splat_at(
     // `f env ~sub ~super`, and `~init:valid ~conj:( &&& )`.
     //
     // Check subfields at all corner assignments
-    typing_corners::check_subrow_corners(
+    let result = typing_corners::check_subrow_corners(
         cache,
         env,
         sub,
@@ -1190,7 +1190,27 @@ pub(crate) fn subrow_splat_at(
                 super_,
             )
         },
-    )
+    );
+    match result {
+        Ok(typing_corners::Computation::Computed(prop)) => prop,
+        Ok(typing_corners::Computation::Empty) => valid(env),
+        Ok(typing_corners::Computation::UnsupportedCycle(info)) => report_shape_splat_failure(
+            subtype_env,
+            r,
+            sub,
+            super_,
+            env,
+            ShapeSplatFailure::UnsupportedCycle(info),
+        ),
+        Err(missing) => report_shape_splat_failure(
+            subtype_env,
+            r,
+            sub,
+            super_,
+            env,
+            ShapeSplatFailure::MissingAssignment(missing),
+        ),
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1329,7 +1349,7 @@ pub(crate) fn subrow_infer_super(
                     match (row::as_row(super_pre), row::as_row(super_post)) {
                         (Some(super_pre), Some(super_post)) => {
                             if !row::is_bottom(&super_pre) && !row::is_bottom(&super_post) {
-                                subrow_infer_super_part(
+                                match subrow_infer_super_part(
                                     subtype_env,
                                     env,
                                     cache,
@@ -1341,7 +1361,17 @@ pub(crate) fn subrow_infer_super(
                                     &super_pre,
                                     &super_post,
                                     super_,
-                                )
+                                ) {
+                                    Ok(prop) => prop,
+                                    Err(failure) => report_shape_splat_failure(
+                                        subtype_env,
+                                        r,
+                                        sub,
+                                        super_,
+                                        env,
+                                        failure,
+                                    ),
+                                }
                             } else {
                                 valid(env)
                             }
@@ -1377,7 +1407,7 @@ pub(crate) fn subrow_infer_super_part(
     super_pre: &row::T,
     super_post: &row::T,
     super_: &row::T,
-) -> tl::SubtypeProp {
+) -> ShapeSplatResult<tl::SubtypeProp> {
     let labels = typing_corners::subrow_labels(cache, env, sub, super_, r.clone());
     let mut known: TShapeMap<ShapeFieldType> = TShapeMap::new();
     let mut unknown = make_type::nothing(r.clone());
@@ -1397,7 +1427,7 @@ pub(crate) fn subrow_infer_super_part(
             super_post,
             super_,
             label.as_ref(),
-        );
+        )?;
         match label {
             Some(lbl) => {
                 known.insert(lbl.clone(), field);
@@ -1431,7 +1461,7 @@ pub(crate) fn subrow_infer_super_part(
     for p in props.into_iter().rev() {
         prop = tl::conj(prop, p);
     }
-    prop
+    Ok(prop)
 }
 
 /// Infer [label]'s field in the spread variable's lower-bound shape and generate
@@ -1442,7 +1472,7 @@ pub(crate) fn subrow_infer_super_part(
 /// directly against [super_post]. If the variable need not contribute the field
 /// in any case, represent that lack of a requirement as an absent field
 ///
-/// The OCaml returns `(env, field, prop)`.
+/// The OCaml returns `(env, (field, prop))`, or the failure.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn subrow_infer_super_part_at(
     subtype_env: &subtype_env::T,
@@ -1456,7 +1486,11 @@ pub(crate) fn subrow_infer_super_part_at(
     super_post: &row::T,
     super_: &row::T,
     label: Option<&TShapeField>,
-) -> (ShapeFieldType, tl::SubtypeProp) {
+) -> ShapeSplatResult<(ShapeFieldType, tl::SubtypeProp)> {
+    let absent = ShapeFieldType {
+        optional: true,
+        ty: make_type::nothing(r.clone()),
+    };
     let live_names = {
         // (The arguments of `union` are evaluated right to left;
         // `row_live_spread_at` has no effect.)
@@ -1468,16 +1502,22 @@ pub(crate) fn subrow_infer_super_part_at(
         );
         typing_corners::splat_elem::set::union(&live_sub, &live_super)
     };
-    let ty_params_topo = typing_corners::topo(cache, env, &live_names, r.clone());
-    let assignments =
-        typing_corners::corner_assignments(cache, env, &ty_params_topo, label, r.clone());
+    let assignments = shape_splat_assignments(cache, env, &live_names, label, r)?;
+    let assignments = match assignments {
+        None => return Ok((absent, tl::valid())),
+        Some(assignments) => assignments,
+    };
     // `info` is built by consing and then reversed: here in the order of the
     // assignments.
     let mut info: Vec<(bool, ShapeFieldType, typing_corners::assignment::T)> = vec![];
-    for a in assignments {
-        let fd_post = typing_corners::proj(env, super_post, label, &a);
-        let fd_sub = typing_corners::proj(env, sub, label, &a);
-        info.push((typing_corners::field::is_required(&fd_post), fd_sub, a));
+    for assignment in assignments {
+        let fd_post = project_shape_splat(env, super_post, label, &assignment)?;
+        let fd_sub = project_shape_splat(env, sub, label, &assignment)?;
+        info.push((
+            typing_corners::field::is_required(&fd_post),
+            fd_sub,
+            assignment,
+        ));
     }
     let live: Vec<&(bool, ShapeFieldType, typing_corners::assignment::T)> =
         info.iter().filter(|(masked, _, _)| !masked).collect();
@@ -1487,11 +1527,11 @@ pub(crate) fn subrow_infer_super_part_at(
             // contributes nothing to the lower bound at this label. The field is absent,
             // optional-[nothing], not required-[nothing], which would make the
             // inferred row uninhabited.
-            let mut prop = valid(env);
-            for (_, fd_sub, a) in info.iter() {
-                prop = and(env, prop, |env| {
-                    let fd_super = typing_corners::proj(env, super_post, label, a);
-                    subrow_subfield(
+            let mut prop = tl::valid();
+            for (_, fd_sub, assignment) in info.iter() {
+                prop = shape_splat_conj(env, prop, |env| {
+                    let fd_super = project_shape_splat(env, super_post, label, assignment)?;
+                    let prop = subrow_subfield(
                         subtype_env,
                         env,
                         this_ty,
@@ -1502,16 +1542,11 @@ pub(crate) fn subrow_infer_super_part_at(
                         label,
                         fd_sub.clone(),
                         fd_super,
-                    )
-                });
+                    );
+                    Ok(prop)
+                })?;
             }
-            (
-                ShapeFieldType {
-                    optional: true,
-                    ty: make_type::nothing(r.clone()),
-                },
-                prop,
-            )
+            Ok((absent, prop))
         }
         _ => {
             let is_opt = live
@@ -1520,7 +1555,7 @@ pub(crate) fn subrow_infer_super_part_at(
             // A field which contributes `nothing` must not appear as required since
             // this means the shape is uninhabited
             let mut contributes_nothing = true;
-            for (_, fd_sub, a) in live.iter() {
+            for (_, fd_sub, assignment) in live.iter() {
                 let discharged = contributes_nothing;
                 contributes_nothing = if !discharged {
                     false
@@ -1528,9 +1563,9 @@ pub(crate) fn subrow_infer_super_part_at(
                     // [nothing] fits under anything; no need to probe
                     true
                 } else {
-                    let fd_post = typing_corners::proj(env, super_post, label, a);
+                    let fd_post = project_shape_splat(env, super_post, label, assignment)?;
                     let base = if is_opt {
-                        let fd_pre = typing_corners::proj(env, super_pre, label, a);
+                        let fd_pre = project_shape_splat(env, super_pre, label, assignment)?;
                         typing_union::union(env, None, None, fd_pre.ty, fd_post.ty)
                     } else {
                         fd_post.ty
@@ -1554,12 +1589,12 @@ pub(crate) fn subrow_infer_super_part_at(
                 };
             }
             let flex = env::fresh_type(env, Pos::NONE);
-            let mut prop = valid(env);
-            for (masked, fd_sub, a) in info.iter() {
-                prop = and(env, prop, |env| {
+            let mut prop = tl::valid();
+            for (masked, fd_sub, assignment) in info.iter() {
+                prop = shape_splat_conj(env, prop, |env| {
                     if *masked {
-                        let fd_super = typing_corners::proj(env, super_post, label, a);
-                        subrow_subfield(
+                        let fd_super = project_shape_splat(env, super_post, label, assignment)?;
+                        let prop = subrow_subfield(
                             subtype_env,
                             env,
                             this_ty,
@@ -1570,23 +1605,25 @@ pub(crate) fn subrow_infer_super_part_at(
                             label,
                             fd_sub.clone(),
                             fd_super,
-                        )
+                        );
+                        Ok(prop)
                     } else {
-                        let fd_pre = typing_corners::proj(env, super_pre, label, a);
+                        let fd_pre = project_shape_splat(env, super_pre, label, assignment)?;
                         if typing_corners::field::is_optional(fd_sub)
                             && typing_corners::field::is_required(&fd_pre)
                         {
                             // Opt </:_req Req
-                            invalid(None, env)
+                            let prop = invalid(None, env);
+                            Ok(prop)
                         } else {
-                            let fd_post = typing_corners::proj(env, super_post, label, a);
+                            let fd_post = project_shape_splat(env, super_post, label, assignment)?;
                             let ty = typing_union::union(env, None, None, flex.clone(), fd_post.ty);
                             let super_base = if is_opt {
                                 typing_union::union(env, None, None, fd_pre.ty, ty)
                             } else {
                                 ty
                             };
-                            simplify_(
+                            let prop = simplify_(
                                 subtype_env,
                                 this_ty,
                                 Lhs {
@@ -1599,10 +1636,11 @@ pub(crate) fn subrow_infer_super_part_at(
                                     ty_super: &super_base,
                                 },
                                 env,
-                            )
+                            );
+                            Ok(prop)
                         }
                     }
-                });
+                })?;
             }
             let field = if contributes_nothing {
                 ShapeFieldType {
@@ -1615,7 +1653,7 @@ pub(crate) fn subrow_infer_super_part_at(
                     ty: flex,
                 }
             };
-            (field, prop)
+            Ok((field, prop))
         }
     }
 }
@@ -1660,7 +1698,7 @@ pub(crate) fn subrow_infer_sub(
                     match (row::as_row(sub_pre), row::as_row(sub_post)) {
                         (Some(sub_pre), Some(sub_post)) => {
                             if !row::is_bottom(&sub_pre) && !row::is_bottom(&sub_post) {
-                                subrow_infer_sub_part(
+                                match subrow_infer_sub_part(
                                     subtype_env,
                                     env,
                                     cache,
@@ -1672,7 +1710,17 @@ pub(crate) fn subrow_infer_sub(
                                     &sub_post,
                                     sub,
                                     super_,
-                                )
+                                ) {
+                                    Ok(prop) => prop,
+                                    Err(failure) => report_shape_splat_failure(
+                                        subtype_env,
+                                        r,
+                                        sub,
+                                        super_,
+                                        env,
+                                        failure,
+                                    ),
+                                }
                             } else {
                                 valid(env)
                             }
@@ -1709,7 +1757,7 @@ pub(crate) fn subrow_infer_sub_part(
     sub_post: &row::T,
     sub: &row::T,
     super_: &row::T,
-) -> tl::SubtypeProp {
+) -> ShapeSplatResult<tl::SubtypeProp> {
     let labels = typing_corners::subrow_labels(cache, env, sub, super_, r.clone());
     let mut known: TShapeMap<ShapeFieldType> = TShapeMap::new();
     let mut unknown = make_type::mixed(r.clone());
@@ -1729,7 +1777,7 @@ pub(crate) fn subrow_infer_sub_part(
             sub,
             super_,
             label.as_ref(),
-        );
+        )?;
         match label {
             Some(lbl) => {
                 known.insert(lbl.clone(), field);
@@ -1764,7 +1812,7 @@ pub(crate) fn subrow_infer_sub_part(
     for p in props.into_iter().rev() {
         prop = tl::conj(prop, p);
     }
-    prop
+    Ok(prop)
 }
 
 /// Infer [label]'s field in the spread variable's upper-bound shape and generate
@@ -1774,7 +1822,7 @@ pub(crate) fn subrow_infer_sub_part(
 /// the live [super] field types, and check the remaining fixed contributions.
 /// If the variable is always masked, give it the unconstrained top field.
 ///
-/// The OCaml returns `(env, field, prop)`.
+/// The OCaml returns `(env, (field, prop))`, or the failure.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn subrow_infer_sub_part_at(
     subtype_env: &subtype_env::T,
@@ -1788,7 +1836,11 @@ pub(crate) fn subrow_infer_sub_part_at(
     sub: &row::T,
     super_: &row::T,
     label: Option<&TShapeField>,
-) -> (ShapeFieldType, tl::SubtypeProp) {
+) -> ShapeSplatResult<(ShapeFieldType, tl::SubtypeProp)> {
+    let top = ShapeFieldType {
+        optional: true,
+        ty: make_type::mixed(r.clone()),
+    };
     let live_names = {
         // (The arguments of `union` are evaluated right to left;
         // `row_live_spread_at` has no effect.)
@@ -1800,16 +1852,22 @@ pub(crate) fn subrow_infer_sub_part_at(
         );
         typing_corners::splat_elem::set::union(&live_sub, &live_super)
     };
-    let ty_params_topo = typing_corners::topo(cache, env, &live_names, r.clone());
-    let assignments =
-        typing_corners::corner_assignments(cache, env, &ty_params_topo, label, r.clone());
+    let assignments = shape_splat_assignments(cache, env, &live_names, label, r)?;
+    let assignments = match assignments {
+        None => return Ok((top, tl::valid())),
+        Some(assignments) => assignments,
+    };
     // `info` is built by consing and then reversed: here in the order of the
     // assignments.
     let mut info: Vec<(bool, ShapeFieldType, typing_corners::assignment::T)> = vec![];
-    for a in assignments {
-        let fd_post = typing_corners::proj(env, sub_post, label, &a);
-        let fd_super = typing_corners::proj(env, super_, label, &a);
-        info.push((typing_corners::field::is_required(&fd_post), fd_super, a));
+    for assignment in assignments {
+        let fd_post = project_shape_splat(env, sub_post, label, &assignment)?;
+        let fd_super = project_shape_splat(env, super_, label, &assignment)?;
+        info.push((
+            typing_corners::field::is_required(&fd_post),
+            fd_super,
+            assignment,
+        ));
     }
     let live: Vec<&(bool, ShapeFieldType, typing_corners::assignment::T)> =
         info.iter().filter(|(masked, _, _)| !masked).collect();
@@ -1817,11 +1875,11 @@ pub(crate) fn subrow_infer_sub_part_at(
         [] => {
             // the spread var is overwritten by [sub_post] everywhere: its upper bound
             // is the top field
-            let mut prop = valid(env);
-            for (_, fd_super, a) in info.iter() {
-                prop = and(env, prop, |env| {
-                    let fd_sub = typing_corners::proj(env, sub_post, label, a);
-                    subrow_subfield(
+            let mut prop = tl::valid();
+            for (_, fd_super, assignment) in info.iter() {
+                prop = shape_splat_conj(env, prop, |env| {
+                    let fd_sub = project_shape_splat(env, sub_post, label, assignment)?;
+                    let prop = subrow_subfield(
                         subtype_env,
                         env,
                         this_ty,
@@ -1832,16 +1890,11 @@ pub(crate) fn subrow_infer_sub_part_at(
                         label,
                         fd_sub,
                         fd_super.clone(),
-                    )
-                });
+                    );
+                    Ok(prop)
+                })?;
             }
-            (
-                ShapeFieldType {
-                    optional: true,
-                    ty: make_type::mixed(r.clone()),
-                },
-                prop,
-            )
+            Ok((top, prop))
         }
         _ => {
             // The spread var must be [Req] iff, at some live assignment, the field is [Req]
@@ -1850,32 +1903,48 @@ pub(crate) fn subrow_infer_sub_part_at(
             // opt-only.
             //
             // (Each probe projects in a copy of the environment, which it then
-            // drops.)
+            // drops; a projection which fails returns the environment it
+            // left.)
             let is_req = match label {
                 None => false,
-                Some(_) => live.iter().any(|(_, fd_super, a)| {
-                    let mut env_probe = env.clone();
-                    let fd_pre = typing_corners::proj(&mut env_probe, sub_pre, label, a);
-                    typing_corners::field::is_required(fd_super)
-                        && typing_corners::field::is_optional(&fd_pre)
-                        || {
-                            let p = simplify_(
-                                subtype_env,
-                                this_ty,
-                                Lhs {
-                                    sub_supportdyn: None,
-                                    ty_sub: &fd_pre.ty,
-                                },
-                                Rhs {
-                                    super_supportdyn: false,
-                                    super_like,
-                                    ty_super: &fd_super.ty,
-                                },
-                                &mut env_probe,
-                            );
-                            tl::is_unsat(&p)
+                Some(_) => {
+                    let mut is_required = false;
+                    for (_, fd_super, assignment) in live.iter() {
+                        let mut env_probe = env.clone();
+                        let fd_pre =
+                            match project_shape_splat(&mut env_probe, sub_pre, label, assignment) {
+                                Ok(fd_pre) => fd_pre,
+                                Err(failure) => {
+                                    *env = env_probe;
+                                    return Err(failure);
+                                }
+                            };
+                        let required = typing_corners::field::is_required(fd_super)
+                            && typing_corners::field::is_optional(&fd_pre)
+                            || {
+                                let prop = simplify_(
+                                    subtype_env,
+                                    this_ty,
+                                    Lhs {
+                                        sub_supportdyn: None,
+                                        ty_sub: &fd_pre.ty,
+                                    },
+                                    Rhs {
+                                        super_supportdyn: false,
+                                        super_like,
+                                        ty_super: &fd_super.ty,
+                                    },
+                                    &mut env_probe,
+                                );
+                                tl::is_unsat(&prop)
+                            };
+                        if required {
+                            is_required = true;
+                            break;
                         }
-                }),
+                    }
+                    is_required
+                }
             };
             // Decompose the field obligation instead of introducing a fresh tyvar:
             // [(fixed | tyvar) <: super] iff both [fixed <: super] and
@@ -1886,12 +1955,12 @@ pub(crate) fn subrow_infer_sub_part_at(
                     .map(|(_, fd_super, _)| sd::liken(super_like, env, fd_super.ty.clone()))
                     .collect(),
             );
-            let mut prop = valid(env);
-            for (masked, fd_super, a) in info.iter() {
-                prop = and(env, prop, |env| {
+            let mut prop = tl::valid();
+            for (masked, fd_super, assignment) in info.iter() {
+                prop = shape_splat_conj(env, prop, |env| {
                     if *masked {
-                        let fd_sub = typing_corners::proj(env, sub_post, label, a);
-                        subrow_subfield(
+                        let fd_sub = project_shape_splat(env, sub_post, label, assignment)?;
+                        let prop = subrow_subfield(
                             subtype_env,
                             env,
                             this_ty,
@@ -1902,16 +1971,17 @@ pub(crate) fn subrow_infer_sub_part_at(
                             label,
                             fd_sub,
                             fd_super.clone(),
-                        )
+                        );
+                        Ok(prop)
                     } else {
-                        let fd_post = typing_corners::proj(env, sub_post, label, a);
+                        let fd_post = project_shape_splat(env, sub_post, label, assignment)?;
                         let sub_base = if is_req {
                             fd_post.ty
                         } else {
-                            let fd_pre = typing_corners::proj(env, sub_pre, label, a);
+                            let fd_pre = project_shape_splat(env, sub_pre, label, assignment)?;
                             make_type::union(r.clone(), vec![fd_pre.ty, fd_post.ty])
                         };
-                        simplify_(
+                        let prop = simplify_(
                             subtype_env,
                             this_ty,
                             Lhs {
@@ -1924,17 +1994,18 @@ pub(crate) fn subrow_infer_sub_part_at(
                                 ty_super: &fd_super.ty,
                             },
                             env,
-                        )
+                        );
+                        Ok(prop)
                     }
-                });
+                })?;
             }
-            (
+            Ok((
                 ShapeFieldType {
                     optional: !is_req,
                     ty: upper_ty,
                 },
                 prop,
-            )
+            ))
         }
     }
 }
@@ -1955,10 +2026,6 @@ pub(crate) fn subrow_infer_couple(
     super_spread_var: tvid::T,
 ) -> tl::SubtypeProp {
     if tvid::equal(sub_spread_var, super_spread_var) {
-        // `subrow_infer_same_var` returns no environment when it returns
-        // `None`: the coupled inference then starts from the environment
-        // this function was given.
-        let env_before = env.clone();
         match subrow_infer_same_var(
             subtype_env,
             env,
@@ -1970,22 +2037,20 @@ pub(crate) fn subrow_infer_couple(
             super_,
             sub_spread_var,
         ) {
-            Some(prop) => prop,
-            None => {
-                *env = env_before;
-                subrow_infer_couple_mid(
-                    subtype_env,
-                    env,
-                    cache,
-                    this_ty,
-                    super_like,
-                    r,
-                    sub,
-                    sub_spread_var,
-                    super_,
-                    super_spread_var,
-                )
-            }
+            Ok(Some(prop)) => prop,
+            Ok(None) => subrow_infer_couple_mid(
+                subtype_env,
+                env,
+                cache,
+                this_ty,
+                super_like,
+                r,
+                sub,
+                sub_spread_var,
+                super_,
+                super_spread_var,
+            ),
+            Err(failure) => report_shape_splat_failure(subtype_env, r, sub, super_, env, failure),
         }
     } else {
         subrow_infer_couple_mid(
@@ -2009,9 +2074,7 @@ pub(crate) fn subrow_infer_couple(
 /// but here we can assume optional and improve completeness for just this case.
 /// Return [None] when the rows don't have this layout .
 ///
-/// The OCaml returns `(env * TL.subtype_prop) option`. When this returns
-/// `None`, the environment it was given may have changed (normalization):
-/// the caller goes on with the one it had (see `subrow_infer_couple`).
+/// The OCaml returns `TL.subtype_prop option shape_splat_result`.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn subrow_infer_same_var(
     subtype_env: &subtype_env::T,
@@ -2023,7 +2086,11 @@ pub(crate) fn subrow_infer_same_var(
     sub: &row::T,
     super_: &row::T,
     v: tvid::T,
-) -> Option<tl::SubtypeProp> {
+) -> ShapeSplatResult<Option<tl::SubtypeProp>> {
+    // This is a speculative fast path. On [None], discard any environment
+    // changes made while probing and retry the general algorithm from the
+    // original environment.
+    let initial_env = env.clone();
     // An empty element list is the empty CLOSED shape (the merge identity), NOT the
     // bottom row that [normalize_row] would collapse it to.
     let to_shape = |env: &mut Env, elems: Vec<Ty>| -> Option<row::T> {
@@ -2073,9 +2140,27 @@ pub(crate) fn subrow_infer_same_var(
             if super_pre_e.is_empty() =>
         {
             // Normalize sequentially to thread [env] and stop at a bottom segment.
-            let sub_pre = to_shape(env, sub_pre_e)?;
-            let sub_post = to_shape(env, sub_post_e)?;
-            let super_post = to_shape(env, super_post_e)?;
+            let sub_pre = match to_shape(env, sub_pre_e) {
+                None => {
+                    *env = initial_env;
+                    return Ok(None);
+                }
+                Some(sub_pre) => sub_pre,
+            };
+            let sub_post = match to_shape(env, sub_post_e) {
+                None => {
+                    *env = initial_env;
+                    return Ok(None);
+                }
+                Some(sub_post) => sub_post,
+            };
+            let super_post = match to_shape(env, super_post_e) {
+                None => {
+                    *env = initial_env;
+                    return Ok(None);
+                }
+                Some(super_post) => super_post,
+            };
             let mut labels: Vec<Option<TShapeField>> = vec![None];
             labels.extend(
                 typing_corners::subrow_label_set(cache, env, sub, super_, r.clone())
@@ -2091,6 +2176,92 @@ pub(crate) fn subrow_infer_same_var(
                 }
                 None => *unknown = fd.ty,
             };
+            // `label_props` is built by consing: here in the order of the
+            // assignments.
+            let mut bounds_at_label = |env: &mut Env,
+                                       label: Option<&TShapeField>|
+             -> ShapeSplatResult<(
+                ShapeFieldType,
+                ShapeFieldType,
+                Vec<tl::SubtypeProp>,
+            )> {
+                let live_names = {
+                    // (The arguments of `union` are evaluated right to left;
+                    // `row_live_spread_at` has no effect.)
+                    let live_super = typing_corners::splat_elem::set::of_list(
+                        typing_corners::row_live_spread_at(super_, label),
+                    );
+                    let live_sub = typing_corners::splat_elem::set::of_list(
+                        typing_corners::row_live_spread_at(sub, label),
+                    );
+                    typing_corners::splat_elem::set::union(&live_sub, &live_super)
+                };
+                let assignments = shape_splat_assignments(cache, env, &live_names, label, r)?;
+                let top_field = ShapeFieldType {
+                    optional: true,
+                    ty: make_type::mixed(r.clone()),
+                };
+                match assignments {
+                    None => Ok((bottom_field.clone(), top_field, vec![])),
+                    Some(assignments) => {
+                        let mut lower = bottom_field.clone();
+                        let mut upper = top_field;
+                        let mut label_props: Vec<tl::SubtypeProp> = vec![];
+                        for assignment in assignments.iter() {
+                            let a = project_shape_splat(env, &sub_pre, label, assignment)?;
+                            let b = project_shape_splat(env, &sub_post, label, assignment)?;
+                            let d = project_shape_splat(env, &super_post, label, assignment)?;
+                            if typing_corners::field::is_required(&d) {
+                                if typing_corners::field::is_required(&b) {
+                                    // Both sides are masked: LHS=b and RHS=d.
+                                    let prop = subrow_subfield(
+                                        subtype_env,
+                                        env,
+                                        this_ty,
+                                        super_like,
+                                        r,
+                                        None,
+                                        None,
+                                        label,
+                                        b,
+                                        d,
+                                    );
+                                    label_props.push(prop);
+                                } else {
+                                    // The super masks the shared var. Its upper bound
+                                    // masks [sub_pre], while [sub_post]'s optional type
+                                    // must independently fit under [d].
+                                    upper = typing_corners::field::meet(upper, d.clone(), env);
+                                    let prop = simplify_(
+                                        subtype_env,
+                                        this_ty,
+                                        Lhs {
+                                            sub_supportdyn: None,
+                                            ty_sub: &b.ty,
+                                        },
+                                        Rhs {
+                                            super_supportdyn: false,
+                                            super_like,
+                                            ty_super: &d.ty,
+                                        },
+                                        env,
+                                    );
+                                    label_props.push(prop);
+                                }
+                            } else if typing_corners::field::is_required(&b) {
+                                // The sub masks the shared var, which must cover [b].
+                                lower = typing_corners::field::join(lower, b, env);
+                            } else {
+                                // Neither side masks it, so it must absorb the sub-side
+                                // fixed field.
+                                let merged = typing_corners::field::merge(a, b, env);
+                                lower = typing_corners::field::join(lower, merged, env);
+                            }
+                        }
+                        Ok((lower, upper, label_props))
+                    }
+                }
+            };
             let mut lo_known: TShapeMap<ShapeFieldType> = TShapeMap::new();
             let mut lo_unknown = make_type::nothing(r.clone());
             let mut hi_known: TShapeMap<ShapeFieldType> = TShapeMap::new();
@@ -2101,83 +2272,7 @@ pub(crate) fn subrow_infer_same_var(
             // order of its assignments), in the order of the labels.
             let mut props: Vec<Vec<tl::SubtypeProp>> = vec![];
             for label in labels.iter() {
-                let live_names = {
-                    // (The arguments of `union` are evaluated right to left;
-                    // `row_live_spread_at` has no effect.)
-                    let live_super = typing_corners::splat_elem::set::of_list(
-                        typing_corners::row_live_spread_at(super_, label.as_ref()),
-                    );
-                    let live_sub = typing_corners::splat_elem::set::of_list(
-                        typing_corners::row_live_spread_at(sub, label.as_ref()),
-                    );
-                    typing_corners::splat_elem::set::union(&live_sub, &live_super)
-                };
-                let ty_params_topo = typing_corners::topo(cache, env, &live_names, r.clone());
-                let assignments = typing_corners::corner_assignments(
-                    cache,
-                    env,
-                    &ty_params_topo,
-                    label.as_ref(),
-                    r.clone(),
-                );
-                let top_field = ShapeFieldType {
-                    optional: true,
-                    ty: make_type::mixed(r.clone()),
-                };
-                let mut lower = bottom_field.clone();
-                let mut upper = top_field;
-                let mut label_props: Vec<tl::SubtypeProp> = vec![];
-                for assignment in assignments.iter() {
-                    let a = typing_corners::proj(env, &sub_pre, label.as_ref(), assignment);
-                    let b = typing_corners::proj(env, &sub_post, label.as_ref(), assignment);
-                    let d = typing_corners::proj(env, &super_post, label.as_ref(), assignment);
-                    if typing_corners::field::is_required(&d) {
-                        if typing_corners::field::is_required(&b) {
-                            // Both sides are masked: LHS=b and RHS=d.
-                            let p = subrow_subfield(
-                                subtype_env,
-                                env,
-                                this_ty,
-                                super_like,
-                                r,
-                                None,
-                                None,
-                                label.as_ref(),
-                                b,
-                                d,
-                            );
-                            label_props.push(p);
-                        } else {
-                            // The super masks the shared var. Its upper bound
-                            // masks [sub_pre], while [sub_post]'s optional type
-                            // must independently fit under [d].
-                            upper = typing_corners::field::meet(upper, d.clone(), env);
-                            let p = simplify_(
-                                subtype_env,
-                                this_ty,
-                                Lhs {
-                                    sub_supportdyn: None,
-                                    ty_sub: &b.ty,
-                                },
-                                Rhs {
-                                    super_supportdyn: false,
-                                    super_like,
-                                    ty_super: &d.ty,
-                                },
-                                env,
-                            );
-                            label_props.push(p);
-                        }
-                    } else if typing_corners::field::is_required(&b) {
-                        // The sub masks the shared var, which must cover [b].
-                        lower = typing_corners::field::join(lower, b, env);
-                    } else {
-                        // Neither side masks it, so it must absorb the
-                        // sub-side fixed field.
-                        let merged = typing_corners::field::merge(a, b, env);
-                        lower = typing_corners::field::join(lower, merged, env);
-                    }
-                }
+                let (lower, upper, label_props) = bounds_at_label(env, label.as_ref())?;
                 add_field(&mut lo_known, &mut lo_unknown, label, lower);
                 add_field(&mut hi_known, &mut hi_unknown, label, upper);
                 props.push(label_props);
@@ -2232,9 +2327,12 @@ pub(crate) fn subrow_infer_same_var(
             for p in props.into_iter().rev().flatten() {
                 prop = tl::conj(prop, p);
             }
-            Some(prop)
+            Ok(Some(prop))
         }
-        _ => None,
+        _ => {
+            *env = initial_env;
+            Ok(None)
+        }
     }
 }
 

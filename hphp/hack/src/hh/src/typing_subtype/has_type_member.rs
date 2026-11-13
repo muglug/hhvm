@@ -334,6 +334,11 @@ pub(crate) fn simplify_(
         ),
         Ty_::Tunion(ty_subs) => {
             let r_sub = get_reason(&ty_sub).clone();
+            // Remove this_ty if it equal to the subtype; this avoids a loop. Note
+            // that `ty_equal` already uses physical equality to short circuit
+            // structural equality so this should be cheap in practice
+            let this_ty =
+                this_ty.filter(|this_ty| !typing_defs_core::ty_equal(None, this_ty, &ty_sub));
             common::simplify_union_l(
                 &subtype_env,
                 this_ty,

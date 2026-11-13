@@ -36,6 +36,7 @@ use oxidized::ast_defs;
 use oxidized::ast_defs::ShapeFieldName;
 use oxidized::nast;
 use oxidized::pos::Pos;
+use oxidized::pos_or_decl::PosOrDecl;
 use pos::BPos;
 use pos::Bytes;
 use pos::Symbol;
@@ -46,6 +47,7 @@ use ty::reason::Reason as _;
 
 use crate::ctx::R;
 use crate::decl_entry;
+use crate::folded_class as cls;
 use crate::pos_or_decl;
 use crate::type_mapper;
 use crate::type_mapper::TvarExpandingTypeMapper;
@@ -90,7 +92,6 @@ use crate::typing_log;
 use crate::typing_log::LogStructure;
 use crate::typing_make_type as make_type;
 use crate::typing_object_get;
-use crate::typing_ops;
 use crate::typing_phase;
 use crate::typing_print;
 use crate::typing_reason;
@@ -176,6 +177,176 @@ fn list_map_env_ty_err_opt<X, Y, Errs>(
     (combine_ty_errs(rev_errs), ys)
 }
 
+/// `Typing_defs.class_const`
+type ClassConst = ty::decl::ClassConst<R>;
+
+fn require_shape_key_attribute(cls: &cls::T, class_const: &ClassConst) -> bool {
+    (!class_const.is_synthesized)
+        && (!class_const.is_shape_key)
+        && (!crate::ast_defs::is_c_enum(cls::kind(cls)))
+        && !crate::ast_defs::is_c_enum_class(cls::kind(cls))
+}
+
+fn shape_key_attribute_error(
+    pos: &Pos,
+    cls: &cls::T,
+    const_name: &str,
+    class_const: &ClassConst,
+) -> Option<TyErr> {
+    if require_shape_key_attribute(cls, class_const) {
+        Some(typing_error::shape(
+            primary::shape::T::Shape_field_class_const_missing_shape_key_attribute {
+                pos: pos.clone(),
+                decl_pos: class_const.pos.clone().to_oxidized(),
+                class_name: utils::strip_ns(class_const.origin.as_str()).to_string(),
+                const_name: const_name.to_string(),
+            },
+        ))
+    } else {
+        None
+    }
+}
+
+fn emit_shape_key_const_value_unresolvable(
+    env: &Env,
+    pos: &Pos,
+    reason_pos: PosOrDecl,
+    class_name: String,
+    const_name: String,
+    const_kind: primary::shape::ShapeKeyConstValueUnresolvableConstKind,
+) {
+    typing_error_utils::add_typing_error(
+        &typing_error::shape(primary::shape::T::Shape_key_const_value_unresolvable {
+            pos: pos.clone(),
+            reason_pos,
+            class_name,
+            const_name,
+            const_kind,
+        }),
+        env,
+    )
+}
+
+fn check_shape_key_value(
+    env: &Env,
+    pos: &Pos,
+    c: &nast::Class_,
+    cls: &cls::T,
+    cc: &nast::ClassConst,
+) {
+    let tcopt = typing_env::get_tcopt(env);
+    if tcopt.po.include_const_shape_key_values {
+        let class_name = utils::strip_ns(&c.name.1).to_string();
+        let const_name = cc.id.1.clone();
+        let error = match &cc.kind {
+            aast::ClassConstKind::CCAbstract(_) => {
+                Some(primary::shape::T::Shape_key_class_const_is_abstract {
+                    pos: pos.clone(),
+                    decl_pos: cc.id.0.clone(),
+                    class_name,
+                    const_name,
+                })
+            }
+            aast::ClassConstKind::CCConcrete(value)
+                if matches!(
+                    &value.2,
+                    aast::Expr_::Nameof(cid) if matches!(&cid.2, aast::ClassId_::CIself)
+                ) && crate::ast_defs::is_c_trait(c.kind) =>
+            {
+                Some(primary::shape::T::Shape_key_class_const_nameof_self_in_trait {
+                    pos: pos.clone(),
+                    value_pos: crate::aast_utils::get_expr_pos(value),
+                    class_name,
+                    const_name,
+                })
+            }
+            aast::ClassConstKind::CCConcrete(value) => {
+                let recorded_value = typing_env::get_const(env, cls, &const_name)
+                    .and_then(|const_| {
+                        typing_defs::const_value::concrete_value(&const_name, &const_.value)
+                    });
+                match recorded_value {
+                    Some(_) => None,
+                    None => {
+                        emit_shape_key_const_value_unresolvable(
+                            env,
+                            pos,
+                            pos_or_decl::of_raw_pos(crate::aast_utils::get_expr_pos(value)),
+                            class_name,
+                            const_name,
+                            primary::shape::ShapeKeyConstValueUnresolvableConstKind::ClassConst,
+                        );
+                        None
+                    }
+                }
+            }
+        };
+        if let Some(error) = error {
+            typing_error_utils::add_typing_error(&typing_error::shape(error), env)
+        }
+    }
+}
+
+fn check_shape_key_use(
+    env: &Env,
+    pos: &Pos,
+    cls: &cls::T,
+    const_name: &str,
+    class_const: &ClassConst,
+) {
+    if crate::ast_defs::is_c_enum(cls::kind(cls)) {
+        let tcopt = typing_env::get_tcopt(env);
+        if tcopt.po.include_enum_member_values
+            && typing_defs::const_value::concrete_value(const_name, &class_const.value).is_none()
+        {
+            emit_shape_key_const_value_unresolvable(
+                env,
+                pos,
+                class_const.pos.clone().to_oxidized(),
+                utils::strip_ns(class_const.origin.as_str()).to_string(),
+                const_name.to_string(),
+                primary::shape::ShapeKeyConstValueUnresolvableConstKind::Enum,
+            )
+        }
+    } else if let Some(err) = shape_key_attribute_error(pos, cls, const_name, class_const) {
+        typing_error_utils::add_typing_error(&err, env)
+    }
+}
+
+pub fn check_trait_self_shape_key<Ex, En>(env: &Env, field: &aast::Expr<Ex, En>) {
+    let aast::Expr(_, pos, field) = field;
+    let key_name = match field {
+        aast::Expr_::ClassConst(cc)
+            if matches!(&cc.0.2, aast::ClassId_::CIself) && cc.1.1 != "class" =>
+        {
+            Some(format!("self::{}", cc.1.1))
+        }
+        aast::Expr_::Nameof(cid) if matches!(&cid.2, aast::ClassId_::CIself) => {
+            Some("nameof self".to_string())
+        }
+        _ => None,
+    };
+    if let Some(key_name) = key_name {
+        match typing_env::get_self_class(env) {
+            decl_entry::T::Found(class_) if crate::ast_defs::is_c_trait(cls::kind(&class_)) => {
+                let custom_err_config = crate::typechecker_options::custom_error_config(
+                    &typing_env::get_tcopt(env),
+                );
+                crate::typing_attributes::add_naming_error(
+                    oxidized::naming_error::NamingError::TraitSelfShapeKey {
+                        pos: pos.clone(),
+                        key_name,
+                    },
+                    &custom_err_config,
+                )
+            }
+            decl_entry::T::Found(_)
+            | decl_entry::T::DoesNotExist
+            | decl_entry::T::NotYetAvailable => {}
+        }
+    }
+}
+
 fn widen_for_refine_shape(
     expr_pos: &Pos,
     field_name: &t_shape_map::Key,
@@ -251,6 +422,23 @@ pub fn tshape_field_name_with_ty_err<Ex, En>(
         };
         Err(typing_error::shape(err))
     };
+    let class_const_field = |sid: PosId, y: &(Pos, String)| -> Result<TshapeFieldName, TyErr> {
+        let (yp, y_) = map_pos((&y.0, &y.1));
+        match typing_env::get_class(env, &sid.1) {
+            decl_entry::T::Found(cls) => match typing_env::get_const(env, &cls, &y.1) {
+                None => {}
+                Some(class_const) => {
+                    // A missing attribute does not prevent resolving the key. Preserve
+                    // normal shape typing and refinement even when this diagnostic is
+                    // suppressed.
+                    check_shape_key_use(env, pos, &cls, &y.1, &class_const)
+                }
+            },
+            decl_entry::T::DoesNotExist | decl_entry::T::NotYetAvailable => {}
+        }
+        let field_name = TshapeFieldName::TSFclassConst(sid, PosString(yp, y_));
+        Ok(field_name)
+    };
     match field {
         aast::Expr_::Int(name) => Ok(TshapeFieldName::TSFregexGroup(PosString(p, name.clone()))),
         aast::Expr_::String(name) => Ok(TshapeFieldName::TSFlitStr(PosByteString(p, name.clone()))),
@@ -263,17 +451,10 @@ pub fn tshape_field_name_with_ty_err<Ex, En>(
                         cls_name: typing_class_pointers::string_of_class_id_(cid),
                     }))
                 }
-                aast::ClassId_::CI(ast_defs::Id(xp, x)) => {
-                    let (yp, y) = map_pos((&y.0, &y.1));
-                    Ok(TshapeFieldName::TSFclassConst(
-                        map_pos((xp, x)),
-                        PosString(yp, y),
-                    ))
-                }
+                aast::ClassId_::CI(ast_defs::Id(xp, x)) => class_const_field(map_pos((xp, x)), y),
                 aast::ClassId_::CIself => {
                     let self_id = resolve_self(env);
-                    let (yp, y) = map_pos((&y.0, &y.1));
-                    self_id.map(|sid| TshapeFieldName::TSFclassConst(sid, PosString(yp, y)))
+                    self_id.and_then(|sid| class_const_field(sid, y))
                 }
                 aast::ClassId_::CIparent
                 | aast::ClassId_::CIstatic
@@ -1246,16 +1427,19 @@ fn get_field_info(env: &mut Env, key: &ShapeFieldName) -> (Pos, Option<(String, 
                         match cc.kind {
                             ClassConstKind::CCAbstract(_) => {
                                 typing_error_utils::add_typing_error(
-                                    &typing_error::primary(primary::T::Abstract_const_usage {
-                                        pos: key_pos.clone(),
-                                        decl_pos: cc.pos.clone().to_oxidized(),
-                                        name: format!("{}::{}", cls, y),
-                                    }),
+                                    &typing_error::shape(
+                                        primary::shape::T::Abstract_shape_field_const {
+                                            pos: key_pos.clone(),
+                                            decl_pos: cc.pos.clone().to_oxidized(),
+                                            name: format!("{}::{}", cls, y),
+                                        },
+                                    ),
                                     env,
                                 )
                             }
                             ClassConstKind::CCConcrete => {}
                         }
+                        check_shape_key_use(env, &key_pos, &cd, y, &cc);
                         let (ty_err_opt, ty) = typing_phase::localize_no_subst(env, true, &cc.ty);
                         if let Some(ty_err) = ty_err_opt {
                             typing_error_utils::add_typing_error(&ty_err, env)
@@ -1264,7 +1448,7 @@ fn get_field_info(env: &mut Env, key: &ShapeFieldName) -> (Pos, Option<(String, 
                         let on_error = {
                             let env_of_ty_name = env.clone();
                             let ty_of_ty_name = ty.clone();
-                            callback::always(primary::T::Shape(
+                            typing_error::reasons_callback::always(typing_error::shape(
                                 primary::shape::T::Invalid_shape_field_type {
                                     pos: key_pos.clone(),
                                     ty_pos: get_pos(&ty),
@@ -1275,13 +1459,15 @@ fn get_field_info(env: &mut Env, key: &ShapeFieldName) -> (Pos, Option<(String, 
                                 },
                             ))
                         };
-                        let e2 = typing_ops::sub_type(None, 
-                            key_pos.clone(),
-                            Ureason::URnone,
+                        let e2 = typing_utils::sub_type(
                             env,
+                            None,
+                            None,
+                            None,
+                            Some(false),
                             ty.clone(),
                             make_type::arraykey(r),
-                            on_error,
+                            Some(on_error),
                         );
                         if let Some(e2) = e2 {
                             typing_error_utils::add_typing_error(&e2, env)
@@ -1391,6 +1577,29 @@ pub fn check_shape_keys_validity(env: &mut Env, keys: &[ShapeFieldName]) -> Vec<
             ty_errs.reverse();
             ty_errs
         }
+    }
+}
+
+pub fn check_shape_key_const<Ex, En>(
+    env: &mut Env,
+    pos: &Pos,
+    c: &nast::Class_,
+    cls: &cls::T,
+    cc: &nast::ClassConst,
+    kind: &aast::ClassConstKind<Ex, En>,
+) {
+    check_shape_key_value(env, pos, c, cls, cc);
+    let key = ShapeFieldName::SFclassConst(
+        ast_defs::Id(pos.clone(), c.name.1.clone()),
+        (pos.clone(), cc.id.1.clone()),
+    );
+    match kind {
+        aast::ClassConstKind::CCConcrete(expr) => check_trait_self_shape_key(env, expr),
+        aast::ClassConstKind::CCAbstract(_) => {}
+    }
+    let errors = check_shape_keys_validity(env, &[key]);
+    for err in &errors {
+        typing_error_utils::add_typing_error(err, env)
     }
 }
 

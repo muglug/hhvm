@@ -289,15 +289,340 @@ fn check_tuple_splat_hint(env: &Env, p: &Pos, h: &aast::Hint) -> Vec<typing_erro
     err.into_iter().collect()
 }
 
+fn union_intersection_type_hints_enabled(env: &TEnv) -> bool {
+    let tcopt = env::get_tcopt(env);
+    tcopt.po.union_intersection_type_hints
+        || typechecker_options::is_unstable_feature_enabled(tcopt, "union_intersection_type_hints")
+}
+
+/// Whether [ty] contains a union requiring union/intersection type hints.
+/// This is intentionally narrower than [Typing_defs.is_denotable]: localized
+/// source hints such as [~T] and open [shape(...)] contain internal
+/// representations that are not themselves denotable.
+///
+/// (Each call goes on with the environment `strip_supportdyn` returns, and
+/// drops it.)
+fn contains_non_denotable_union(env: &TEnv, ty: &Ty) -> bool {
+    let mut env = env.clone();
+    let (_, ty) = crate::typing_utils::strip_supportdyn(&mut env, ty.clone());
+    let env = &env;
+    match get_node(&ty) {
+        Ty_::Tunion(tys) => {
+            // Localized like types are unions containing dynamic. Check the type below
+            // the like rather than rejecting the representation of the like itself.
+            match crate::typing_dynamic_utils::try_strip_dynamic_from_union(None, env, tys) {
+                Some((_, tys)) => match tys.as_slice() {
+                    [] => false,
+                    [ty] => contains_non_denotable_union(env, ty),
+                    _ => {
+                        let ty = make_type::union(get_reason(&ty).clone(), tys);
+                        !is_denotable(&ty)
+                    }
+                },
+                None => !is_denotable(&ty),
+            }
+        }
+        Ty_::Tclass(_, _, tys) | Ty_::Tintersection(tys) => {
+            tys.iter().any(|ty| contains_non_denotable_union(env, ty))
+        }
+        Ty_::Ttuple(TupleType {
+            required: t_required,
+            optional: t_optional,
+            extra: t_extra,
+        }) => {
+            t_required
+                .iter()
+                .any(|ty| contains_non_denotable_union(env, ty))
+                || t_optional
+                    .iter()
+                    .any(|ty| contains_non_denotable_union(env, ty))
+                || match t_extra {
+                    TupleExtra::Tsplat(ty) | TupleExtra::Tvariadic(ty) => {
+                        contains_non_denotable_union(env, ty)
+                    }
+                }
+        }
+        Ty_::TvecOrDict(tk, tv) => {
+            contains_non_denotable_union(env, tk) || contains_non_denotable_union(env, tv)
+        }
+        Ty_::Taccess(TaccessType(ty, _)) => contains_non_denotable_union(env, ty),
+        Ty_::Tshape(ShapeType::ShapeSimple(ShapeTypeSimple {
+            unknown_value: s_unknown_value,
+            fields: s_fields,
+            ..
+        })) => {
+            contains_non_denotable_union(env, s_unknown_value)
+                || s_fields
+                    .iter()
+                    .any(|(_, field)| contains_non_denotable_union(env, &field.ty))
+        }
+        Ty_::Tshape(ShapeType::ShapeSplat(ShapeTypeSplat { ss_elems })) => ss_elems
+            .iter()
+            .any(|ty| contains_non_denotable_union(env, ty)),
+        Ty_::Tfun(ft) => {
+            contains_non_denotable_union(env, &ft.ret)
+                || ft
+                    .params
+                    .iter()
+                    .any(|param| contains_non_denotable_union(env, &param.type_))
+        }
+        Ty_::Toption(ty) | Ty_::TclassPtr(ty) => contains_non_denotable_union(env, ty),
+        Ty_::Tnonnull
+        | Ty_::Tdynamic(_)
+        | Ty_::Tprim(_)
+        | Ty_::Tnewtype(..)
+        | Ty_::Tgeneric(_)
+        | Ty_::Tneg(_)
+        | Ty_::Tany(_)
+        | Ty_::Tvar(_)
+        | Ty_::Tdependent(..)
+        | Ty_::Tlabel(_) => false,
+    }
+}
+
+/// Reject non-denotable union field types produced by a shape splat.
+pub fn shape_splat_field_denotability_errors(
+    env: &TEnv,
+    claim_pos: &Pos,
+    hint: &aast::Hint,
+    ty: &Ty,
+) -> Vec<typing_error::T> {
+    let hint_has_shape_splat = match &*hint.1 {
+        aast::Hint_::Hshape(aast::NastShapeInfo {
+            field_map: nsi_field_map,
+            ..
+        }) => nsi_field_map.iter().any(|e| match e {
+            aast::ShapeElement::SESplat(_) => true,
+            aast::ShapeElement::SEField(_) => false,
+        }),
+        _ => false,
+    };
+    if !union_intersection_type_hints_enabled(env) && hint_has_shape_splat {
+        // Shape normalization can only produce simple shapes, shape splats, union
+        // intersection, a single type param / newtype or any of those wrapped in
+        // supportdyn so the traversal is limited to those cases
+        //
+        // (`acc` is consed onto and reversed at the end: here in order.)
+        fn collect(env: &TEnv, ty: &Ty, acc: &mut Vec<primary::shape_splat::NonDenotableField>) {
+            let mut env = env.clone();
+            let (_, ty) = crate::typing_utils::strip_supportdyn(&mut env, ty.clone());
+            let env = &env;
+            match get_node(&ty) {
+                Ty_::Tshape(ShapeType::ShapeSimple(ShapeTypeSimple {
+                    fields: s_fields, ..
+                })) => {
+                    for (field, field_ty) in s_fields.iter() {
+                        let sft_ty = &field_ty.ty;
+                        if contains_non_denotable_union(env, sft_ty) {
+                            acc.push(primary::shape_splat::NonDenotableField {
+                                label: t_shape_field::name(&field.0).to_string(),
+                                pos: t_shape_field::pos(&field.0),
+                                ty: sft_ty.clone(),
+                            })
+                        }
+                    }
+                }
+                Ty_::Tshape(ShapeType::ShapeSplat(ShapeTypeSplat { ss_elems: tys }))
+                | Ty_::Tunion(tys)
+                | Ty_::Tintersection(tys) => {
+                    for ty in tys.iter() {
+                        collect(env, ty, acc)
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut fields = vec![];
+        collect(env, ty, &mut fields);
+        if fields.is_empty() {
+            vec![]
+        } else {
+            vec![typing_error::primary(primary::T::Shape_splat(
+                primary::shape_splat::T::Non_denotable_shape_splat_fields {
+                    pos: claim_pos.clone(),
+                    fields,
+                },
+            ))]
+        }
+    } else {
+        vec![]
+    }
+}
+
+/// Check every shape splat in a callable type hint. Nested function hints are
+/// traversed completely because both their parameter and return types can
+/// construct non-denotable unions.
+fn callable_hint_shape_splat_field_denotability_errors(
+    env: &Env,
+    hint: &aast::Hint,
+) -> Vec<typing_error::T> {
+    let aast::Hint(pos, hint_) = hint;
+    let check_hint = callable_hint_shape_splat_field_denotability_errors;
+    let check_hints = |env: &Env, hints: &[aast::Hint]| -> Vec<typing_error::T> {
+        hints.iter().flat_map(|h| check_hint(env, h)).collect()
+    };
+    let check_hint_opt = |env: &Env, hint: &Option<aast::Hint>| -> Vec<typing_error::T> {
+        match hint {
+            None => vec![],
+            Some(hint) => check_hint(env, hint),
+        }
+    };
+    match &**hint_ {
+        aast::Hint_::Hshape(aast::NastShapeInfo {
+            field_map: nsi_field_map,
+            ..
+        }) if nsi_field_map.iter().any(|e| match e {
+            aast::ShapeElement::SESplat(_) => true,
+            aast::ShapeElement::SEField(_) => false,
+        }) =>
+        {
+            // Check the normalized outer shape rather than its nested splats: a later
+            // field or splat can overwrite a non-denotable field from an inner shape.
+            let mut tenv = env.tenv.clone();
+            let (_, ty) = phase::localize_hint_no_subst(&mut tenv, true, hint);
+            shape_splat_field_denotability_errors(&tenv, pos, hint, &ty)
+        }
+        aast::Hint_::Hshape(aast::NastShapeInfo {
+            field_map: nsi_field_map,
+            unknown_fields_type: nsi_unknown_fields_type,
+            ..
+        }) => {
+            let field_errors: Vec<typing_error::T> = nsi_field_map
+                .iter()
+                .flat_map(|e| match e {
+                    aast::ShapeElement::SEField(aast::ShapeFieldInfo { hint: sfi_hint, .. })
+                    | aast::ShapeElement::SESplat(sfi_hint) => check_hint(env, sfi_hint),
+                })
+                .collect();
+            append(field_errors, check_hint_opt(env, nsi_unknown_fields_type))
+        }
+        aast::Hint_::Hfun(aast::HintFun {
+            tparams: hf_tparams,
+            param_tys: hf_param_tys,
+            variadic_ty: hf_variadic_ty,
+            named_variadic_ty: hf_named_variadic_ty,
+            return_ty: hf_return_ty,
+            ..
+        }) => {
+            let tparams: Vec<nast::Tparam> = hf_tparams
+                .iter()
+                .map(aast_defs::tparam_of_hint_tparam)
+                .collect();
+            let mut tenv = env.tenv.clone();
+            let _ = phase::localize_and_add_ast_generic_parameters_and_where_constraints(
+                &mut tenv,
+                true,
+                &tparams,
+                &[],
+            );
+            let env = &Env {
+                tenv,
+                ..env.clone()
+            };
+            let errs = check_hints(env, hf_param_tys);
+            let errs = append(errs, check_hint_opt(env, hf_variadic_ty));
+            let errs = append(errs, check_hint_opt(env, hf_named_variadic_ty));
+            append(errs, check_hint(env, hf_return_ty))
+        }
+        aast::Hint_::Htuple(aast::TupleInfo {
+            required: tup_required,
+            extra: tup_extra,
+        }) => {
+            let errs = check_hints(env, tup_required);
+            let extra_errs = match tup_extra {
+                aast::TupleExtra::Hextra(aast::TupleExtraInfo {
+                    optional: tup_optional,
+                    variadic: tup_variadic,
+                }) => append(
+                    check_hints(env, tup_optional),
+                    check_hint_opt(env, tup_variadic),
+                ),
+                aast::TupleExtra::Hsplat(hint) => check_hint(env, hint),
+            };
+            append(errs, extra_errs)
+        }
+        aast::Hint_::Hrefinement(root, refinements) => {
+            let refinement_errors: Vec<typing_error::T> = refinements
+                .iter()
+                .flat_map(|r| match r {
+                    aast::Refinement::Rctx(_, aast::CtxRefinement::CRexact(hint))
+                    | aast::Refinement::Rtype(_, aast::TypeRefinement::TRexact(hint)) => {
+                        check_hint(env, hint)
+                    }
+                    aast::Refinement::Rctx(
+                        _,
+                        aast::CtxRefinement::CRloose(aast::CtxRefinementBounds {
+                            lower: cr_lower,
+                            upper: cr_upper,
+                        }),
+                    ) => append(
+                        check_hint_opt(env, cr_lower),
+                        check_hint_opt(env, cr_upper),
+                    ),
+                    aast::Refinement::Rtype(
+                        _,
+                        aast::TypeRefinement::TRloose(aast::TypeRefinementBounds {
+                            lower: tr_lower,
+                            upper: tr_upper,
+                        }),
+                    ) => append(check_hints(env, tr_lower), check_hints(env, tr_upper)),
+                })
+                .collect();
+            append(check_hint(env, root), refinement_errors)
+        }
+        aast::Hint_::HvecOrDict(key, value) => {
+            append(check_hint_opt(env, key), check_hint(env, value))
+        }
+        aast::Hint_::Happly(_, hints)
+        | aast::Hint_::Hunion(hints)
+        | aast::Hint_::Hintersection(hints) => check_hints(env, hints),
+        aast::Hint_::Haccess(root, _) => check_hint(env, root),
+        aast::Hint_::HclassPtr(_, hint)
+        | aast::Hint_::Hoption(hint)
+        | aast::Hint_::Hsoft(hint)
+        | aast::Hint_::Hlike(hint) => check_hint(env, hint),
+        aast::Hint_::Hmixed
+        | aast::Hint_::Hwildcard
+        | aast::Hint_::Hnonnull
+        | aast::Hint_::Hprim(_)
+        | aast::Hint_::Hthis
+        | aast::Hint_::Habstr(_)
+        | aast::Hint_::Hdynamic
+        | aast::Hint_::Hnothing
+        | aast::Hint_::HfunContext(_)
+        | aast::Hint_::Hvar(_) => vec![],
+    }
+}
+
+fn callable_type_hint_shape_splat_field_denotability_errors(
+    env: &Env,
+    type_hint: &nast::TypeHint,
+) -> Vec<typing_error::T> {
+    if union_intersection_type_hints_enabled(&env.tenv) {
+        vec![]
+    } else {
+        match crate::aast::hint_of_type_hint(type_hint) {
+            None => vec![],
+            Some(hint) => callable_hint_shape_splat_field_denotability_errors(env, hint),
+        }
+    }
+}
+
 fn context_hint(in_signature: Option<bool>, env: &Env, h: &aast::Hint) -> Vec<typing_error::T> {
     let in_signature = in_signature.unwrap_or(true);
     typing_type_integrity::check_context_hint_integrity(in_signature, &env.tenv, h);
-    hint_(in_signature, env, h)
+    hint_(in_signature, true, env, h)
 }
 
-fn hint_(in_signature: bool, env: &Env, h: &aast::Hint) -> Vec<typing_error::T> {
+fn hint_(
+    in_signature: bool,
+    report_redundant_shape_splat: bool,
+    env: &Env,
+    h: &aast::Hint,
+) -> Vec<typing_error::T> {
     let aast::Hint(p, h_) = h;
-    let hint = |env: &Env, h: &aast::Hint| hint_(in_signature, env, h);
+    let hint =
+        |env: &Env, h: &aast::Hint| hint_(in_signature, report_redundant_shape_splat, env, h);
     let hint_opt = |env: &Env, h: &Option<aast::Hint>| match h {
         None => vec![],
         Some(h) => hint(env, h),
@@ -467,7 +792,7 @@ fn hint_(in_signature: bool, env: &Env, h: &aast::Hint) -> Vec<typing_error::T> 
                 .collect()
         }
         aast::Hint_::Hshape(aast::NastShapeInfo {
-            allows_unknown_fields: _,
+            allows_unknown_fields: nsi_allows_unknown_fields,
             field_map: nsi_field_map,
             unknown_fields_type: nsi_unknown_fields_type,
         }) => {
@@ -521,6 +846,11 @@ fn hint_(in_signature: bool, env: &Env, h: &aast::Hint) -> Vec<typing_error::T> 
                 tenv,
                 ..env.clone()
             };
+            let redundant_splat: Option<&aast::Hint> =
+                match (nsi_allows_unknown_fields, nsi_field_map.as_slice()) {
+                    (false, [aast::ShapeElement::SESplat(operand)]) => Some(operand),
+                    _ => None,
+                };
             // Recursively well-formedness-check both field hints and the operand of
             // each splat, so an ill-formed hint inside a splat (undefined class,
             // wrong alias arity, unknown generic, ...) is still reported. A splat of
@@ -533,7 +863,11 @@ fn hint_(in_signature: bool, env: &Env, h: &aast::Hint) -> Vec<typing_error::T> 
                         hint(env, sfi_hint)
                     }
                     aast::ShapeElement::SESplat(h) => {
-                        let errs = hint(env, h);
+                        let errs = if redundant_splat.is_some() {
+                            hint_(in_signature, false, env, h)
+                        } else {
+                            hint(env, h)
+                        };
                         let err_opt = check_shape_splat_hint(env, p, h);
                         match err_opt {
                             None => errs,
@@ -550,7 +884,23 @@ fn hint_(in_signature: bool, env: &Env, h: &aast::Hint) -> Vec<typing_error::T> 
                 Some(h) => hint(env, h),
                 None => vec![],
             };
-            let errs = append(unknown_fields_errors, splat_feature_errors);
+            let redundant_splat_errors = match (report_redundant_shape_splat, redundant_splat) {
+                (true, Some(aast::Hint(operand_pos, operand_))) => {
+                    vec![typing_error::wellformedness(
+                        primary::wellformedness::T::Redundant_shape_splat {
+                            pos: p.clone(),
+                            operand_pos: operand_pos.clone(),
+                            is_dynamic: match &**operand_ {
+                                aast::Hint_::Hdynamic => true,
+                                _ => false,
+                            },
+                        },
+                    )]
+                }
+                _ => vec![],
+            };
+            let errs = append(splat_feature_errors, redundant_splat_errors);
+            let errs = append(unknown_fields_errors, errs);
             let errs = append(rec_errors, errs);
             append(errors, errs)
         }
@@ -593,7 +943,7 @@ fn hint(
         &env.tenv,
         h,
     );
-    hint_(in_signature, env, h)
+    hint_(in_signature, true, env, h)
 }
 
 fn hint_opt(
@@ -636,7 +986,13 @@ fn fun_param(env: &Env, param: &nast::FunParam) -> Vec<typing_error::T> {
         aast::FunParamInfo::ParamVariadic => false,
         aast::FunParamInfo::ParamOptional(_) | aast::FunParamInfo::ParamRequired => true,
     };
-    type_hint(is_enforceable, env, &param.type_hint)
+    // (`a @ b`: `b` is computed first.)
+    let denotability_errors =
+        callable_type_hint_shape_splat_field_denotability_errors(env, &param.type_hint);
+    append(
+        type_hint(is_enforceable, env, &param.type_hint),
+        denotability_errors,
+    )
 }
 
 fn fun_params(env: &Env, params: &[nast::FunParam]) -> Vec<typing_error::T> {
@@ -759,9 +1115,11 @@ fn fun_(tenv: &TEnv, f: &nast::Fun_) -> Vec<typing_error::T> {
     for err in &errs {
         typing_error_utils::add_typing_error(err, &tenv)
     }
+    let denotability_errors =
+        callable_type_hint_shape_splat_field_denotability_errors(&env, &f.ret);
     let params_errs = fun_params(&env, &f.params);
     let ret_errs = type_hint(true, &env, &f.ret);
-    append(ret_errs, params_errs)
+    append(ret_errs, append(params_errs, denotability_errors))
 }
 
 pub fn fun_def(tenv: &TEnv, fd: &nast::FunDef) -> Vec<typing_error::T> {
@@ -936,7 +1294,9 @@ fn method_(env: &Env, m: &nast::Method_) -> Vec<typing_error::T> {
         tenv,
         ..env.clone()
     };
-    let ret_errs = type_hint(true, env, &m.ret);
+    let denotability_errors =
+        callable_type_hint_shape_splat_field_denotability_errors(env, &m.ret);
+    let ret_errs = append(type_hint(true, env, &m.ret), denotability_errors);
     let where_errs = where_constrs(env, &m.where_constraints);
     let tparams_errs = tparams(env, &m.tparams);
     let params_errs = fun_params(env, &m.params);
@@ -959,7 +1319,7 @@ fn method_opt(env: &Env, m: Option<&nast::Method_>) -> Vec<typing_error::T> {
 }
 
 fn hint_no_kind_check(env: &Env, h: &aast::Hint) -> Vec<typing_error::T> {
-    hint_(true, env, h)
+    hint_(true, true, env, h)
 }
 
 pub fn class_(tenv: &TEnv, c: &nast::Class_) -> Vec<typing_error::T> {

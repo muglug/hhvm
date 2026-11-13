@@ -50,6 +50,7 @@ use crate::tvid;
 use crate::type_expansions;
 use crate::typing_case_type_utils;
 use crate::typing_defs;
+use crate::typing_corners;
 use crate::typing_defs::ExpandEnv;
 use crate::typing_defs::TypedefCaseTypeVariant;
 use crate::typing_defs::TypedefTypeAssignment;
@@ -1300,7 +1301,7 @@ pub(crate) fn simplify_(
                 }
                 (Ty_::Tshape(shape_sub @ ShapeType::ShapeSplat(_)), Ty_::Tnewtype(n, _, _))
                     // [supportdyn] is itself a [Tnewtype] and has its own handling.
-                    if n != sn::classes::SUPPORT_DYN =>
+                    if n != sn::classes::SUPPORT_DYN && n != sn::classes::REPRESENTABLE_AS =>
                 {
                     let r_sub = get_reason(&ty_sub).clone();
                     let r_super = get_reason(&ty_super).clone();
@@ -3997,6 +3998,33 @@ fn simplify_representable_as_r(s: &Scope<'_>, lty_inner: &Ty, env: &mut Env) -> 
                 )
             })
         }
+        Ty_::Tshape(ShapeType::ShapeSplat(ShapeTypeSplat { ss_elems })) => {
+            let r_sub = get_reason(ty_sub).clone();
+            let result = typing_corners::resolve_for_read(env, r_sub, ss_elems);
+            match result {
+                Err(missing) => missing_shape_splat_assignment(
+                    subtype_env,
+                    env,
+                    &missing,
+                    InternalType::LoclType(ty_sub.clone()),
+                    InternalType::LoclType(ty_super.clone()),
+                ),
+                Ok(ty_sub) => simplify(
+                    subtype_env,
+                    this_ty,
+                    Lhs {
+                        sub_supportdyn,
+                        ty_sub: &ty_sub,
+                    },
+                    Rhs {
+                        super_like,
+                        super_supportdyn: false,
+                        ty_super,
+                    },
+                    env,
+                ),
+            }
+        }
         Ty_::Tshape(ShapeType::ShapeSimple(ShapeTypeSimple {
             fields: s_fields,
             unknown_value: s_unknown_value,
@@ -4123,9 +4151,10 @@ fn simplify_representable_as_r(s: &Scope<'_>, lty_inner: &Ty, env: &mut Env) -> 
             )
         }
         Ty_::Tnewtype(..) | Ty_::Tgeneric(_) | Ty_::Tdependent(..) => {
-            let p = simplify(
+            let p = default_subtype(
                 subtype_env,
                 this_ty,
+                fail.clone(),
                 Lhs {
                     sub_supportdyn,
                     ty_sub: &ty_sub,
@@ -4133,15 +4162,14 @@ fn simplify_representable_as_r(s: &Scope<'_>, lty_inner: &Ty, env: &mut Env) -> 
                 Rhs {
                     super_like,
                     super_supportdyn: false,
-                    ty_super: &lty_inner,
+                    ty_super: &ty_super,
                 },
                 env,
             );
             or(fail.clone(), env, p, |env| {
-                default_subtype(
+                simplify(
                     subtype_env,
                     this_ty,
-                    fail.clone(),
                     Lhs {
                         sub_supportdyn,
                         ty_sub: &ty_sub,
@@ -4149,7 +4177,7 @@ fn simplify_representable_as_r(s: &Scope<'_>, lty_inner: &Ty, env: &mut Env) -> 
                     Rhs {
                         super_like,
                         super_supportdyn: false,
-                        ty_super: &ty_super,
+                        ty_super: &lty_inner,
                     },
                     env,
                 )

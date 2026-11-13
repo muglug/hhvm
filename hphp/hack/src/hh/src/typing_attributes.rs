@@ -280,7 +280,10 @@ fn render_custom_error(
 /// `Diagnostics.add_diagnostic (Naming_error_utils.to_user_diagnostic err
 /// custom_err_config)`: the diagnostic of `crate::naming_errors`, with the
 /// messages of the custom error config (which that renderer does not add).
-fn add_naming_error(err: NamingError, custom_err_config: &crate::custom_error_config::T) {
+pub(crate) fn add_naming_error(
+    err: NamingError,
+    custom_err_config: &crate::custom_error_config::T,
+) {
     let custom_msgs: Vec<String> =
         crate::custom_error_eval::eval_naming_error(custom_err_config, &err)
             .iter()

@@ -1147,9 +1147,7 @@ fn set_origin_and_cache(
     }
 }
 
-/// `push_supportdyn_into_shape` of `localize_`: `env` is the environment that
-/// `localize_` was given (the environment that `strip_supportdyn` returns is
-/// dropped).
+/// `push_supportdyn_into_shape` of `localize_`
 fn push_supportdyn_into_shape(env: &mut Env, lty: Ty) -> Ty {
     let (is_supportdyn, stripped_lty) = t_utils::strip_supportdyn(env, lty.clone());
     match get_node(&stripped_lty) {
@@ -1159,11 +1157,12 @@ fn push_supportdyn_into_shape(env: &mut Env, lty: Ty) -> Ty {
             fields: shape_fields,
         })) if is_supportdyn => {
             let r = get_reason(&stripped_lty).clone();
+            let ty = t_utils::make_supportdyn(r.clone(), env, ty.clone());
             let shape = mk((
                 r.clone(),
                 Ty_::Tshape(ShapeType::ShapeSimple(ShapeTypeSimple {
                     origin: origin.clone(),
-                    unknown_value: make_type::supportdyn(r.clone(), ty.clone()),
+                    unknown_value: ty,
                     fields: shape_fields.clone(),
                 })),
             ));
@@ -1634,13 +1633,6 @@ fn localize_uncached(ety_env: &ExpandEnv, env: &mut Env, dty: &DeclTy) -> (TyErr
         DeclTy_::Tapply(cls_argl) => {
             let (cls, argl) = &**cls_argl;
             let cid = cls.id_ref().as_str();
-            // `push_supportdyn_into_shape` reads the environment that
-            // `localize_` was given, which nothing has changed yet.
-            let env0 = if cid == sn::classes::SUPPORT_DYN {
-                Some(env.clone())
-            } else {
-                None
-            };
             let (ty_err_opt, cycles, lty) = match env::get_class_or_typedef(env, cid) {
                 decl_entry::T::Found(ClassOrTypedefResult::ClassResult(class_info)) => {
                     localize_class_instantiation(ety_env, env, r, cls, argl, Some(&class_info))
@@ -1706,10 +1698,11 @@ fn localize_uncached(ety_env: &ExpandEnv, env: &mut Env, dty: &DeclTy) -> (TyErr
                     localize_class_instantiation(ety_env, env, r, cls, argl, None)
                 }
             };
-            let lty = match env0 {
-                // If we have supportdyn<t> then push supportdyn into open shape fields
-                Some(mut env0) => push_supportdyn_into_shape(&mut env0, lty),
-                None => lty,
+            // If we have supportdyn<t> then push supportdyn into open shape fields
+            let lty = if cid == sn::classes::SUPPORT_DYN {
+                push_supportdyn_into_shape(env, lty)
+            } else {
+                lty
             };
             (ty_err_opt, cycles, lty)
         }

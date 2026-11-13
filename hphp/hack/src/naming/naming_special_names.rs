@@ -1093,6 +1093,8 @@ pub mod coeffects {
 pub mod shapes {
     pub const SHAPES: &str = "\\HH\\Shapes";
 
+    pub const READONLY_SHAPES: &str = "\\HH\\Readonly\\Shapes";
+
     pub const IDX: &str = "idx";
 
     pub const AT: &str = "at";
@@ -1104,6 +1106,8 @@ pub mod shapes {
     pub const TO_ARRAY: &str = "toArray";
 
     pub const TO_DICT: &str = "toDict";
+
+    pub const PUT: &str = "put";
 }
 
 pub mod superglobals {

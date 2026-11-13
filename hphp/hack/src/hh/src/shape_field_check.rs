@@ -226,11 +226,62 @@ fn class_const_call(call: &tast::CallExpr) -> Option<(&str, &str, &[tast::Argume
     }
 }
 
+fn is_shape(env: &Env, ty: &Ty) -> bool {
+    let mut env = env.clone();
+    let ty = tast_env::intersect_with_nonnull(&mut env, get_pos(ty), ty.clone());
+    let env = &env;
+    let shape = typing_make_type::locl_like(
+        reason::none(),
+        typing_make_type::top_shape(reason::none()),
+    );
+    tast_env::is_sub_type_for_union(env, &ty, &shape)
+        && !tast_env::is_sub_type(env, &ty, &typing_make_type::dynamic(reason::none()))
+}
+
+fn check_trait_self_shape_key(env: &Env, expr: &tast::Expr) {
+    let report =
+        |field: &tast::Expr| crate::typing_shapes::check_trait_self_shape_key(env, field);
+    let is_self_key = |field: &tast::Expr| match &field.2 {
+        aast::Expr_::ClassConst(cc) => matches!(&cc.0.2, aast::ClassId_::CIself),
+        aast::Expr_::Nameof(cid) => matches!(&cid.2, aast::ClassId_::CIself),
+        _ => false,
+    };
+    match &expr.2 {
+        aast::Expr_::ArrayGet(ag)
+            if matches!(&ag.1, Some(field) if is_self_key(field)) && is_shape(env, &ag.0.0) =>
+        {
+            if let Some(field) = &ag.1 {
+                report(field)
+            }
+        }
+        aast::Expr_::Call(call) => match (class_const_call(call), &call.unpacked_arg) {
+            (Some((class_name, method_name, [_, field, ..])), None)
+                if (class_name == sn::shapes::SHAPES
+                    || class_name == sn::shapes::READONLY_SHAPES)
+                    && [
+                        sn::shapes::AT,
+                        sn::shapes::IDX,
+                        sn::shapes::KEY_EXISTS,
+                        sn::shapes::PUT,
+                        sn::shapes::REMOVE_KEY,
+                    ]
+                    .iter()
+                    .any(|name| *name == method_name) =>
+            {
+                report(aast_utils::arg_to_expr(field))
+            }
+            _ => {}
+        },
+        _ => {}
+    }
+}
+
 /// `let handler = object inherit Tast_visitor.handler_base ... end`
 struct Handler;
 
 impl<'a> tast_visitor::Handler<'a> for Handler {
     fn at_expr(&mut self, env: &Env, e: &'a tast::Expr) {
+        check_trait_self_shape_key(env, e);
         let aast::Expr(_, p, e_) = e;
         let class_const_call = match e_ {
             aast::Expr_::Call(call) => class_const_call(call),
