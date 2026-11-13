@@ -127,7 +127,6 @@ fn log(tracker: Option<&connection_tracker::T>, connection_log_id: Option<&str>,
 pub struct Env {
     pub root: path::T,
     pub from: String,
-    pub abort_on_distc_failure: bool,
     pub autostart: bool,
     pub force_dormant_start: bool,
     pub deadline: Option<f64>,
@@ -161,7 +160,6 @@ pub struct Conn {
     pub conn_progress_callback: ProgressCallback,
     pub conn_root: path::T,
     pub conn_deadline: Option<f64>,
-    pub conn_abort_on_distc_failure: bool,
     pub from: String,
 }
 
@@ -195,20 +193,20 @@ fn check_for_deadline(
     }
 }
 
-fn server_exit_should_abort(abort_on_distc_failure: bool, es: &exit_status::T) -> bool {
+fn server_exit_should_abort(es: &exit_status::T) -> bool {
     match es {
-        exit_status::T::DistcFailed => abort_on_distc_failure,
-        exit_status::T::FailedToLoadShouldAbort | exit_status::T::ServerNonOptBuildMode => true,
+        exit_status::T::DistcFailed
+        | exit_status::T::FailedToLoadShouldAbort
+        | exit_status::T::ServerNonOptBuildMode => true,
         _ => false,
     }
 }
 
 pub mod for_test {
     pub fn server_exit_should_abort(
-        abort_on_distc_failure: bool,
         es: &crate::exit_status::T,
     ) -> bool {
-        super::server_exit_should_abort(abort_on_distc_failure, es)
+        super::server_exit_should_abort(es)
     }
 }
 
@@ -236,7 +234,6 @@ enum HungUp {
 /// The `with` of `wait_for_server_message`: the server hung up. Returns the
 /// `Exit_with` it raises.
 fn server_hung_up(
-    abort_on_distc_failure: bool,
     exn: HungUp,
     server_specific_files: &ServerSpecificFiles,
     progress_callback: &ProgressCallback,
@@ -262,7 +259,7 @@ fn server_hung_up(
     // exception, caught by hh_client.ml and logged.
     // In most cases we report that find_hh.sh should simply retry the failed command.
     let should_abort = match &finale_data {
-        Some(d) => server_exit_should_abort(abort_on_distc_failure, &d.exit_status),
+        Some(d) => server_exit_should_abort(&d.exit_status),
         None => false,
     };
     let external_exit_status = if should_abort {
@@ -280,7 +277,6 @@ fn server_hung_up(
 /// and progress information using the argument callback.
 #[allow(clippy::too_many_arguments)]
 fn wait_for_server_message(
-    abort_on_distc_failure: bool,
     connection_log_id: &str,
     expected_message: Option<&MessageType<CommandResult>>,
     ic: &UnixStream,
@@ -304,7 +300,6 @@ fn wait_for_server_message(
             Ok(msg) => msg,
             Err(ReadError::EndOfFile) => {
                 return Err(server_hung_up(
-                    abort_on_distc_failure,
                     HungUp::EndOfFile,
                     server_specific_files,
                     progress_callback,
@@ -324,7 +319,6 @@ fn wait_for_server_message(
         };
         if is_handoff_failed {
             return Err(server_hung_up(
-                abort_on_distc_failure,
                 HungUp::MonitorFailedToHandoff,
                 server_specific_files,
                 progress_callback,
@@ -357,7 +351,6 @@ fn wait_for_server_message(
 }
 
 fn wait_for_server_hello(
-    abort_on_distc_failure: bool,
     connection_log_id: &str,
     ic: &UnixStream,
     deadline: Option<f64>,
@@ -366,7 +359,6 @@ fn wait_for_server_hello(
     root: &path::T,
 ) -> Result<(), ClientConnectError> {
     let _: MessageType<CommandResult> = wait_for_server_message(
-        abort_on_distc_failure,
         connection_log_id,
         Some(&MessageType::Hello),
         ic,
@@ -409,7 +401,6 @@ fn connect_from(env: &Env, start_time: f64) -> Result<Conn, ClientConnectError> 
         let Env {
             root,
             from,
-            abort_on_distc_failure,
             autostart,
             force_dormant_start,
             deadline,
@@ -490,7 +481,6 @@ fn connect_from(env: &Env, start_time: f64) -> Result<Conn, ClientConnectError> 
                 );
                 if *do_post_handoff_handshake {
                     wait_for_server_hello(
-                        *abort_on_distc_failure,
                         &connection_log_id,
                         &ic,
                         *deadline,
@@ -512,7 +502,6 @@ fn connect_from(env: &Env, start_time: f64) -> Result<Conn, ClientConnectError> 
                     conn_progress_callback: progress_callback.clone(),
                     conn_root: root.clone(),
                     conn_deadline: *deadline,
-                    conn_abort_on_distc_failure: *abort_on_distc_failure,
                     from: from.clone(),
                 });
             }
@@ -678,7 +667,6 @@ pub fn rpc<A: ResultOf>(
         conn_progress_callback: progress_callback,
         conn_root,
         conn_deadline: deadline,
-        conn_abort_on_distc_failure: abort_on_distc_failure,
         from,
     } = conn;
     let t_ready_to_send_cmd = ocaml_unix::gettimeofday();
@@ -693,7 +681,6 @@ pub fn rpc<A: ResultOf>(
     }
     let t_sent_cmd = ocaml_unix::gettimeofday();
     let res = wait_for_server_message(
-        *abort_on_distc_failure,
         connection_log_id,
         None,
         ic,

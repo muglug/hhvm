@@ -99,6 +99,159 @@ pub mod eval_shape {
         create(Typing::InvalidShapeFieldConst, claim, Some(reasons), None)
     }
 
+    pub fn abstract_shape_field_const(pos: Pos, decl_pos: PosOrDecl, name: String) -> T {
+        let claim = Lazy::new(move || {
+            Message(
+                pos,
+                format!(
+                    "Abstract constant {} cannot be used as a shape key",
+                    md_codify(render::strip_ns(&name))
+                )
+                .into(),
+            )
+        });
+        let reasons = Lazy::new(move || vec![Message(decl_pos, "Declaration is here".into())]);
+        create(Typing::AbstractConstUsage, claim, Some(reasons), None)
+    }
+
+    pub fn shape_field_class_const_missing_shape_key_attribute(
+        pos: Pos,
+        decl_pos: PosOrDecl,
+        class_name: String,
+        const_name: String,
+    ) -> T {
+        let class_const = format!("{}::{}", class_name, const_name);
+        let claim = Lazy::new(move || {
+            Message(
+                pos,
+                format!(
+                    "Class constant {} used as a shape key must be annotated with {}. Prefer using an enum constant as a shape key.",
+                    md_codify(&class_const),
+                    md_codify("<<__ShapeKey>>")
+                )
+                .into(),
+            )
+        });
+        let reasons = Lazy::new(move || {
+            vec![Message(
+                decl_pos,
+                "The class constant is declared here".into(),
+            )]
+        });
+        create(
+            Typing::ShapeKeyClassConstMissingAttribute,
+            claim,
+            Some(reasons),
+            None,
+        )
+    }
+
+    pub fn shape_key_const_value_unresolvable(
+        pos: Pos,
+        reason_pos: PosOrDecl,
+        class_name: String,
+        const_name: String,
+        const_kind: shape::ShapeKeyConstValueUnresolvableConstKind,
+    ) -> T {
+        let const_name_coded = md_codify(&format!("{}::{}", class_name, const_name));
+        let claim = Lazy::new(move || {
+            let subject = match const_kind {
+                shape::ShapeKeyConstValueUnresolvableConstKind::Enum => {
+                    format!("Enum constant {} used as a shape key", const_name_coded)
+                }
+                shape::ShapeKeyConstValueUnresolvableConstKind::ClassConst => format!(
+                    "Class constant {} marked with `<<__ShapeKey>>`",
+                    const_name_coded
+                ),
+            };
+            Message(
+                pos,
+                format!(
+                    "{} must be initialized with a string or integer literal, or a `nameof` expression",
+                    subject
+                )
+                .into(),
+            )
+        });
+        let reasons = Lazy::new(move || {
+            vec![Message(
+                reason_pos,
+                "Class pointers, constant forwarding, and computed expressions are not allowed"
+                    .into(),
+            )]
+        });
+        create(
+            Typing::ShapeKeyClassConstValueUnresolvable,
+            claim,
+            Some(reasons),
+            None,
+        )
+    }
+
+    pub fn shape_key_class_const_nameof_self_in_trait(
+        pos: Pos,
+        value_pos: Pos,
+        class_name: String,
+        const_name: String,
+    ) -> T {
+        let claim = Lazy::new(move || {
+            Message(
+                pos,
+                format!(
+                    "Class constant {} marked with `<<__ShapeKey>>` cannot be initialized with `nameof self` in a trait",
+                    md_codify(&format!("{}::{}", class_name, const_name))
+                )
+                .into(),
+            )
+        });
+        let reasons = Lazy::new(move || {
+            vec![Message(
+                // Pos_or_decl.of_raw_pos
+                value_pos,
+                "`nameof self` resolves to the using class; use a literal or an explicit class name with `nameof`"
+                    .into(),
+            )]
+        });
+        create(
+            Typing::ShapeKeyClassConstValueUnresolvable,
+            claim,
+            Some(reasons),
+            None,
+        )
+    }
+
+    pub fn shape_key_class_const_is_abstract(
+        pos: Pos,
+        decl_pos: Pos,
+        class_name: String,
+        const_name: String,
+    ) -> T {
+        let claim = Lazy::new(move || {
+            Message(
+                pos,
+                format!(
+                    "Abstract class constant {} cannot be used as a shape key",
+                    md_codify(&format!("{}::{}", class_name, const_name))
+                )
+                .into(),
+            )
+        });
+        let reasons = Lazy::new(move || {
+            vec![Message(
+                // Pos_or_decl.of_raw_pos
+                decl_pos,
+                "The constant must be concrete to use `<<__ShapeKey>>`, even if it has a default value"
+                    .into(),
+            )]
+        });
+        create(
+            Typing::ShapeKeyClassConstIsAbstract,
+            claim,
+            Some(reasons),
+            None,
+        )
+    }
+
     pub fn shape_field_class_mismatch(
         pos: Pos,
         class_name: String,
@@ -300,6 +453,40 @@ pub mod eval_shape {
             shape::T::Invalid_shape_field_const { pos, witness_pos } => {
                 invalid_shape_field_const(pos, witness_pos)
             }
+            shape::T::Abstract_shape_field_const {
+                pos,
+                decl_pos,
+                name,
+            } => abstract_shape_field_const(pos, decl_pos, name),
+            shape::T::Shape_field_class_const_missing_shape_key_attribute {
+                pos,
+                decl_pos,
+                class_name,
+                const_name,
+            } => shape_field_class_const_missing_shape_key_attribute(
+                pos, decl_pos, class_name, const_name,
+            ),
+            shape::T::Shape_key_const_value_unresolvable {
+                pos,
+                reason_pos,
+                class_name,
+                const_name,
+                const_kind,
+            } => shape_key_const_value_unresolvable(
+                pos, reason_pos, class_name, const_name, const_kind,
+            ),
+            shape::T::Shape_key_class_const_nameof_self_in_trait {
+                pos,
+                value_pos,
+                class_name,
+                const_name,
+            } => shape_key_class_const_nameof_self_in_trait(pos, value_pos, class_name, const_name),
+            shape::T::Shape_key_class_const_is_abstract {
+                pos,
+                decl_pos,
+                class_name,
+                const_name,
+            } => shape_key_class_const_is_abstract(pos, decl_pos, class_name, const_name),
             shape::T::Shape_field_class_mismatch {
                 pos,
                 class_name,
@@ -1444,6 +1631,56 @@ pub mod eval_wellformedness {
         create(Typing::InvalidClassRefinement, claim, None, None)
     }
 
+    pub fn redundant_shape_splat(pos: Pos, operand_pos: Pos, is_dynamic: bool) -> T {
+        let (suggestion, quickfix) = if is_dynamic {
+            (
+                "Use `shape(dynamic...)` instead.",
+                crate::quickfix::make_eager_default_hint_style(
+                    "Replace with `shape(dynamic...)`".to_string(),
+                    "shape(dynamic...)".to_string(),
+                    pos.clone(),
+                ),
+            )
+        } else {
+            // The elements of a list literal are evaluated from the last to
+            // the first; neither has an effect.
+            let edits = oxidized::quickfix::Edits::Eager(vec![
+                (
+                    "".to_string(),
+                    Pos::btw_nocheck(pos.clone(), crate::pos::shrink_to_start(&operand_pos)),
+                ),
+                (
+                    "".to_string(),
+                    Pos::btw_nocheck(crate::pos::shrink_to_end(&operand_pos), pos.clone()),
+                ),
+            ]);
+            (
+                "Use the splatted type directly.",
+                crate::quickfix::make(
+                    "Remove the redundant shape splat".to_string(),
+                    edits,
+                    vec![],
+                ),
+            )
+        };
+        let claim = Lazy::new(move || {
+            Message(
+                pos,
+                format!(
+                    "A shape containing only one splat is redundant. {}",
+                    suggestion
+                )
+                .into(),
+            )
+        });
+        create(
+            Typing::RedundantShapeSplat,
+            claim,
+            None,
+            Some(vec![quickfix]),
+        )
+    }
+
     pub fn to_error<E: ?Sized>(t: wellformedness::T, _env: &E) -> T {
         use wellformedness::T::*;
         match t {
@@ -1464,6 +1701,11 @@ pub mod eval_wellformedness {
             }
             Tuple_syntax(pos) => tuple_syntax(pos),
             Invalid_class_refinement { pos } => invalid_class_refinement(pos),
+            Redundant_shape_splat {
+                pos,
+                operand_pos,
+                is_dynamic,
+            } => redundant_shape_splat(pos, operand_pos, is_dynamic),
         }
     }
 }
@@ -1568,6 +1810,132 @@ pub mod eval_modules {
                 access_pos,
                 trait_pos,
             } => module_unsafe_trait_access(access_pos, trait_pos),
+        }
+    }
+}
+
+pub mod eval_shape_splat {
+    use super::*;
+    use crate::typing_error::primary::shape_splat;
+    use crate::typing_env_types::Env;
+
+    fn field_reasons(label: &str, positions: Vec<PosOrDecl>) -> Vec<Message<PosOrDecl>> {
+        positions
+            .into_iter()
+            .enumerate()
+            .map(|(index, pos)| {
+                Message(
+                    pos,
+                    format!(
+                        "Shape field `{}` is {} here",
+                        label,
+                        if index == 0 { "defined" } else { "also defined" }
+                    )
+                    .into(),
+                )
+            })
+            .collect()
+    }
+
+    fn source_reason(label: &str, source: shape_splat::OverlapSource) -> Message<PosOrDecl> {
+        let shape_splat::OverlapSource { pos, origin } = source;
+        let message = match origin {
+            shape_splat::OverlapSourceOrigin::Shape_field(_) => {
+                format!("Shape field `{}` may also be defined here", label)
+            }
+            shape_splat::OverlapSourceOrigin::Description(description) => {
+                format!("Shape field `{}` may also be provided by {}", label, description)
+            }
+        };
+        Message(pos, message.into())
+    }
+
+    fn violation_reasons(violation: shape_splat::DisjointnessViolation) -> Vec<Message<PosOrDecl>> {
+        use shape_splat::DisjointnessViolation::*;
+        match violation {
+            Overlapping_field { label, positions } => field_reasons(&label, positions),
+            Possible_overlapping_field {
+                label,
+                positions,
+                sources,
+            } => {
+                let mut reasons = field_reasons(&label, positions);
+                reasons.extend(sources.into_iter().map(|source| source_reason(&label, source)));
+                reasons
+            }
+            Unresolved_sources { sources } => sources
+                .into_iter()
+                .map(|source| {
+                    let message = match &source.origin {
+                        shape_splat::OverlapSourceOrigin::Shape_field(label) => {
+                            format!("Shape field `{}` may be present here", label)
+                        }
+                        shape_splat::OverlapSourceOrigin::Description(description) => {
+                            format!("{} may provide shape fields here", description)
+                        }
+                    };
+                    Message(source.pos, message.into())
+                })
+                .collect(),
+        }
+    }
+
+    pub fn disjoint_shape_splat_violation(
+        pos: Pos,
+        violations: Vec<shape_splat::DisjointnessViolation>,
+    ) -> T {
+        let claim = Lazy::new(move || {
+            Message(
+                pos,
+                "Type alias marked `<<__DisjointShapeSplat>>` may contain overlapping shapes"
+                    .into(),
+            )
+        });
+        let reasons = Lazy::new(move || {
+            violations
+                .iter()
+                .cloned()
+                .flat_map(violation_reasons)
+                .collect()
+        });
+        create(Typing::InvalidTypeHint, claim, Some(reasons), None)
+    }
+
+    pub fn non_denotable_shape_splat_fields(
+        env: &Env,
+        pos: Pos,
+        fields: Vec<shape_splat::NonDenotableField>,
+    ) -> T {
+        let claim = Lazy::new(move || {
+            Message(
+                pos,
+                "Shape splat produces fields with non-denotable types".into(),
+            )
+        });
+        let env = env.clone();
+        let reasons = Lazy::new(move || {
+            fields
+                .iter()
+                .map(|shape_splat::NonDenotableField { label, pos, ty }| {
+                    let ty = md_codify(&crate::typing_print::full_strip_ns(true, &env, ty));
+                    Message(
+                        pos.clone(),
+                        format!("Shape field `{}` has non-denotable type {}", label, ty).into(),
+                    )
+                })
+                .collect()
+        });
+        create(Typing::InvalidTypeHint, claim, Some(reasons), None)
+    }
+
+    pub fn to_error(t: shape_splat::T, env: &Env) -> T {
+        match t {
+            shape_splat::T::Disjoint_shape_splat_violation { pos, violations } => {
+                disjoint_shape_splat_violation(pos, violations)
+            }
+            shape_splat::T::Non_denotable_shape_splat_fields { pos, fields } => {
+                non_denotable_shape_splat_fields(env, pos, fields)
+            }
         }
     }
 }

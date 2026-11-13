@@ -819,6 +819,7 @@ pub fn subtype_funs(
     // (see Typing_subtype_method) so types are fully-explicit and therefore we
     // permit subtyping to dynamic
     let old_env = env.clone();
+    let class_sub_classname = !for_override && should_cls_sub_cn(env);
     let prop = subtype::simplify_funs(
         &subtype_env::create(
             None,                   // require_soundness
@@ -831,7 +832,7 @@ pub fn subtype_funs(
             None,                   // ignore_likes
             None,                   // has_member_arg_posl
             None,                   // report_ambiguous_shape_splat
-            should_cls_sub_cn(env), // class_sub_classname
+            class_sub_classname,    // class_sub_classname
             2,                      // log_level
             on_error.clone(),
         ),

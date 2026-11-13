@@ -681,56 +681,63 @@ pub(crate) fn closure_make(
         // Bind any quantifiers in the function type; these are unbound after typing the body
         env::add_generic_parameters_with_bounds(env, &ft.tparams);
         env::clear_params(env);
-        let non_variadic_ft_params: Vec<FunParam> = if get_ft_variadic(&ft) {
-            // `List.drop_last_exn`
-            match ft.params.split_last() {
-                None => panic!("List.drop_last_exn: empty list"),
-                Some((_, rest)) => rest.to_vec(),
-            }
-        } else {
-            ft.params.clone()
+        // `List.split_n ft.ft_params (List.length f.f_params)`
+        let n = std::cmp::min(f.params.len(), ft.params.len());
+        let (param_ft_params, extra_ft_params) = ft.params.split_at(n);
+        // `List.zip_exn f.f_params param_ft_params`
+        if f.params.len() != param_ft_params.len() {
+            panic!("Invalid_argument: List.zip_exn: length mismatch")
+        }
+        let param_ft_pairs: Vec<(&nast::FunParam, &FunParam)> =
+            f.params.iter().zip(param_ft_params.iter()).collect();
+        let is_positional_variadic = |param: &nast::FunParam| {
+            crate::aast_utils::is_param_variadic(param) && param.named.is_none()
         };
-        let make_variadic_arg = |env: &mut Env, varg: &nast::FunParam, tyl: Vec<Ty>| {
-            let remaining_types: Vec<Ty> = {
-                // It's possible the variadic arg will capture the variadic
-                // parameter of the supplied arity (if arity is Fvariadic)
-                // and additional supplied params.
-                //
-                // For example in cases such as:
-                //  lambda1 = (int $a, string...$c) ==> {};
-                //  lambda1(1, "hello", ...$y); (where $y is a variadic string)
-                //  lambda1(1, "hello", "world");
-                // then ...$c will contain "hello" and everything in $y in the first
-                // example, and "hello" and "world" in the second example.
-                //
-                // To account for a mismatch in arity, we take the remaining supplied
-                // parameters and return a list of all their types. We'll use this
-                // to create a union type when creating the typed variadic arg.
-                // `List.drop non_variadic_ft_params (List.length f.f_params - 1)`
-                let n = (f.params.len() as isize - 1).max(0) as usize;
-                let remaining_params = non_variadic_ft_params.iter().skip(n);
-                remaining_params.map(|param| param.type_.clone()).collect()
-            };
+        let non_variadic_ft_params: Vec<FunParam> = param_ft_pairs
+            .iter()
+            .filter_map(|(param, fp)| {
+                if crate::aast_utils::is_param_variadic(param) {
+                    None
+                } else {
+                    Some((*fp).clone())
+                }
+            })
+            .collect();
+        // A positional variadic can capture additional fixed parameters and the
+        // variadic parameter of the expected function type. For example, when
+        // (int $first, ...$rest, named bool $flag) ==> {} is supplied where
+        // (function(int, int, int..., named bool $flag): void) is expected,
+        // $rest captures both the second int and the remaining variadic ints.
+        // Its vector element type is the union of its own resolved type and
+        // these additional positional types. Named arguments do not enter it.
+        let variadic_ft_types: Vec<Ty> = param_ft_pairs
+            .iter()
+            .filter_map(|(param, fp)| {
+                if is_positional_variadic(param) {
+                    Some(fp.type_.clone())
+                } else {
+                    None
+                }
+            })
+            .chain(extra_ft_params.iter().filter_map(|fp| {
+                if get_fp_is_named(fp) {
+                    None
+                } else {
+                    Some(fp.type_.clone())
+                }
+            }))
+            .collect();
+        let make_variadic_arg = |env: &mut Env, varg: &nast::FunParam| {
             let r = reason::var_param(varg.pos.clone());
-            let mut union_tyl = tyl;
-            union_tyl.extend(remaining_types);
-            let union = Ty_::Tunion(union_tyl);
+            let union = Ty_::Tunion(variadic_ft_types.clone());
             let t_param = closure_bind_variadic(env, varg, mk((r, union)));
             vec![t_param]
         };
-        let t_variadic_params: Vec<tast::FunParam> = match (
-            f.params
-                .iter()
-                .find(|p| crate::aast_utils::is_param_variadic(p)),
-            get_ft_variadic(&ft),
-        ) {
-            (Some(arg), true) => {
-                let last = ft.params.last().expect("List.last").type_.clone();
-                make_variadic_arg(env, arg, vec![last])
-            }
-            (Some(arg), false) => make_variadic_arg(env, arg, vec![]),
-            (_, _) => vec![],
-        };
+        let t_variadic_params: Vec<tast::FunParam> =
+            match f.params.iter().find(|p| is_positional_variadic(p)) {
+                Some(arg) => make_variadic_arg(env, arg),
+                None => vec![],
+            };
         let non_variadic_params: Vec<nast::FunParam> = f
             .params
             .iter()

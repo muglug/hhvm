@@ -177,7 +177,7 @@ fn overload_extract_from_awaitable_with_ty_err(
                     | Ty_::Tneg(_)
                     | Ty_::TclassPtr(_) => type_var,
                 };
-                let e2 = type_::sub_type(
+                let e2 = type_::sub_type(None, 
                     p.clone(),
                     Ureason::URawait,
                     env,

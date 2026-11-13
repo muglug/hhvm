@@ -225,12 +225,27 @@ impl<'a> Visitor<'a> for V<'_> {
                     .iter()
                     .map(|aast::Field(e1, e2)| crate::pos::merge(&pos_of_expr(e1), &pos_of_expr(e2)))
                     .collect(),
-                aast::Expr_::Shape(fields) => fields
-                    .iter()
-                    .map(|(field_name, expr)| {
-                        crate::pos::merge(&pos_of_shape_field_name(field_name), &pos_of_expr(expr))
-                    })
-                    .collect(),
+                aast::Expr_::Shape(fields) => {
+                    if fields.iter().any(|field| match field {
+                        aast::ShapeExprField::SFSplat(_) => true,
+                        aast::ShapeExprField::SFField(_, _) => false,
+                    }) {
+                        return None;
+                    } else {
+                        fields
+                            .iter()
+                            .filter_map(|field| match field {
+                                aast::ShapeExprField::SFField(field_name, expr) => {
+                                    Some(crate::pos::merge(
+                                        &pos_of_shape_field_name(field_name),
+                                        &pos_of_expr(expr),
+                                    ))
+                                }
+                                aast::ShapeExprField::SFSplat(_) => None,
+                            })
+                            .collect()
+                    }
+                }
                 _ => return None,
             };
             find_candidate(self.cursor, positions)

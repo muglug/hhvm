@@ -561,7 +561,7 @@ pub mod visitor_deprecated {
             on_as_expr(self, acc, ae)
         }
 
-        fn on_shape(&mut self, acc: A, sm: &[(ShapeFieldName, Expr)]) -> A {
+        fn on_shape(&mut self, acc: A, sm: &[ShapeExprField]) -> A {
             on_shape(self, acc, sm)
         }
 
@@ -1406,11 +1406,14 @@ pub mod visitor_deprecated {
     pub fn on_shape<A, V: Visitor<A> + ?Sized>(
         this: &mut V,
         acc: A,
-        sm: &[(ShapeFieldName, Expr)],
+        sm: &[ShapeExprField],
     ) -> A {
         let mut acc = acc;
-        for (_, e) in sm {
-            acc = this.on_expr(acc, e);
+        for field in sm {
+            acc = match field {
+                ShapeExprField::SFField(_, e) => this.on_expr(acc, e),
+                ShapeExprField::SFSplat(e) => this.on_expr(acc, e),
+            };
         }
         acc
     }

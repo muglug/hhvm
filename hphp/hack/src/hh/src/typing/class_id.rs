@@ -129,17 +129,6 @@ fn list_map_env_ty_err_opt<E: ?Sized, X, Y, Err, Errs>(
     (combine_ty_errs(rev_errs), ys)
 }
 
-pub(crate) fn classname_error(
-    env: &Env,
-    flag: impl FnOnce(&TypecheckerOptions) -> isize,
-) -> ClassnameExprError {
-    match flag(&env::get_tcopt(env)) {
-        2 => ClassnameExprError::Error,
-        1 => ClassnameExprError::Warning,
-        _ => ClassnameExprError::Pass,
-    }
-}
-
 /// Resolve class expressions:
 ///     self    CIself       lexically enclosing class
 ///     parent  CIparent     lexically enclosing `extends` class
@@ -419,6 +408,11 @@ pub(crate) fn class_expr(
                     if let Some(err) = &ty_err_opt {
                         typing_error_utils::add_typing_error(err, env)
                     }
+                    crate::typing_needs_concrete::check_reified_targs(
+                        env,
+                        &cls::tparams(&class_),
+                        &tal,
+                    );
                     make_result(tal, aast::ClassId_::CI(c.clone()), ty)
                 }
             }
@@ -760,7 +754,7 @@ pub(crate) fn class_id_for_new(
                                 {
                                     // Only have this choosing behavior for new T(), not all generic types
                                     // i.e. new classname<T>, TODO: T41190512
-                                    if cls::valid_newable_class(&class_info) {
+                                    if env::valid_newable_class(&env, &class_info) {
                                         res.insert(
                                             0,
                                             ClassOrDynamic::Class(

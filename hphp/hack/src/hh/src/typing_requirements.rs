@@ -96,22 +96,8 @@ fn check_require_class(env: &mut Env, class_pos: &Pos, tc: &cls::T, req: &Requir
             // in a `require class t;` trait constraint, t must be a non-generic class
             // name.  Since lowering enforces _paraml to be empty, it is safe to
             // ignore _param here.  Additionally we enforce that the class that uses
-            // the trait with a require class constraint does not have type parameters
-            // and is final.
-            if req_name == cls::name(tc) && cls::tparams(tc).is_empty() {
-                if cls::final_(tc) {
-                } else {
-                    let req_pos = get_pos(req_ty);
-                    typing_error_utils::add_typing_error(
-                        &typing_error::primary(primary::T::Req_class_not_final {
-                            pos: class_pos.clone(),
-                            trait_pos,
-                            req_pos,
-                        }),
-                        env,
-                    )
-                }
-            } else {
+            // the trait with a require class constraint does not have type parameters.
+            if !(req_name == cls::name(tc) && cls::tparams(tc).is_empty()) {
                 let req_pos = get_pos(req_ty);
                 typing_error_utils::add_typing_error(
                     &typing_error::primary(primary::T::Unsatisfied_req_class {
@@ -174,17 +160,17 @@ fn check_require_class_require_extends_conflict(
     }
 }
 
-/// If a trait `T` `require class C`, but `C` does not use `T`, then Hack won't report
-/// any type error on the body of `T` because the intersection of `C` and `T` is empty.
+/// If a trait `T` requires `C`, but `C` does not use `T`, then Hack won't report any
+/// type error on the body of `T` because the intersection of `C` and `T` is empty.
 /// Although this behaviour is sound, it is likely to be confusing for the programmer.
-/// We thus eagerly emit an error if a trait `require class` a class that does not use it.
+/// We thus eagerly emit an error if a trait requires a class that does not use it.
 fn check_require_class_use(
     env: &mut Env,
     trait_pos: &Pos,
-    required_classes: &[(String, PosOrDecl)],
+    required_classes: &[(primary::TraitNotUsedReqConstraintKind, (String, PosOrDecl))],
     tc: &cls::T,
 ) {
-    for (nc, pc) in required_classes {
+    for (req_constraint_kind, (nc, pc)) in required_classes {
         match env::get_class(env, nc) {
             decl_entry::T::DoesNotExist | decl_entry::T::NotYetAvailable => {
                 // existence of class is checked in Naming
@@ -200,6 +186,7 @@ fn check_require_class_use(
                             req_class_pos: pc.clone(),
                             class_pos: cls::pos(&trc),
                             class_name: cls::name(&trc),
+                            req_constraint_kind: *req_constraint_kind,
                         }),
                         env,
                     )
@@ -210,16 +197,35 @@ fn check_require_class_use(
 }
 
 fn check_trait_require_class(env: &mut Env, trait_pos: &Pos, tc: &cls::T) {
-    let rc = cls::all_ancestor_req_class_requirements(tc);
-    if rc.is_empty() {
-    } else {
-        let required_classes: Vec<(String, PosOrDecl)> = rc
-            .iter()
-            .filter_map(|r| get_require_class_name_pos(&r.ty))
-            .collect();
-        check_require_class_require_extends_conflict(env, trait_pos, &required_classes, tc);
-        check_require_class_use(env, trait_pos, &required_classes, tc)
+    // `List.fold_right`: from the last requirement to the first, each one put
+    // at the front, which keeps the order of the requirements.
+    let mut required_classes: Vec<(primary::TraitNotUsedReqConstraintKind, (String, PosOrDecl))> =
+        vec![];
+    let mut required_equal_classes: Vec<(String, PosOrDecl)> = vec![];
+    for rc in cls::all_ancestor_req_constraints_requirements(tc).iter().rev() {
+        let (req_constraint_kind, req) = match rc {
+            ty::decl::folded::ConstraintRequirement::CREqual(req) => {
+                (primary::TraitNotUsedReqConstraintKind::class_, req)
+            }
+            ty::decl::folded::ConstraintRequirement::CRSubtype(req) => {
+                (primary::TraitNotUsedReqConstraintKind::this_as, req)
+            }
+        };
+        match get_require_class_name_pos(&req.ty) {
+            None => {}
+            Some(required_class) => {
+                match req_constraint_kind {
+                    primary::TraitNotUsedReqConstraintKind::class_ => {
+                        required_equal_classes.insert(0, required_class.clone())
+                    }
+                    primary::TraitNotUsedReqConstraintKind::this_as => {}
+                }
+                required_classes.insert(0, (req_constraint_kind, required_class));
+            }
+        }
     }
+    check_require_class_use(env, trait_pos, &required_classes, tc);
+    check_require_class_require_extends_conflict(env, trait_pos, &required_equal_classes, tc)
 }
 
 /// Check whether a class satifies all the requirements of the traits it uses,

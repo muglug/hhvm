@@ -1265,7 +1265,7 @@ pub(crate) fn simplify_subtype_implicit_params(
     }: &FunImplicitParams,
     env: &mut Env,
 ) -> tl::SubtypeProp {
-    if typechecker_options::any_coeffects(&env::get_tcopt(env)) {
+    {
         let expected = typing_coeffects::get_type(sub_cap);
         let got = typing_coeffects::get_type(super_cap);
         let reasons = secondary::T::Coeffect_subtyping {
@@ -1323,8 +1323,6 @@ pub(crate) fn simplify_subtype_implicit_params(
             ),
             (Capability::CapDefaults(_p1), Capability::CapDefaults(_p2)) => valid(env),
         }
-    } else {
-        valid(env)
     }
 }
 

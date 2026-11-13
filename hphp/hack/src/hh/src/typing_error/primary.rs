@@ -39,6 +39,13 @@ pub mod shape {
     /// ``reason: [ `Nothing of Pos_or_decl.t Message.t list Lazy.t | `Undefined ]``
     pub type ShapesAccessWithNonExistentFieldReason = NothingOrUndefined;
 
+    /// ``const_kind: [ `Enum | `ClassConst ]``
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum ShapeKeyConstValueUnresolvableConstKind {
+        Enum,
+        ClassConst,
+    }
+
     #[derive(Clone, Debug)]
     pub enum T {
         Invalid_shape_field_name {
@@ -52,6 +59,36 @@ pub mod shape {
         Invalid_shape_field_const {
             pos: Pos,
             witness_pos: Pos,
+        },
+        Abstract_shape_field_const {
+            pos: Pos,
+            decl_pos: PosOrDecl,
+            name: String,
+        },
+        Shape_field_class_const_missing_shape_key_attribute {
+            pos: Pos,
+            decl_pos: PosOrDecl,
+            class_name: String,
+            const_name: String,
+        },
+        Shape_key_const_value_unresolvable {
+            pos: Pos,
+            reason_pos: PosOrDecl,
+            class_name: String,
+            const_name: String,
+            const_kind: ShapeKeyConstValueUnresolvableConstKind,
+        },
+        Shape_key_class_const_nameof_self_in_trait {
+            pos: Pos,
+            value_pos: Pos,
+            class_name: String,
+            const_name: String,
+        },
+        Shape_key_class_const_is_abstract {
+            pos: Pos,
+            decl_pos: Pos,
+            class_name: String,
+            const_name: String,
         },
         Invalid_shape_field_type {
             pos: Pos,
@@ -431,6 +468,11 @@ pub mod wellformedness {
         Invalid_class_refinement {
             pos: Pos,
         },
+        Redundant_shape_splat {
+            pos: Pos,
+            operand_pos: Pos,
+            is_dynamic: bool,
+        },
     }
 }
 
@@ -659,6 +701,62 @@ pub mod simplihack {
 
 pub use self::simplihack as simpli_hack;
 
+/// `Typing_error.Primary.Shape_splat`
+pub mod shape_splat {
+    use oxidized::pos::Pos;
+    use oxidized::pos_or_decl::PosOrDecl;
+
+    use crate::typing_defs_core::Ty;
+
+    #[derive(Clone, Debug)]
+    pub enum OverlapSourceOrigin {
+        Shape_field(String),
+        Description(String),
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct OverlapSource {
+        pub pos: PosOrDecl,
+        pub origin: OverlapSourceOrigin,
+    }
+
+    /// All the ways in which two shape splat elements can be non-disjoint
+    #[derive(Clone, Debug)]
+    pub enum DisjointnessViolation {
+        Overlapping_field {
+            label: String,
+            positions: Vec<PosOrDecl>,
+        },
+        Possible_overlapping_field {
+            label: String,
+            positions: Vec<PosOrDecl>,
+            sources: Vec<OverlapSource>,
+        },
+        Unresolved_sources {
+            sources: Vec<OverlapSource>,
+        },
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct NonDenotableField {
+        pub label: String,
+        pub pos: PosOrDecl,
+        pub ty: Ty,
+    }
+
+    #[derive(Clone, Debug)]
+    pub enum T {
+        Disjoint_shape_splat_violation {
+            pos: Pos,
+            violations: Vec<DisjointnessViolation>,
+        },
+        Non_denotable_shape_splat_fields {
+            pos: Pos,
+            fields: Vec<NonDenotableField>,
+        },
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ImplementsInfo {
     pub pos: PosOrDecl,
@@ -794,6 +892,9 @@ pub enum NewInconsistentConstructKind {
 }
 pub type StaticOrClassname = NewInconsistentConstructKind;
 
+/// ``req_constraint_kind: [ `class_ | `this_as ]`` (`Trait_not_used`)
+pub type TraitNotUsedReqConstraintKind = StaticCallOnTraitRequireNonStrictReqConstraintKind;
+
 /// ``req_constraint_kind: [ `class_ | `this_as ]``
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StaticCallOnTraitRequireNonStrictReqConstraintKind {
@@ -927,6 +1028,7 @@ pub enum T {
         what: String,
     },
     Invalid_type_hint(Pos),
+    Shape_splat(shape_splat::T),
     Gated_by_feature_flag {
         pos: Pos,
         name: String,
@@ -955,11 +1057,6 @@ pub enum T {
         req_pos: PosOrDecl,
         req_name: String,
     },
-    Req_class_not_final {
-        pos: Pos,
-        trait_pos: PosOrDecl,
-        req_pos: PosOrDecl,
-    },
     Incompatible_reqs {
         pos: Pos,
         req_name: String,
@@ -972,6 +1069,7 @@ pub enum T {
         req_class_pos: PosOrDecl,
         class_pos: PosOrDecl,
         class_name: String,
+        req_constraint_kind: TraitNotUsedReqConstraintKind,
     },
     Invalid_echo_argument(Pos),
     Index_type_mismatch {
@@ -1257,6 +1355,27 @@ pub enum T {
         class_name: String,
         decl_pos: PosOrDecl,
         containing_method_pos: Option<Pos>,
+    },
+    This_refinement_in_generic_class {
+        pos: Pos,
+        class_name: String,
+        decl_pos: PosOrDecl,
+    },
+    Private_member_variance {
+        pos: Pos,
+        class_name: String,
+        member_name: String,
+        is_write: bool,
+        tparam_name: String,
+        variance: oxidized::ast_defs::Variance,
+        use_pos: PosOrDecl,
+        decl_pos: PosOrDecl,
+    },
+    Memoize_erased_generic_return {
+        pos: Pos,
+        tparam_name: String,
+        attr_pos: Pos,
+        via_param: Option<Pos>,
     },
     Needs_concrete_override {
         pos: Pos,
@@ -1848,9 +1967,6 @@ pub enum T {
         decl_pos: PosOrDecl,
         actual: isize,
         expected: isize,
-        /// Hint for converting mandatory arguments into optional, takes
-        /// positions of the argument to be converted
-        hint_convert_to_optional: Option<PosOrDecl>,
     },
     Typing_too_few_args {
         pos: Pos,

@@ -2050,7 +2050,7 @@ pub fn obj_get_with_mismatches(
                             make_type::locl_like(r.clone(), freshened_receiver_ty.clone());
                         // Perform the two subtype assertions mentioned in the comment above. We
                         // expect these to succeed because the type variables are unconstrained
-                        let _ty_err3: Option<typing_error::T> = typing_ops::sub_type(
+                        let _ty_err3: Option<typing_error::T> = typing_ops::sub_type(None, 
                             obj_pos.clone(),
                             Ureason::URnone,
                             env,
@@ -2058,7 +2058,7 @@ pub fn obj_get_with_mismatches(
                             make_type::supportdyn(r.clone(), make_type::mixed(r.clone())),
                             callback::unify_error(),
                         );
-                        let _ty_err2: Option<typing_error::T> = typing_ops::sub_type(
+                        let _ty_err2: Option<typing_error::T> = typing_ops::sub_type(None, 
                             obj_pos.clone(),
                             Ureason::URnone,
                             env,

@@ -1116,12 +1116,12 @@ fn fresh_expand_env(env: &mut Env, tparams: &[typing_defs::DeclTparam]) -> typin
     ety_env
 }
 
-/// Does Hack function [f] accept [arg_ty] as its first argument?
+/// Does [f] accept [arg_ty] as its first positional argument?
 fn fun_accepts_first_arg(env: &Env, f: &typing_defs::FunElt, arg_ty: &Ty) -> bool {
     // Functions that support dynamic will be wrapped by supportdyn<_>
     let ty = strip_supportdyn_decl(&f.ty);
     match ty.node_ref() {
-        DeclTy_::Tfun(ft) => match ft.params.first() {
+        DeclTy_::Tfun(ft) => match ft.params.iter().find(|fp| !fp.flags.is_named()) {
             Some(first_param) => {
                 let mut env = env.clone();
                 let ety_env = fresh_expand_env(&mut env, &ft.tparams);
@@ -1692,7 +1692,11 @@ fn autocomplete_shape_literal_in_call(
     for (arg, expected_ty) in args.iter().zip(ft.params.iter()) {
         if let aast::Expr(_, pos, aast::Expr_::Shape(kvs)) = arg {
             // We're passing a shape literal as this function argument.
-            for (name, _val) in kvs {
+            for field in kvs {
+                let name = match field {
+                    aast::ShapeExprField::SFField(name, _val) => name,
+                    aast::ShapeExprField::SFSplat(_) => continue,
+                };
                 if let Some(prefix) = shape_field_autocomplete_prefix(st, name) {
                     // This shape key is being autocompleted.
                     if let Ty_::Tshape(typing_defs::ShapeType::ShapeSimple(s)) =

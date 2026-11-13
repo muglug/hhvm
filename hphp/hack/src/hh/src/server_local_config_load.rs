@@ -162,7 +162,6 @@ pub fn default() -> T {
         status_single_use_cached_diagnostics: false,
         specify_manifold_api_key: false,
         cache_remote_decls: false,
-        abort_on_distc_failure: false,
         use_compressed_dep_graph: true,
         use_distc: true,
         enable_fanout_aware_distc: false,
@@ -1051,12 +1050,6 @@ fn load_(
         &config,
     );
     let default_saved_state_loading = SavedStateLoading::default();
-    let log_saved_state_age_and_distance = bool_if_min_version(
-        config_keys::hhconf::log_saved_state_age_and_distance,
-        default_saved_state_loading.log_saved_state_age_and_distance,
-        current_version,
-        &config,
-    );
     let saved_state_max_expected_age_days = {
         let days = int_(
             config_keys::hhconf::saved_state_max_expected_age_days,
@@ -1155,11 +1148,6 @@ fn load_(
         config_keys::hhconf::cache_remote_decls,
         default.cache_remote_decls,
         current_version,
-        &config,
-    );
-    let abort_on_distc_failure = bool_(
-        config_keys::hhconf::abort_on_distc_failure,
-        default.abort_on_distc_failure,
         &config,
     );
     let use_distc = bool_if_min_version(
@@ -1328,7 +1316,6 @@ fn load_(
                 manifold_local_port,
                 use_eden,
                 database_shard_name,
-                log_saved_state_age_and_distance,
                 saved_state_max_expected_age_days,
                 use_manifold_cython_client,
                 zstd_decompress_by_file,
@@ -1425,7 +1412,6 @@ fn load_(
         status_single_use_cached_diagnostics,
         specify_manifold_api_key,
         cache_remote_decls,
-        abort_on_distc_failure,
         use_compressed_dep_graph,
         use_distc,
         enable_fanout_aware_distc,
@@ -1535,10 +1521,6 @@ pub fn load_from_config(
 
 pub fn to_rollout_flags(options: &T) -> RolloutFlags {
     RolloutFlags {
-        log_saved_state_age_and_distance: options
-            .saved_state
-            .loading
-            .log_saved_state_age_and_distance,
         saved_state_lookup_use_eden: options.saved_state.loading.use_eden,
         fetch_remote_old_decls: options.fetch_remote_old_decls,
         only_fetch_remote_old_decl_during_init: options.only_fetch_remote_old_decl_during_init,
@@ -1738,20 +1720,20 @@ mod tests {
                 local_config.use_distc_crawl_dircache,
             );
             let rust_sizes = (
-                rust.gc_minor_heap_size,
-                rust.gc_space_overhead,
-                rust.sharedmem_global_size,
-                rust.sharedmem_hash_table_pow,
-                rust.sharedmem_heap_size,
-                rust.ide_fall_back_to_full_index,
-                rust.hh_distc_should_disable_trace_store,
-                rust.hh_distc_exponential_backoff_num_retries,
-                rust.naming_table_compression_level,
-                rust.naming_table_compression_threads,
-                rust.eden_fetch_parallelism,
-                rust.use_distc_crawl_dircache,
+                rust.common.gc_minor_heap_size,
+                rust.common.gc_space_overhead,
+                rust.common.sharedmem_global_size,
+                rust.common.sharedmem_hash_table_pow,
+                rust.common.sharedmem_heap_size,
+                rust.common.ide_fall_back_to_full_index,
+                rust.common.hh_distc_should_disable_trace_store,
+                rust.common.hh_distc_exponential_backoff_num_retries,
+                rust.common.naming_table_compression_level,
+                rust.common.naming_table_compression_threads,
+                rust.common.eden_fetch_parallelism,
+                rust.common.use_distc_crawl_dircache,
             );
-            let rust = (rust.version, rust.ignored_paths, rust.opts);
+            let rust = (rust.common.version, rust.common.ignored_paths, rust.common.opts);
             assert_eq!(ocaml, rust, "{}", name);
             assert_eq!(ocaml_sizes, rust_sizes, "{}", name);
             if name == "complete_hh.conf" {
@@ -1790,7 +1772,6 @@ mod tests {
                 manifold_local_port: None,
                 use_eden: false,
                 database_shard_name: None,
-                log_saved_state_age_and_distance: true,
                 saved_state_max_expected_age_days: 7,
                 use_manifold_cython_client: true,
                 zstd_decompress_by_file: false,

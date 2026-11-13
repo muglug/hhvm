@@ -1081,7 +1081,10 @@ impl<'a, 'e> Checker<'a, 'e> {
                 });
                 self.exprl(acc, el)
             }
-            Expr_::Shape(fdm) => fdm.iter().fold(acc, |acc, (_, v)| self.expr(acc, v)),
+            Expr_::Shape(fdm) => fdm.iter().fold(acc, |acc, field| match field {
+                nast::ShapeExprField::SFField(_, v) => self.expr(acc, v),
+                nast::ShapeExprField::SFSplat(v) => self.expr(acc, v),
+            }),
             Expr_::ExpressionTree(_) => acc,
             Expr_::Omitted => acc,
             Expr_::Import(_) => acc,

@@ -37,16 +37,25 @@ fn check_inout_parameters(env: &Env, pos: &Pos, (_, ftype): &(typing_reason::T, 
     }
 }
 
+/// `Naming_special_names.UnstableFeatures.named_parameters_meth_caller`
+/// (`naming_special_names_rust` does not have it).
+const NAMED_PARAMETERS_METH_CALLER: &str = "named_parameters_meth_caller";
+
 fn check_named_parameters(env: &Env, pos: &Pos, (_, ftype): &(typing_reason::T, std::rc::Rc<FunType>)) {
-    match ftype.params.iter().find(|fp| get_fp_is_named(fp)) {
-        Some(fparam) => typing_error_utils::add_typing_error(
-            &typing_error::primary(primary::T::Invalid_meth_caller_named_parameter {
-                pos: pos.clone(),
-                decl_pos: fparam.pos.clone(),
-            }),
-            env,
-        ),
-        None => {}
+    if !crate::typechecker_options::is_unstable_feature_enabled(
+        &crate::tast_env::get_tcopt(env),
+        NAMED_PARAMETERS_METH_CALLER,
+    ) {
+        match ftype.params.iter().find(|fp| get_fp_is_named(fp)) {
+            Some(fparam) => typing_error_utils::add_typing_error(
+                &typing_error::primary(primary::T::Invalid_meth_caller_named_parameter {
+                    pos: pos.clone(),
+                    decl_pos: fparam.pos.clone(),
+                }),
+                env,
+            ),
+            None => {}
+        }
     }
 }
 

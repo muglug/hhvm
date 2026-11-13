@@ -149,28 +149,23 @@ pub(crate) fn add_non_subtype_constraint(
     )
 }
 
-pub(crate) fn is_stringish_upper_bound(level: isize, env: &mut Env, ty: &Ty) -> bool {
+pub(crate) fn is_stringish_upper_bound(env: &mut Env, ty: &Ty) -> bool {
     let ty = env::expand_type(env, ty.clone());
     match get_node(&ty) {
-        Ty_::Tclass((_, name), _, tyargs)
-            if tyargs.is_empty() && level >= 1 && name == C_STRING =>
-        {
-            true
-        }
-        Ty_::Tprim(Tprim::Tarraykey) if level >= 2 => true,
+        Ty_::Tclass((_, name), _, tyargs) if tyargs.is_empty() && name == C_STRING => true,
+        Ty_::Tprim(Tprim::Tarraykey) => true,
         Ty_::Tclass((_, name), _, tyargs)
             if tyargs.is_empty()
-                && level >= 3
                 && (name == sn::classes::STRINGISH || name == sn::classes::XHP_CHILD) =>
         {
             true
         }
-        Ty_::Toption(ty) if level >= 4 => is_stringish_upper_bound(level, env, ty),
-        Ty_::Tunion(tyl) if level >= 5 => {
+        Ty_::Toption(ty) => is_stringish_upper_bound(env, ty),
+        Ty_::Tunion(tyl) => {
             let mut found = false;
             for ty in tyl {
                 if !found {
-                    found = is_stringish_upper_bound(level, env, ty);
+                    found = is_stringish_upper_bound(env, ty);
                 }
             }
             found
@@ -180,30 +175,25 @@ pub(crate) fn is_stringish_upper_bound(level: isize, env: &mut Env, ty: &Ty) -> 
 }
 
 pub(crate) fn maybe_widen_class_pointer_bound(env: &mut Env, var: tvid::T, ty_sub: Ty) -> Ty {
-    let level = env::get_tcopt(env).tco_class_pointer_tyvar_lower_bound;
-    if level < 1 {
-        ty_sub
-    } else {
-        let upper_bounds = env::get_tyvar_upper_bounds(env, var);
-        let widen = ity_set::fold(
-            |upper_bound: &InternalType, found: bool| {
-                if found {
-                    true
-                } else {
-                    match upper_bound {
-                        InternalType::LoclType(ty) => is_stringish_upper_bound(level, env, ty),
-                        InternalType::ConstraintType(_) => false,
-                    }
+    let upper_bounds = env::get_tyvar_upper_bounds(env, var);
+    let widen = ity_set::fold(
+        |upper_bound: &InternalType, found: bool| {
+            if found {
+                true
+            } else {
+                match upper_bound {
+                    InternalType::LoclType(ty) => is_stringish_upper_bound(env, ty),
+                    InternalType::ConstraintType(_) => false,
                 }
-            },
-            &upper_bounds,
-            false,
-        );
-        if widen {
-            typing_class_pointers::coerce_to_name(1, env, ty_sub)
-        } else {
-            ty_sub
-        }
+            }
+        },
+        &upper_bounds,
+        false,
+    );
+    if widen {
+        typing_class_pointers::coerce_to_name(env, ty_sub)
+    } else {
+        ty_sub
     }
 }
 
@@ -215,38 +205,33 @@ pub(crate) fn maybe_widen_lower_bounds_for_stringish(
     ty_super: &Ty,
     on_error: &Option<reasons_callback::T>,
 ) -> tl::SubtypeProp {
-    let level = env::get_tcopt(env).tco_class_pointer_tyvar_upper_bound;
-    if level < 1 {
+    let widen = is_stringish_upper_bound(env, ty_super);
+    if !widen {
         prop
     } else {
-        let widen = is_stringish_upper_bound(level, env, ty_super);
-        if !widen {
-            prop
-        } else {
-            let lower_bounds = env::get_tyvar_lower_bounds(env, var);
-            ity_set::fold(
-                |lower_bound: &InternalType, prop: tl::SubtypeProp| match lower_bound {
-                    InternalType::LoclType(ty) => {
-                        let widened_ty = typing_class_pointers::coerce_to_name(1, env, ty.clone());
-                        if equal_locl_ty(ty, &widened_ty) {
-                            prop
-                        } else {
-                            add_tyvar_lower_bound_and_close(
-                                is_dynamic_aware,
-                                env,
-                                prop,
-                                (r_sup.clone(), var),
-                                widened_ty,
-                                on_error,
-                            )
-                        }
+        let lower_bounds = env::get_tyvar_lower_bounds(env, var);
+        ity_set::fold(
+            |lower_bound: &InternalType, prop: tl::SubtypeProp| match lower_bound {
+                InternalType::LoclType(ty) => {
+                    let widened_ty = typing_class_pointers::coerce_to_name(env, ty.clone());
+                    if equal_locl_ty(ty, &widened_ty) {
+                        prop
+                    } else {
+                        add_tyvar_lower_bound_and_close(
+                            is_dynamic_aware,
+                            env,
+                            prop,
+                            (r_sup.clone(), var),
+                            widened_ty,
+                            on_error,
+                        )
                     }
-                    InternalType::ConstraintType(_) => prop,
-                },
-                &lower_bounds,
-                prop,
-            )
-        }
+                }
+                InternalType::ConstraintType(_) => prop,
+            },
+            &lower_bounds,
+            prop,
+        )
     }
 }
 

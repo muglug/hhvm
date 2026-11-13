@@ -742,10 +742,8 @@ struct SymbolVisitor {
     in_class_ptr: bool,
     in_attribute: bool,
     in_require_package_intern: bool,
-    in_typedef: bool,
     in_newtype: bool,
     in_is_expression: bool,
-    in_as_expression: bool,
     /// The `f_unsafe_ctxs` / `m_unsafe_ctxs` of the functions and methods
     /// being visited (by address), which the OCaml sets to `None` before it
     /// visits them.
@@ -763,10 +761,8 @@ impl SymbolVisitor {
             in_class_ptr: false,
             in_attribute: false,
             in_require_package_intern: false,
-            in_typedef: false,
             in_newtype: false,
             in_is_expression: false,
-            in_as_expression: false,
             skipped_contexts: HashSet::new(),
         }
     }
@@ -979,11 +975,7 @@ impl SymbolVisitor {
     /// `method! on_As`
     fn on_As<'b>(&mut self, env: &mut Env, as_: &'b aast::As_<tast::Ty, tast::SavedEnv>) -> Res {
         self.visit_expr(env, &as_.expr)?;
-        let old_in_as_expression = self.in_as_expression;
-        self.in_as_expression = true;
-        let res = self.visit_hint(env, &as_.hint);
-        self.in_as_expression = old_in_as_expression;
-        res
+        self.visit_hint(env, &as_.hint)
     }
 
     /// `method! on_Call`
@@ -1140,11 +1132,6 @@ impl SymbolVisitor {
                     false
                 } else if self.in_newtype || self.in_is_expression {
                     false
-                } else if self.in_typedef {
-                    true
-                } else if self.in_as_expression {
-                    let tcopt = tast_env::get_tcopt(env);
-                    !tcopt.tco_package_allow_as_expression_violations
                 } else {
                     true
                 };
@@ -1409,11 +1396,6 @@ impl<'a> Visitor<'a> for SymbolVisitor {
                     !tcopt.tco_package_allow_classconst_violations
                 } else if self.in_newtype || self.in_is_expression {
                     false
-                } else if self.in_typedef {
-                    true
-                } else if self.in_as_expression {
-                    let tcopt = tast_env::get_tcopt(env);
-                    !tcopt.tco_package_allow_as_expression_violations
                 } else {
                     true
                 };
@@ -1548,12 +1530,9 @@ impl<'a> Visitor<'a> for SymbolVisitor {
             }) => true,
             _ => false,
         };
-        let old_in_typedef = self.in_typedef;
         let old_in_newtype = self.in_newtype;
-        self.in_typedef = true;
         self.in_newtype = is_newtype;
         let res = typedef.recurse(env, self);
-        self.in_typedef = old_in_typedef;
         self.in_newtype = old_in_newtype;
         res
     }

@@ -1097,6 +1097,7 @@ pub(crate) fn catch(
             &[],
             &aast::ClassId((), ety_p.clone(), cid.clone()),
         );
+    let ety = crate::typing::prelude::fresh_generic_targs_for_bare_class(env, sid, ety);
     let ty_err_opt = coerce_to_throwable(ety_p, env, ety.clone());
     if let Some(err) = &ty_err_opt {
         typing_error_utils::add_typing_error(err, env)

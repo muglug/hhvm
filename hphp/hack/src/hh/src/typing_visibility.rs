@@ -106,8 +106,8 @@ fn is_private_visible(env: &Env, origin_id: &str, self_id: &str) -> Option<Strin
         };
         match env::get_class(env, self_id) {
             decl_entry::T::Found(cls) if ast_defs::is_c_trait(cls::kind(&cls)) => {
-                // If the right class is required via `require class`, give access;
-                // `require this as` constraints are not sufficient to give access
+                // If the origin class is final and required via `require class` then
+                // it is sound to give access to its private members.
                 let bounds_from_require_class_constraints: Vec<DeclTy> =
                     cls::all_ancestor_req_class_requirements(&cls)
                         .into_iter()
@@ -634,7 +634,7 @@ pub fn check_obj_access(
                 },
             )
         };
-        if env::get_tcopt(env).tco_use_module_error_for_member_access {
+        {
             let module_error = match vis {
                 CeVisibility::Vinternal(m) => check_internal_access(
                     false,
@@ -660,8 +660,6 @@ pub fn check_obj_access(
                 .into_iter()
                 .flatten()
                 .collect()
-        } else {
-            check_visibility(vis).into_iter().collect()
         }
     }
 }
@@ -810,7 +808,7 @@ pub fn check_class_access(
                 },
             )
         };
-        if env::get_tcopt(env).tco_use_module_error_for_member_access {
+        {
             let module_error = match vis {
                 CeVisibility::Vinternal(m) => check_internal_access(
                     false,
@@ -836,8 +834,6 @@ pub fn check_class_access(
                 .into_iter()
                 .flatten()
                 .collect()
-        } else {
-            check_visibility(vis).into_iter().collect()
         }
     }
 }

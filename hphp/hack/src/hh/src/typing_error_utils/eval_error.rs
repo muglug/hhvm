@@ -989,6 +989,84 @@ pub mod eval_secondary {
         create(ErrorCode::SplatFieldNotKnown, Some(reasons), None)
     }
 
+    fn describe_shape_splat_cycle_element(env: &Env, element: &Ty) -> String {
+        crate::typing_print::full_strip_ns(true, env, element)
+    }
+
+    fn describe_shape_splat_cycle_edge(
+        env: &Env,
+        edge: &secondary::shape_splat_cycle::Edge,
+    ) -> Message<PosOrDecl> {
+        use secondary::shape_splat_cycle::EdgeKind;
+        // `let source = ... and target = ...`: no order is specified, and
+        // neither has an effect.
+        let source = md_codify(&describe_shape_splat_cycle_element(env, &edge.source));
+        let target = describe_shape_splat_cycle_element(env, &edge.target);
+        let message = match edge.kind {
+            EdgeKind::Direct_upper => format!(
+                "The upper bound of {} refers directly to {} here",
+                source,
+                md_codify(&target)
+            ),
+            EdgeKind::Indirect_upper => format!(
+                "Following the upper bounds of {} reaches {} here",
+                source,
+                md_codify(&target)
+            ),
+            EdgeKind::Nested_upper => format!(
+                "The upper bound of {} contains the shape spread {} here",
+                source,
+                md_codify(&format!("...{}", target))
+            ),
+            EdgeKind::Nested_lower => format!(
+                "The lower bound of {} contains the shape spread {} here",
+                source,
+                md_codify(&format!("...{}", target))
+            ),
+        };
+        Message(edge.pos.clone(), message.into())
+    }
+
+    fn unsupported_cyclic_shape_splat_bounds(
+        env: &Env,
+        pos: PosOrDecl,
+        cycle: Vec<secondary::shape_splat_cycle::Edge>,
+    ) -> T {
+        let env = env.clone();
+        let reasons = Lazy::new(move || {
+            let shown = &cycle[..std::cmp::min(6, cycle.len())];
+            let mut reasons: Vec<Message<PosOrDecl>> = shown
+                .iter()
+                .map(|edge| describe_shape_splat_cycle_edge(&env, edge))
+                .collect();
+            let omitted = cycle.len() - shown.len();
+            if omitted > 0 {
+                reasons.push(Message(
+                    pos.clone(),
+                    format!(
+                        "{} additional dependenc{} in this cycle {} not shown",
+                        omitted,
+                        if omitted == 1 { "y" } else { "ies" },
+                        if omitted == 1 { "is" } else { "are" }
+                    )
+                    .into(),
+                ))
+            }
+            let mut all = vec![Message(
+                pos.clone(),
+                "These shape-splat bounds form a recursive dependency that cannot be checked safely"
+                    .into(),
+            )];
+            all.extend(reasons);
+            all
+        });
+        create(
+            ErrorCode::UnsupportedCyclicShapeSplatBounds,
+            Some(reasons),
+            None,
+        )
+    }
+
     fn abstract_tconst_not_allowed(pos: PosOrDecl, decl_pos: PosOrDecl, tconst_name: String) -> T {
         let reasons = Lazy::new(move || {
             vec![
@@ -1537,10 +1615,9 @@ pub mod eval_secondary {
         decl_pos: PosOrDecl,
         actual: isize,
         expected: isize,
-        hint_convert_to_optional: Option<PosOrDecl>,
     ) -> T {
         let (code, claim, reasons) =
-            common::typing_too_many_args(pos, decl_pos, actual, expected, hint_convert_to_optional);
+            common::typing_too_many_args(pos, decl_pos, actual, expected);
         let reasons = claim_and_reasons(claim, reasons);
         create(code, Some(reasons), None)
     }
@@ -2100,6 +2177,9 @@ pub mod eval_secondary {
                 name,
                 field,
             )),
+            Unsupported_cyclic_shape_splat_bounds { pos, cycle } => eval_result::single(
+                unsupported_cyclic_shape_splat_bounds(env, pos.clone(), cycle.clone()),
+            ),
             Abstract_tconst_not_allowed {
                 pos,
                 decl_pos,
@@ -2318,7 +2398,6 @@ pub mod eval_secondary {
                 decl_pos.clone(),
                 *actual,
                 *expected,
-                None,
             )),
             Typing_too_few_args {
                 pos,

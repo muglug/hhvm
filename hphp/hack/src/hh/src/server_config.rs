@@ -23,9 +23,7 @@
 //! `Global_options.set ~a ?b options` is written as the copy of `options`
 //! with the fields that are given replaced (`setting`, `setting_opt`), plus
 //! what `set` does besides: it resets `tco_dynamic_inference` to its default
-//! (its optional argument has one), and computes three of the
-//! `needs_concrete_*` checks from `needs_concrete` when they are not given
-//! (`global_options_set_rest`).
+//! (its optional argument has one) (`global_options_set_rest`).
 //!
 //! OCaml evaluates the arguments of a call and the fields of a record from
 //! right to left, in the order in which the function declares its
@@ -530,39 +528,10 @@ fn setting_opt<A>(field: &mut Option<A>, setting: Option<A>) {
 
 /// What `Global_options.set` does to the fields that are not among its
 /// arguments: `tco_dynamic_inference` takes its default (its optional
-/// argument has one), and `needs_concrete_body_check`,
-/// `needs_concrete_forwarding_call_check` and
-/// `needs_concrete_class_call_check` fall back on `needs_concrete` (1 or 0)
-/// when they are not given (`needs_concrete_fallback`). `options` is the
-/// argument of `set`; `opts`, its copy being updated.
-fn global_options_set_rest(
-    opts: &mut GlobalOptions,
-    options: &GlobalOptions,
-    needs_concrete: Option<bool>,
-    needs_concrete_body_check: Option<isize>,
-    needs_concrete_forwarding_call_check: Option<isize>,
-    needs_concrete_class_call_check: Option<isize>,
-) {
-    let needs_concrete_fallback =
-        |fine_grained_value: Option<isize>, current_value: isize| match fine_grained_value {
-            Some(value) => value,
-            None => match needs_concrete {
-                Some(true) => 1,
-                Some(false) => 0,
-                None => current_value,
-            },
-        };
+/// argument has one). `opts` is the copy of the argument of `set` being
+/// updated.
+fn global_options_set_rest(opts: &mut GlobalOptions) {
     opts.tco_dynamic_inference = GlobalOptions::default().tco_dynamic_inference;
-    opts.needs_concrete_body_check =
-        needs_concrete_fallback(needs_concrete_body_check, options.needs_concrete_body_check);
-    opts.needs_concrete_forwarding_call_check = needs_concrete_fallback(
-        needs_concrete_forwarding_call_check,
-        options.needs_concrete_forwarding_call_check,
-    );
-    opts.needs_concrete_class_call_check = needs_concrete_fallback(
-        needs_concrete_class_call_check,
-        options.needs_concrete_class_call_check,
-    );
 }
 
 /// The `Yojson.Json_error` of a value that is not JSON is the `Err`.
@@ -575,6 +544,9 @@ pub fn load_config(
     let experimental_features = config_experimental_stx_features(config)?;
     // The fields of the record, from the last to the first in the order of
     // their declaration in `Parser_options.t`.
+    let allow_single_statement_concurrent =
+        bool_opt(hhconfig::allow_single_statement_concurrent, config)
+            .unwrap_or(po_opt.allow_single_statement_concurrent);
     let expression_tree_shape_no_unwrap =
         bool_opt(hhconfig::expression_tree_shape_no_unwrap, config)
             .unwrap_or(po_opt.expression_tree_shape_no_unwrap);
@@ -585,8 +557,6 @@ pub fn load_config(
             .unwrap_or(po_opt.treat_non_annotated_memoize_as_kbic);
     let disallow_non_annotated_memoize = bool_opt(hhconfig::disallow_non_annotated_memoize, config)
         .unwrap_or(po_opt.disallow_non_annotated_memoize);
-    let enable_class_pointer_hint = bool_opt(hhconfig::enable_class_pointer_hint, config)
-        .unwrap_or(po_opt.enable_class_pointer_hint);
     let package_support_multifile_tests =
         bool_opt(hhconfig::package_support_multifile_tests, config)
             .unwrap_or(po_opt.package_support_multifile_tests);
@@ -598,17 +568,15 @@ pub fn load_config(
         bool_opt(hhconfig::deregister_php_stdlib, config).unwrap_or(po_opt.deregister_php_stdlib);
     let keep_user_attributes =
         bool_opt(hhconfig::keep_user_attributes, config).unwrap_or(po_opt.keep_user_attributes);
+    let include_const_shape_key_values =
+        bool_opt(hhconfig::include_const_shape_key_values, config)
+            .unwrap_or(po_opt.include_const_shape_key_values);
     let include_enum_member_values = bool_opt(hhconfig::include_enum_member_values, config)
         .unwrap_or(po_opt.include_enum_member_values);
     let everything_sdt =
         bool_opt(hhconfig::everything_sdt, config).unwrap_or(po_opt.everything_sdt);
     let auto_namespace_map =
         prepare_auto_namespace_map(config)?.unwrap_or_else(|| po_opt.auto_namespace_map.clone());
-    let disallow_static_constants_in_default_func_args = bool_opt(
-        hhconfig::disallow_static_constants_in_default_func_args,
-        config,
-    )
-    .unwrap_or(po_opt.disallow_static_constants_in_default_func_args);
     let is_systemlib = bool_opt(hhconfig::is_systemlib, config).unwrap_or(po_opt.is_systemlib);
     let interpret_soft_types_as_like_types =
         bool_opt(hhconfig::interpret_soft_types_as_like_types, config)
@@ -643,10 +611,10 @@ pub fn load_config(
         disable_xhp_children_declarations,
         enable_xhp_class_modifier,
         interpret_soft_types_as_like_types,
-        disallow_static_constants_in_default_func_args,
         auto_namespace_map,
         everything_sdt,
         include_enum_member_values,
+        include_const_shape_key_values,
         keep_user_attributes,
         deregister_php_stdlib,
         union_intersection_type_hints,
@@ -659,44 +627,50 @@ pub fn load_config(
             .unwrap_or_else(|| po_opt.experimental_features.clone()),
         package_info: po_opt.package_info.clone(),
         package_support_multifile_tests,
-        enable_class_pointer_hint,
         disallow_non_annotated_memoize,
         treat_non_annotated_memoize_as_kbic,
         ignore_string_methods,
         enable_intrinsics_extension: po_opt.enable_intrinsics_extension,
         expression_tree_shape_no_unwrap,
+        allow_single_statement_concurrent,
     };
     // `Global_options.set ~po ?tco_language_feature_logging:(...) ... options`:
     // the arguments, from the last to the first in the order of the
     // parameters of `Global_options.set` (`?po ?tco_saved_state
     // ?po_disallow_toplevel_requires ... ?tco_tests_bypass_visibility_static_properties`).
+    let tco_ban_this_escape_in_overridable_constructors =
+        bool_opt(hhconfig::ban_this_escape_in_overridable_constructors, config);
+    let tco_xhp_attribute_reads_not_refined =
+        bool_opt(hhconfig::xhp_attribute_reads_not_refined, config);
+    let tco_type_structure_fields_may_be_absent =
+        bool_opt(hhconfig::type_structure_fields_may_be_absent, config);
+    let tco_foreach_key_after_value = bool_opt(hhconfig::foreach_key_after_value, config);
+    let tco_forget_one_branch_tconst_refinements =
+        bool_opt(hhconfig::forget_one_branch_tconst_refinements, config);
+    let tco_list_assign_right_to_left = bool_opt(hhconfig::list_assign_right_to_left, config);
+    let tco_ban_memoize_erased_generic_return =
+        bool_opt(hhconfig::ban_memoize_erased_generic_return, config);
+    let tco_missing_targs_as_fresh_generics =
+        bool_opt(hhconfig::missing_targs_as_fresh_generics, config);
+    let tco_ban_this_refinement_in_generic_class =
+        bool_opt(hhconfig::ban_this_refinement_in_generic_class, config);
     let tco_tests_bypass_visibility_static_properties =
         bool_opt(hhconfig::tests_bypass_visibility_static_properties, config);
     let tco_permits_bypassing_visibility =
         string_list_opt(hhconfig::permits_bypassing_visibility, config)
             .map(|l| l.iter().map(|s| utils::add_ns(s)).collect::<Vec<_>>());
-    let tco_disallow_specialized_function_refs =
-        bool_opt(hhconfig::disallow_specialized_function_refs, config);
-    let tco_class_pointer_tyvar_upper_bound =
-        int_opt(hhconfig::class_pointer_tyvar_upper_bound, config);
-    let tco_class_pointer_tyvar_lower_bound =
-        int_opt(hhconfig::class_pointer_tyvar_lower_bound, config);
-    let tco_class_pointer_array_write_keys =
-        int_opt(hhconfig::class_pointer_array_write_keys, config);
-    let tco_class_pointer_array_literal_keys =
-        int_opt(hhconfig::class_pointer_array_literal_keys, config);
     let class_pointer_ban_class_array_key =
         bool_opt(hhconfig::class_pointer_ban_class_array_key, config);
-    let class_pointer_ban_classname_static_meth =
-        int_opt(hhconfig::class_pointer_ban_classname_static_meth, config);
     let allow_class_string_cast = bool_opt(hhconfig::allow_class_string_cast, config);
     let strict_consistent_construct = bool_opt(hhconfig::strict_consistent_construct, config);
-    let needs_concrete_override_check = int_opt(hhconfig::needs_concrete_override_check, config)
-        .map(|value| {
+    let needs_concrete_class_function_pointer_check =
+        int_opt(hhconfig::needs_concrete_class_function_pointer_check, config).map(|value| {
             if value < 0 || value > 2 {
-                panic!("Invalid_argument: needs_concrete_override_check must be 0, 1, or 2");
+                panic!(
+                    "Invalid_argument: needs_concrete_class_function_pointer_check must be 0, 1, or 2"
+                );
             }
-            value
+            Some(value)
         });
     let needs_concrete_class_call_check =
         int_opt(hhconfig::needs_concrete_class_call_check, config).map(|value| {
@@ -705,21 +679,6 @@ pub fn load_config(
             }
             value
         });
-    let needs_concrete_forwarding_call_check =
-        int_opt(hhconfig::needs_concrete_forwarding_call_check, config).map(|value| {
-            if value < 0 || value > 2 {
-                panic!("Invalid_argument: needs_concrete_forwarding_call_check must be 0, 1, or 2");
-            }
-            value
-        });
-    let needs_concrete_body_check =
-        int_opt(hhconfig::needs_concrete_body_check, config).map(|value| {
-            if value < 0 || value > 2 {
-                panic!("Invalid_argument: needs_concrete_body_check must be 0, 1, or 2");
-            }
-            value
-        });
-    let needs_concrete = bool_opt(hhconfig::needs_concrete, config);
     let class_class_type = bool_opt(hhconfig::class_class_type, config);
     let class_sub_classname = bool_opt(hhconfig::class_sub_classname, config);
     let recursive_case_types = bool_opt(hhconfig::recursive_case_types, config);
@@ -730,8 +689,6 @@ pub fn load_config(
     let re_no_cache = bool_opt(hhconfig::re_no_cache, config);
     let tco_package_allow_enforceable_enum_violations =
         bool_opt(hhconfig::package_allow_enforceable_enum_violations, config);
-    let tco_package_allow_as_expression_violations =
-        bool_opt(hhconfig::package_allow_as_expression_violations, config);
     let tco_package_allow_all_tconst_violations =
         bool_opt(hhconfig::package_allow_all_tconst_violations, config);
     let tco_package_allow_classconst_violations =
@@ -772,8 +729,6 @@ pub fn load_config(
     let tco_implicit_inherit_sdt = bool_opt(hhconfig::implicit_inherit_sdt, config);
     let tco_require_extends_implements_ancestors =
         bool_opt(hhconfig::require_extends_implements_ancestors, config);
-    let tco_use_module_error_for_member_access =
-        bool_opt(hhconfig::use_module_error_for_member_access, config);
     let tco_meth_caller_only_public_visibility =
         bool_opt(hhconfig::meth_caller_only_public_visibility, config);
     let tco_typeconst_concrete_concrete_error =
@@ -781,7 +736,6 @@ pub fn load_config(
     let tco_allowed_expression_tree_visitors =
         string_list_opt(hhconfig::allowed_expression_tree_visitors, config)
             .map(|l| l.iter().map(|s| utils::add_ns(s)).collect::<Vec<_>>());
-    let tco_ignore_unsafe_cast = bool_opt(hhconfig::ignore_unsafe_cast, config);
     let tco_variadic_named_parameters = bool_opt(hhconfig::variadic_named_parameters, config);
     let tco_named_variadic_type = bool_opt(hhconfig::named_variadic_type, config);
     let tco_typed_open_shapes = bool_opt(hhconfig::typed_open_shapes, config);
@@ -813,8 +767,6 @@ pub fn load_config(
     let tco_disallow_unresolved_type_variables =
         bool_opt(hhconfig::disallow_unresolved_type_variables, config);
     let tco_like_casts = bool_opt(hhconfig::like_casts, config);
-    let tco_coeffects_local = bool_opt(hhconfig::local_coeffects, config);
-    let tco_coeffects = bool_opt(hhconfig::call_coeffects, config);
     let tco_reject_promoted_property_redeclaration =
         bool_opt(hhconfig::reject_promoted_property_redeclaration, config);
     let tco_silence_errors_under_dynamic = bool_opt(hhconfig::silence_errors_under_dynamic, config);
@@ -856,8 +808,6 @@ pub fn load_config(
         tco_legacy_experimental_features,
     );
     setting(&mut opts.tco_migration_flags, tco_migration_flags);
-    setting(&mut opts.tco_coeffects, tco_coeffects);
-    setting(&mut opts.tco_coeffects_local, tco_coeffects_local);
     setting(&mut opts.tco_like_casts, tco_like_casts);
     setting(
         &mut opts.tco_disallow_unresolved_type_variables,
@@ -944,7 +894,6 @@ pub fn load_config(
         &mut opts.tco_reject_promoted_property_redeclaration,
         tco_reject_promoted_property_redeclaration,
     );
-    setting(&mut opts.tco_ignore_unsafe_cast, tco_ignore_unsafe_cast);
     setting(
         &mut opts.tco_allowed_expression_tree_visitors,
         tco_allowed_expression_tree_visitors,
@@ -956,10 +905,6 @@ pub fn load_config(
     setting(
         &mut opts.tco_meth_caller_only_public_visibility,
         tco_meth_caller_only_public_visibility,
-    );
-    setting(
-        &mut opts.tco_use_module_error_for_member_access,
-        tco_use_module_error_for_member_access,
     );
     setting(
         &mut opts.tco_require_extends_implements_ancestors,
@@ -1013,10 +958,6 @@ pub fn load_config(
         tco_package_allow_all_tconst_violations,
     );
     setting(
-        &mut opts.tco_package_allow_as_expression_violations,
-        tco_package_allow_as_expression_violations,
-    );
-    setting(
         &mut opts.tco_package_allow_enforceable_enum_violations,
         tco_package_allow_enforceable_enum_violations,
     );
@@ -1042,10 +983,13 @@ pub fn load_config(
     setting(&mut opts.recursive_case_types, recursive_case_types);
     setting(&mut opts.class_sub_classname, class_sub_classname);
     setting(&mut opts.class_class_type, class_class_type);
-    setting(&mut opts.needs_concrete, needs_concrete);
     setting(
-        &mut opts.needs_concrete_override_check,
-        needs_concrete_override_check,
+        &mut opts.needs_concrete_class_call_check,
+        needs_concrete_class_call_check,
+    );
+    setting(
+        &mut opts.needs_concrete_class_function_pointer_check,
+        needs_concrete_class_function_pointer_check,
     );
     setting(
         &mut opts.strict_consistent_construct,
@@ -1053,32 +997,8 @@ pub fn load_config(
     );
     setting(&mut opts.allow_class_string_cast, allow_class_string_cast);
     setting(
-        &mut opts.class_pointer_ban_classname_static_meth,
-        class_pointer_ban_classname_static_meth,
-    );
-    setting(
         &mut opts.class_pointer_ban_class_array_key,
         class_pointer_ban_class_array_key,
-    );
-    setting(
-        &mut opts.tco_class_pointer_array_literal_keys,
-        tco_class_pointer_array_literal_keys,
-    );
-    setting(
-        &mut opts.tco_class_pointer_array_write_keys,
-        tco_class_pointer_array_write_keys,
-    );
-    setting(
-        &mut opts.tco_class_pointer_tyvar_lower_bound,
-        tco_class_pointer_tyvar_lower_bound,
-    );
-    setting(
-        &mut opts.tco_class_pointer_tyvar_upper_bound,
-        tco_class_pointer_tyvar_upper_bound,
-    );
-    setting(
-        &mut opts.tco_disallow_specialized_function_refs,
-        tco_disallow_specialized_function_refs,
     );
     setting(
         &mut opts.tco_permits_bypassing_visibility,
@@ -1088,14 +1008,43 @@ pub fn load_config(
         &mut opts.tco_tests_bypass_visibility_static_properties,
         tco_tests_bypass_visibility_static_properties,
     );
-    global_options_set_rest(
-        &mut opts,
-        options,
-        needs_concrete,
-        needs_concrete_body_check,
-        needs_concrete_forwarding_call_check,
-        needs_concrete_class_call_check,
+    setting(
+        &mut opts.tco_ban_this_refinement_in_generic_class,
+        tco_ban_this_refinement_in_generic_class,
     );
+    setting(
+        &mut opts.tco_missing_targs_as_fresh_generics,
+        tco_missing_targs_as_fresh_generics,
+    );
+    setting(
+        &mut opts.tco_ban_memoize_erased_generic_return,
+        tco_ban_memoize_erased_generic_return,
+    );
+    setting(
+        &mut opts.tco_list_assign_right_to_left,
+        tco_list_assign_right_to_left,
+    );
+    setting(
+        &mut opts.tco_forget_one_branch_tconst_refinements,
+        tco_forget_one_branch_tconst_refinements,
+    );
+    setting(
+        &mut opts.tco_foreach_key_after_value,
+        tco_foreach_key_after_value,
+    );
+    setting(
+        &mut opts.tco_type_structure_fields_may_be_absent,
+        tco_type_structure_fields_may_be_absent,
+    );
+    setting(
+        &mut opts.tco_ban_this_escape_in_overridable_constructors,
+        tco_ban_this_escape_in_overridable_constructors,
+    );
+    setting(
+        &mut opts.tco_xhp_attribute_reads_not_refined,
+        tco_xhp_attribute_reads_not_refined,
+    );
+    global_options_set_rest(&mut opts);
     Ok(opts)
 }
 
@@ -1250,7 +1199,7 @@ pub fn load_with_dynamic_overrides(
                 string_list(hhconfig::warnings_generated_files, vec![], &config);
             opts.hh_distc_exponential_backoff_num_retries =
                 local_config.hh_distc_exponential_backoff_num_retries;
-            global_options_set_rest(&mut opts, &default, None, None, None, None);
+            global_options_set_rest(&mut opts);
             opts
         };
         load_config(&config, &local_config_opts)?
@@ -1274,14 +1223,7 @@ pub fn load_with_dynamic_overrides(
             package_info,
             ..global_opts_without_package_info.po.clone()
         };
-        global_options_set_rest(
-            &mut opts,
-            &global_opts_without_package_info,
-            None,
-            None,
-            None,
-            None,
-        );
+        global_options_set_rest(&mut opts);
         opts
     };
 
@@ -1599,7 +1541,7 @@ allow_class_string_cast = false
         let options = GlobalOptions {
             tco_timeout: 7,
             tco_extended_reasons: Some(ExtendedReasonsConfig::Legacy),
-            needs_concrete_body_check: 2,
+            needs_concrete_class_call_check: 2,
             ..GlobalOptions::default()
         };
         let opts = load_config(&config(""), &options).unwrap();
@@ -1608,7 +1550,7 @@ allow_class_string_cast = false
             opts.tco_extended_reasons,
             Some(ExtendedReasonsConfig::Legacy)
         );
-        assert_eq!(opts.needs_concrete_body_check, 2);
+        assert_eq!(opts.needs_concrete_class_call_check, 2);
         // `Global_options.set` resets `tco_dynamic_inference`.
         let options = GlobalOptions {
             tco_dynamic_inference: true,
@@ -1699,29 +1641,29 @@ keep_user_attributes = true
 
     #[test]
     fn needs_concrete() {
-        // `needs_concrete` gives three of the four checks, unless they are
-        // given.
-        let opts = load("needs_concrete = true\nneeds_concrete_class_call_check = 2");
-        assert!(opts.needs_concrete);
-        assert_eq!(opts.needs_concrete_body_check, 1);
-        assert_eq!(opts.needs_concrete_forwarding_call_check, 1);
+        // The check for function pointers is unset unless it is given.
+        let opts = load("needs_concrete_class_call_check = 2");
         assert_eq!(opts.needs_concrete_class_call_check, 2);
-        assert_eq!(opts.needs_concrete_override_check, 0);
+        assert_eq!(opts.needs_concrete_class_function_pointer_check, None);
         let options = GlobalOptions {
-            needs_concrete_body_check: 2,
+            needs_concrete_class_call_check: 2,
             ..GlobalOptions::default()
         };
-        let opts = load_config(&config("needs_concrete = false"), &options).unwrap();
-        assert_eq!(opts.needs_concrete_body_check, 0);
-        let opts = load_config(&config("needs_concrete_override_check = 1"), &options).unwrap();
-        assert_eq!(opts.needs_concrete_body_check, 2);
-        assert_eq!(opts.needs_concrete_override_check, 1);
+        let opts = load_config(
+            &config("needs_concrete_class_function_pointer_check = 1"),
+            &options,
+        )
+        .unwrap();
+        assert_eq!(opts.needs_concrete_class_call_check, 2);
+        assert_eq!(opts.needs_concrete_class_function_pointer_check, Some(1));
     }
 
     #[test]
-    #[should_panic(expected = "Invalid_argument: needs_concrete_body_check must be 0, 1, or 2")]
+    #[should_panic(
+        expected = "Invalid_argument: needs_concrete_class_call_check must be 0, 1, or 2"
+    )]
     fn needs_concrete_out_of_range() {
-        load("needs_concrete_body_check = 3");
+        load("needs_concrete_class_call_check = 3");
     }
 
     #[test]
@@ -1974,8 +1916,6 @@ keep_user_attributes = true
         assert!(!opts.allow_class_string_cast);
         assert!(opts.class_pointer_ban_class_array_key);
         assert_eq!(opts.tco_type_printer_fuel, 1000);
-        assert_eq!(opts.class_pointer_ban_classname_static_meth, 2);
-        assert_eq!(opts.tco_class_pointer_tyvar_upper_bound, 5);
         assert_eq!(
             opts.po.allowed_decl_fixme_codes,
             [1002, 2053, 3012, 4035, 4070, 4341].into_iter().collect()
@@ -2130,6 +2070,7 @@ tco_global_access_check_enabled = true
             Default::default(),
         )
         .unwrap()
+        .common
         .opts;
         let fields = |opts: &GlobalOptions| -> Vec<(String, serde_json::Value)> {
             let mut fields = vec![];
@@ -2156,7 +2097,6 @@ tco_global_access_check_enabled = true
             "glean_reponame",
             "po.auto_namespace_map",
             "po.codegen",
-            "po.disallow_static_constants_in_default_func_args",
             "po.keep_user_attributes",
             "symbol_write_exclude_out",
             "symbol_write_hhi_path",
@@ -2173,8 +2113,6 @@ tco_global_access_check_enabled = true
             "symbol_write_sym_hash_in",
             "symbol_write_sym_hash_out",
             "tco_allow_all_files_for_module_declarations",
-            "tco_coeffects",
-            "tco_coeffects_local",
             "tco_disable_physical_equality",
             "tco_disallow_discarded_nullable_awaitables",
             "tco_disallow_unresolved_type_variables",

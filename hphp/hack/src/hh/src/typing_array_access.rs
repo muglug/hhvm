@@ -356,10 +356,8 @@ pub fn assign_array_append(
     ty2: Ty,
 ) -> (Ty, Option<(Ty, Ty)>, Option<(Ty, Ty)>) {
     let (array_pos, expr_pos) = (&array_pos, &expr_pos);
-    let coerce_set_value = |env: &mut Env, ty: Ty| {
-        let level = env_::get_tcopt(env).tco_class_pointer_array_write_keys;
-        typing_class_pointers::coerce_to_name(level, env, ty)
-    };
+    let coerce_set_value =
+        |env: &mut Env, ty: Ty| typing_class_pointers::coerce_to_name(env, ty);
     let (ty_err1, ty1): (Option<typing_error::T>, Ty) = typing_solver::expand_type_and_narrow(
         env,
         None, // default
@@ -421,7 +419,7 @@ pub fn assign_array_append(
                     let tv = tyl[0].clone();
                     let tv = maybe_make_supportdyn(r, env, supportdyn, tv);
                     let tv = maybe_pessimise_type(env, tv);
-                    let val_ty_err_opt: Option<typing_error::T> = typing_ops::sub_type(
+                    let val_ty_err_opt: Option<typing_error::T> = typing_ops::sub_type(None, 
                         expr_pos.clone(),
                         ur.clone(),
                         env,
@@ -788,7 +786,7 @@ pub fn assign_array_get(
                         Enforcement::Enforced,
                         reason::index_class(cn),
                     );
-                    let ty_err2: Option<typing_error::T> = typing_ops::sub_type(
+                    let ty_err2: Option<typing_error::T> = typing_ops::sub_type(None, 
                         expr_pos.clone(),
                         ur.clone(),
                         env,
@@ -873,7 +871,7 @@ pub fn assign_array_get(
                         (Err(_), _) => idx_err1,
                         _ => idx_err2,
                     };
-                    let ty_err2: Option<typing_error::T> = typing_ops::sub_type(
+                    let ty_err2: Option<typing_error::T> = typing_ops::sub_type(None, 
                         expr_pos.clone(),
                         ur.clone(),
                         env,
@@ -1052,7 +1050,7 @@ pub fn assign_array_get(
                         reason::index_array(),
                     );
                     let tv_ = maybe_pessimise_type(env, tv.clone());
-                    let ty_err2: Option<typing_error::T> = typing_ops::sub_type(
+                    let ty_err2: Option<typing_error::T> = typing_ops::sub_type(None, 
                         expr_pos.clone(),
                         ur.clone(),
                         env,

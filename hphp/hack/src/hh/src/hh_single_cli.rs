@@ -77,6 +77,14 @@ fn comma_string_to_iset(s: &str) -> Result<oxidized::i_set::ISet> {
 }
 
 /// `bool_of_string`, as `Arg.Bool` parses its argument.
+/// The absolute path of the hhi file `name` (`Relative_path.to_absolute` of
+/// its path under the `Hhi` prefix).
+fn hhi_absolute_path(name: &str) -> String {
+    let prefix = hh::relative_path::path_of_prefix(hh::relative_path::Prefix::Hhi)
+        .unwrap_or_default();
+    format!("{}{}", prefix, name)
+}
+
 fn ocaml_bool(s: &str) -> Result<bool> {
     match s {
         "true" => Ok(true),
@@ -153,8 +161,6 @@ pub fn check_single(args: &[String]) -> Result<ExitCode> {
                     flags.auto_namespace_map = Some(map.into_iter().collect())
                 }
             }
-            "--no-call-coeffects" => flags.call_coeffects = false,
-            "--no-local-coeffects" => flags.local_coeffects = false,
             "--no-strict-contexts" => flags.strict_contexts = false,
             "--run-simplihack" => {
                 flags.skip_tast_checks = true;
@@ -215,9 +221,6 @@ pub fn check_single(args: &[String]) -> Result<ExitCode> {
                 flags.loop_iteration_upper_bound = Some(int(next("a number")?)?)
             }
             "--custom-error-config-path" => flags.custom_error_config_path = Some(next("a path")?),
-            "--enable-class-pointer-hint" => {
-                flags.enable_class_pointer_hint = ocaml_bool(&next("a bool")?)?
-            }
             // The modes (`set_mode`) and the flags only they read.
             #[cfg(feature = "port")]
             "--refactor-sound-dynamic" => {
@@ -460,6 +463,11 @@ pub fn check_single(args: &[String]) -> Result<ExitCode> {
             dir.join(builtin)
         };
         if let Ok(text) = std::fs::read(&builtin_path) {
+            // Error messages show the source of positions in the builtin.
+            hh::diagnostics_state::register_hhi_source(
+                hhi_absolute_path(&builtin.file_name().unwrap_or_default().to_string_lossy()),
+                String::from_utf8_lossy(&text).into_owned(),
+            );
             ctx.files.set(path, text);
             decl_paths.push(path);
         }
@@ -704,6 +712,10 @@ pub fn complete_single(args: &[String]) -> Result<ExitCode> {
                     // `die "Multiple magic builtins share the same base name.\n"`
                     bail!("Multiple magic builtins share the same base name.")
                 }
+                hh::diagnostics_state::register_hhi_source(
+                    hhi_absolute_path(&base.to_string_lossy()),
+                    String::from_utf8_lossy(&text).into_owned(),
+                );
                 ctx.files.set(path, text);
                 builtins.push(path);
             }

@@ -375,7 +375,6 @@ pub struct T {
     /// Configure whether fetch and cache remote decls
     pub cache_remote_decls: bool,
     /// Whether a Distc_failed server exit is treated as non-retryable.
-    pub abort_on_distc_failure: bool,
     /// use remote type-checking (hh_distc) rather than only local type-checking
     pub use_distc: bool,
     /// use fanout-aware remote type-checking (hh_distc)

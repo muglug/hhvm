@@ -42,6 +42,13 @@ pub fn bind_as_expr(
             let te = bind_foreach_target(env, p, ty2.clone(), ev);
             aast::AsExpr::AwaitAsV(p.clone(), te)
         }
+        aast::AsExpr::AsKv(ek, ev) if crate::typing_env::get_tcopt(env).tco_foreach_key_after_value => {
+            // HHVM writes the value before the key; `await as` writes the key
+            // first.
+            let te = bind_foreach_target(env, p, ty2.clone(), ev);
+            let tk = bind_foreach_target(env, p, ty1.clone(), ek);
+            aast::AsExpr::AsKv(tk, te)
+        }
         aast::AsExpr::AsKv(ek, ev) => {
             let tk = bind_foreach_target(env, p, ty1.clone(), ek);
             let te = bind_foreach_target(env, p, ty2.clone(), ev);

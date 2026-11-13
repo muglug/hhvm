@@ -2027,18 +2027,6 @@ pub fn deferred_init_members(t: &T) -> im::OrdSet<String> {
     })
 }
 
-pub fn valid_newable_class(cls: &T) -> bool {
-    // `Ast_defs.is_c_class`
-    if matches!(kind(cls), ClassishKind::Cclass(_)) {
-        final_(cls) || !(construct(cls).1 == ConsistentKind::Inconsistent)
-    }
-    // There is currently a bug with interfaces that allows constructors to change
-    // their signature, so they are not considered here. TODO: T41093452
-    else {
-        false
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use oxidized::typechecker_options::TypecheckerOptions;
@@ -2431,14 +2419,6 @@ abstract class AbsCtor {
         assert!(need_init(&cls("\\ConsistentChild")));
         assert!(!need_init(&cls("\\NoCtor")) && !need_init(&cls("\\AbsCtor")));
         assert!(construct(&cls("\\AbsCtor")).0.is_some());
-
-        // `new static()` is fine in a final class and in one whose
-        // constructor is consistent.
-        assert!(valid_newable_class(&cls("\\C")));
-        assert!(valid_newable_class(&cls("\\Consistent")));
-        assert!(valid_newable_class(&cls("\\ConsistentChild")));
-        assert!(!valid_newable_class(&cls("\\B")) && !valid_newable_class(&cls("\\NoCtor")));
-        assert!(!valid_newable_class(&cls("\\I")) && !valid_newable_class(&cls("\\Tr")));
 
         let c = cls("\\C");
         let any =

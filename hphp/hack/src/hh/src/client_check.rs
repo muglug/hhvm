@@ -49,11 +49,10 @@ use crate::stats;
 use crate::telemetry;
 
 /// `connect ?use_priority_pipe ?do_post_handoff_handshake
-/// ~abort_on_distc_failure args`
+/// args`
 pub fn connect(
     use_priority_pipe: Option<bool>,
     do_post_handoff_handshake: Option<bool>,
-    abort_on_distc_failure: bool,
     args: &client_env::ClientCheckEnv,
 ) -> Result<client_connect::Conn, Exn> {
     let use_priority_pipe = use_priority_pipe.unwrap_or(false);
@@ -98,7 +97,6 @@ pub fn connect(
     Ok(client_connect::connect(&client_connect::Env {
         root: root.clone(),
         from: from.clone(),
-        abort_on_distc_failure,
         autostart: *autostart,
         force_dormant_start: *force_dormant_start,
         deadline: *deadline,
@@ -123,15 +121,14 @@ pub fn connect(
     })?)
 }
 
-/// `connect_then_close ~abort_on_distc_failure args`
+/// `connect_then_close args`
 pub fn connect_then_close(
-    abort_on_distc_failure: bool,
     args: &client_env::ClientCheckEnv,
 ) -> Result<(), Exn> {
     let client_connect::Conn {
         channels: (ic, oc),
         ..
-    } = connect(Some(true), Some(false), abort_on_distc_failure, args)?;
+    } = connect(Some(true), Some(false), args)?;
     // `Out_channel.close oc`: the socket is closed (`ic` and `oc` are one
     // descriptor in OCaml, two here: both are closed).
     drop(oc);
@@ -145,16 +142,15 @@ pub fn connect_then_close(
     Ok(())
 }
 
-/// `rpc ~abort_on_distc_failure args command` (with `rpc_with_connection`,
+/// `rpc args command` (with `rpc_with_connection`,
 /// whose `call` it is the only caller of here).
 pub fn rpc<A: ResultOf>(
-    abort_on_distc_failure: bool,
     args: &client_env::ClientCheckEnv,
     command: server_command_types::T,
 ) -> Result<(A, telemetry::T), Exn> {
     // `rpc_with_connection`
     let use_priority_pipe = server_command_types::use_priority_pipe(&command);
-    let conn = || connect(Some(use_priority_pipe), None, abort_on_distc_failure, args);
+    let conn = || connect(Some(use_priority_pipe), None, args);
     // `call conn ~desc:args.desc command`
     let conn = conn()?;
     let (result, telemetry) = client_connect::rpc(&conn, &args.desc, command)?;
@@ -203,15 +199,14 @@ pub fn main_internal(
     local_config: &server_local_config::T,
     partial_telemetry_ref: &PartialTelemetryRef,
 ) -> Result<(exit_status::T, telemetry::T), Exn> {
-    let abort_on_distc_failure = local_config.abort_on_distc_failure;
-    let connect_then_close = || connect_then_close(abort_on_distc_failure, args);
+    let connect_then_close = || connect_then_close(args);
     match &args.mode {
         ClientMode::MODESTATUS => {
             let prechecked = args.prechecked.unwrap_or(true);
             let ((), telemetry1): ((), telemetry::T) = if prechecked {
                 ((), telemetry::create())
             } else {
-                rpc(abort_on_distc_failure, args, server_command_types::T::NOPRECHECKEDFILES)?
+                rpc(args, server_command_types::T::NOPRECHECKEDFILES)?
             };
             let error_filter = error_filter(config, local_config, args);
             // We don't do streaming errors under [output_json]: our contract
@@ -237,7 +232,6 @@ pub fn main_internal(
                 )
             } else {
                 let (status, telemetry): (server_command_types::server_status::T, _) = rpc(
-                    abort_on_distc_failure,
                     args,
                     server_command_types::T::STATUS {
                         max_errors: args.max_errors,
@@ -263,7 +257,7 @@ pub fn main_internal(
         mode @ ClientMode::MODELOGERRORS(_) => not_ported(mode),
         ClientMode::MODELISTFILES => {
             let (infol, telemetry): (Vec<String>, _) =
-                rpc(abort_on_distc_failure, args, server_command_types::T::LISTFILESWITHERRORS)?;
+                rpc(args, server_command_types::T::LISTFILESWITHERRORS)?;
             for s in &infol {
                 print!("{}\n", s);
             }
@@ -307,7 +301,7 @@ pub fn main_internal(
         mode @ ClientMode::MODELINTSTDIN(_) => not_ported(mode),
         mode @ ClientMode::MODELINTALL(_) => not_ported(mode),
         ClientMode::MODESTATS => {
-            let (stats, telemetry): (stats::T, _) = rpc(abort_on_distc_failure, args, server_command_types::T::STATS)?;
+            let (stats, telemetry): (stats::T, _) = rpc(args, server_command_types::T::STATS)?;
             print!(
                 "{}",
                 crate::rt::yojson_ext::pretty_to_string(&stats::to_json(&stats))

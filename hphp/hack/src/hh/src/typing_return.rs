@@ -222,7 +222,7 @@ fn force_return_kind(is_toplevel: bool, env: &mut Env, p: Pos, ety: Ty) -> Ty {
         }
         _ => {
             let wrapped_ty = make_fresh_return_type(env, p.clone());
-            let ty_err_opt = typing_ops::sub_type(
+            let ty_err_opt = typing_ops::sub_type(None, 
                 p,
                 Ureason::URreturn,
                 env,
@@ -452,7 +452,7 @@ pub fn implicit_return(
             is_async,
         },
     );
-    let ty_err_opt = typing_ops::sub_type(
+    let ty_err_opt = typing_ops::sub_type(None, 
         pos,
         reason,
         env,

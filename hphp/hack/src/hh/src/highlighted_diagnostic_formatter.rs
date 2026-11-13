@@ -369,12 +369,13 @@ fn load_context_lines_for_highlighted(
     // output to at most 1,000 lines.
     let end_line = std::cmp::min(start_line + 1000, end_line);
 
-    let lines = diagnostics_state::read_lines(&path);
-    match lines.as_slice() {
-        [] => (start_line..=end_line)
+    let lines = diagnostics_state::read_lines_for_highlighted(&path);
+    match lines {
+        None => vec![],
+        Some(lines) if lines.is_empty() => (start_line..=end_line)
             .map(|line_num| (line_num, None))
             .collect(),
-        _ => {
+        Some(lines) => {
             let numbered_lines = lines
                 .into_iter()
                 .enumerate()

@@ -61,7 +61,6 @@ pub fn typing_too_many_args(
     decl_pos: PosOrDecl,
     actual: isize,
     expected: isize,
-    hint_convert_to_optional: Option<PosOrDecl>,
 ) -> (Typing, Lazy<Message<Pos>>, Lazy<Vec<Message<PosOrDecl>>>) {
     let claim = Lazy::new(move || {
         Message(
@@ -73,16 +72,7 @@ pub fn typing_too_many_args(
             .into(),
         )
     });
-    let reasons = Lazy::new(move || {
-        let mut reasons = vec![Message(decl_pos, "Definition is here".into())];
-        if let Some(pos) = hint_convert_to_optional {
-            reasons.push(Message(
-                pos,
-                "Try converting this argument as optional".into(),
-            ))
-        }
-        reasons
-    });
+    let reasons = Lazy::new(move || vec![Message(decl_pos, "Definition is here".into())]);
     (Typing::TypingTooManyArgs, claim, reasons)
 }
 
@@ -503,27 +493,15 @@ mod tests {
                 pos("class_meth5.php", 19, 8, 14),
                 1,
                 0,
-                None
             )),
             "ERROR: File \"class_meth5.php\", line 20, characters 10-18:\n\
              Too many positional arguments (expected 0 but got 1) (Typing[4105])\n  \
              File \"class_meth5.php\", line 19, characters 8-14:\n  \
              Definition is here\n"
         );
-        let (_, _, reasons) = typing_too_many_args(
-            pos("a.php", 2, 1, 2),
-            pos("a.php", 1, 1, 2),
-            2,
-            1,
-            Some(pos("a.php", 1, 5, 6)),
-        );
-        assert_eq!(
-            reasons.force()[1],
-            Message(
-                pos("a.php", 1, 5, 6),
-                "Try converting this argument as optional".into()
-            )
-        );
+        let (_, _, reasons) =
+            typing_too_many_args(pos("a.php", 2, 1, 2), pos("a.php", 1, 1, 2), 2, 1);
+        assert_eq!(reasons.force().len(), 1);
         // hphp/hack/test/typecheck/named_parameters/named_params_errors.php.exp
         assert_eq!(
             render3(typing_too_few_args(

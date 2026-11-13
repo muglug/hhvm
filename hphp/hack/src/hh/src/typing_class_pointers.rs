@@ -16,11 +16,17 @@ use oxidized::ast_defs;
 use oxidized::pos::Pos;
 use oxidized::pos_or_decl::PosOrDecl;
 
+use crate::typing_defs_core::ShapeType;
+use crate::typing_defs_core::ShapeTypeSimple;
+use crate::typing_defs_core::ShapeTypeSplat;
+use crate::typing_defs_core::TupleExtra;
+use crate::typing_defs_core::TupleType;
 use crate::typing_defs_core::Ty;
 use crate::typing_defs_core::Ty_;
 use crate::typing_defs_core::get_node;
 use crate::typing_defs_core::get_reason;
 use crate::typing_defs_core::mk;
+use crate::typing_defs_core::ty_equal;
 use crate::typing_dynamic_utils;
 use crate::typing_env;
 use crate::typing_env_types::Env;
@@ -102,6 +108,9 @@ pub fn check_string_coercion_point<Ex, En>(env: &Env, expr: &aast::Expr<Ex, En>,
                             Ty_::Tclass((_, id), _, _) if id == C_STRING => {
                                 error_at_cls_const_expr(env, pos.clone(), string_of_class_id_(cid_))
                             }
+                            Ty_::Tprim(ast_defs::Tprim::Tarraykey) => {
+                                error_at_cls_const_expr(env, pos.clone(), string_of_class_id_(cid_))
+                            }
                             _ => {}
                         };
                         let ty = typing_dynamic_utils::strip_dynamic(&mut env.clone(), ty.clone());
@@ -118,49 +127,141 @@ pub fn check_string_coercion_point<Ex, En>(env: &Env, expr: &aast::Expr<Ex, En>,
 }
 
 /// Weaken class-typed expression at runtime string coercion points
-pub fn coerce_to_name(level: isize, env: &mut Env, ty: Ty) -> Ty {
-    if level < 1 {
-        ty
-    } else {
-        let ety = typing_env::expand_type(env, ty.clone());
-        let (stripped, inner) = typing_utils::strip_supportdyn(env, ety.clone());
-        let rewrap = |ty: Ty| {
-            if stripped {
-                typing_make_type::supportdyn(get_reason(&ety).clone(), ty)
+pub fn coerce_to_name(env: &mut Env, ty: Ty) -> Ty {
+    let ety = typing_env::expand_type(env, ty.clone());
+    let (stripped, inner) = typing_utils::strip_supportdyn(env, ety.clone());
+    let rewrap = |ty: Ty| {
+        if stripped {
+            typing_make_type::supportdyn(get_reason(&ety).clone(), ty)
+        } else {
+            ty
+        }
+    };
+    let r = get_reason(&inner).clone();
+    match get_node(&inner) {
+        Ty_::TclassPtr(ty_inner) => rewrap(typing_make_type::classname(r, vec![ty_inner.clone()])),
+        Ty_::Tunion(tyl) => {
+            let tyl: Vec<Ty> = tyl
+                .iter()
+                .map(|ty| coerce_to_name(env, ty.clone()))
+                .collect();
+            rewrap(mk((r, Ty_::Tunion(tyl))))
+        }
+        Ty_::Tintersection(tyl) => {
+            let tyl: Vec<Ty> = tyl
+                .iter()
+                .map(|ty| coerce_to_name(env, ty.clone()))
+                .collect();
+            rewrap(mk((r, Ty_::Tintersection(tyl))))
+        }
+        Ty_::Tgeneric(_) | Ty_::Tnewtype(_, _, _) => {
+            let bound = typing_utils::get_base_type(Some(false), env, inner.clone());
+            match get_node(&bound) {
+                Ty_::TclassPtr(ty_inner) => {
+                    rewrap(typing_make_type::classname(r, vec![ty_inner.clone()]))
+                }
+                _ => ty,
+            }
+        }
+        _ => ty,
+    }
+}
+
+/// Whether a value of [ty] can be, or contain as a container value, a string
+/// that isn't a class pointer. Like types are trusted, as in refinement.
+pub fn may_hold_string(expanding: Option<&[Ty]>, env: &mut Env, ty: &Ty) -> bool {
+    let expanding = expanding.unwrap_or(&[]);
+    let ety = typing_env::expand_type(env, ty.clone());
+    let (_, ety) = typing_utils::strip_supportdyn(env, ety);
+    fn exists(expanding: &[Ty], env: &mut Env, tyl: &[Ty]) -> bool {
+        let mut found = false;
+        for ty in tyl {
+            if !found {
+                found = may_hold_string(Some(expanding), env, ty);
+            }
+        }
+        found
+    }
+    fn for_all(expanding: &[Ty], env: &mut Env, tyl: &[Ty]) -> bool {
+        let mut all = true;
+        for ty in tyl {
+            if all {
+                all = may_hold_string(Some(expanding), env, ty);
+            }
+        }
+        all
+    }
+    match get_node(&ety) {
+        Ty_::TclassPtr(_) | Ty_::Tfun(_) | Ty_::Tlabel(_) | Ty_::Tdynamic(_) => false,
+        Ty_::Tprim(ast_defs::Tprim::Tarraykey) => true,
+        Ty_::Tprim(_) => false,
+        Ty_::Tclass((_, name), _, tyl) => {
+            // A string is also an instance of some interfaces, e.g. Stringish
+            if name == C_STRING
+                || typing_utils::is_sub_type_for_union(
+                    env,
+                    &typing_make_type::string(crate::typing_reason::none()),
+                    &ety,
+                )
+            {
+                true
             } else {
-                ty
-            }
-        };
-        let r = get_reason(&inner).clone();
-        match get_node(&inner) {
-            Ty_::TclassPtr(ty_inner) => {
-                rewrap(typing_make_type::classname(r, vec![ty_inner.clone()]))
-            }
-            Ty_::Tunion(tyl) if level >= 2 => {
-                let tyl: Vec<Ty> = tyl
-                    .iter()
-                    .map(|ty| coerce_to_name(level, env, ty.clone()))
-                    .collect();
-                rewrap(mk((r, Ty_::Tunion(tyl))))
-            }
-            Ty_::Tintersection(tyl) if level >= 2 => {
-                let tyl: Vec<Ty> = tyl
-                    .iter()
-                    .map(|ty| coerce_to_name(level, env, ty.clone()))
-                    .collect();
-                rewrap(mk((r, Ty_::Tintersection(tyl))))
-            }
-            Ty_::Tgeneric(_) | Ty_::Tnewtype(_, _, _) if level >= 3 => {
-                let bound = typing_utils::get_base_type(Some(false), env, inner.clone());
-                match get_node(&bound) {
-                    Ty_::TclassPtr(ty_inner) => {
-                        rewrap(typing_make_type::classname(r, vec![ty_inner.clone()]))
-                    }
-                    _ => ty,
+                // The value type of vec<T>, dict<K, T>, KeyedContainer<K, T>, ...
+                match tyl.last() {
+                    Some(ty) => may_hold_string(Some(expanding), env, ty),
+                    None => false,
                 }
             }
-            _ => ty,
         }
+        Ty_::Toption(ty) => may_hold_string(Some(expanding), env, ty),
+        Ty_::Tunion(tyl) => exists(expanding, env, tyl),
+        Ty_::Tintersection(tyl) => for_all(expanding, env, tyl),
+        Ty_::TvecOrDict(_, ty) => may_hold_string(Some(expanding), env, ty),
+        Ty_::Ttuple(TupleType {
+            required,
+            optional,
+            extra: TupleExtra::Tvariadic(ty) | TupleExtra::Tsplat(ty),
+        }) => {
+            let mut tyl = vec![ty.clone()];
+            tyl.extend(required.iter().cloned());
+            tyl.extend(optional.iter().cloned());
+            exists(expanding, env, &tyl)
+        }
+        Ty_::Tshape(ShapeType::ShapeSimple(ShapeTypeSimple {
+            unknown_value,
+            fields,
+            ..
+        })) => {
+            // `TShapeMap.fold (fun _ sft acc -> sft.sft_ty :: acc) s_fields []`:
+            // the fields, last key first.
+            let mut tyl = vec![unknown_value.clone()];
+            tyl.extend(fields.values().rev().map(|sft| sft.ty.clone()));
+            exists(expanding, env, &tyl)
+        }
+        Ty_::Tshape(ShapeType::ShapeSplat(ShapeTypeSplat { ss_elems })) => {
+            exists(expanding, env, ss_elems)
+        }
+        Ty_::Tgeneric(_) | Ty_::Tnewtype(_, _, _) | Ty_::Tdependent(_, _)
+            if !expanding.iter().any(|t| ty_equal(None, t, &ety)) =>
+        {
+            let bounds =
+                typing_utils::get_concrete_supertypes(None, Some(false), None, false, env, ety.clone());
+            if bounds.is_empty() {
+                true
+            } else {
+                let mut expanding_ = vec![ety.clone()];
+                expanding_.extend(expanding.iter().cloned());
+                for_all(&expanding_, env, &bounds)
+            }
+        }
+        Ty_::Tnonnull
+        | Ty_::Tany(_)
+        | Ty_::Tvar(_)
+        | Ty_::Tneg(_)
+        | Ty_::Taccess(_)
+        | Ty_::Tgeneric(_)
+        | Ty_::Tnewtype(_, _, _)
+        | Ty_::Tdependent(_, _) => true,
     }
 }
 

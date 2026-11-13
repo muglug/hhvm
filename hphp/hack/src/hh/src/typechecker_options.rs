@@ -66,10 +66,6 @@ pub fn set_skip_hierarchy_checks(t: T) -> T {
     }
 }
 
-pub fn any_coeffects(t: &T) -> bool {
-    t.tco_coeffects || t.tco_coeffects_local
-}
-
 pub fn custom_error_config(t: &T) -> CustomErrorConfig {
     t.tco_custom_error_config.clone()
 }
@@ -106,10 +102,9 @@ pub fn tco_extended_reasons(t: &T) -> Option<ExtendedReasonsConfig> {
     t.tco_extended_reasons.clone()
 }
 
-pub fn needs_concrete_body_or_call_check_enabled(t: &T) -> bool {
-    t.needs_concrete_body_check > 0
-        || t.needs_concrete_forwarding_call_check > 0
-        || t.needs_concrete_class_call_check > 0
+pub fn needs_concrete_class_function_pointer_check(t: &T) -> isize {
+    t.needs_concrete_class_function_pointer_check
+        .unwrap_or(t.needs_concrete_class_call_check)
 }
 
 pub fn enable_recursive_case_types(t: T) -> T {
@@ -161,18 +156,11 @@ mod tests {
     #[test]
     fn setters_and_predicates() {
         let mut t = T::default();
-        t.tco_coeffects = false;
-        t.tco_coeffects_local = false;
-        assert!(!any_coeffects(&t));
-        t.tco_coeffects_local = true;
-        assert!(any_coeffects(&t));
-
-        t.needs_concrete_body_check = 0;
-        t.needs_concrete_forwarding_call_check = 0;
-        t.needs_concrete_class_call_check = 0;
-        assert!(!needs_concrete_body_or_call_check_enabled(&t));
         t.needs_concrete_class_call_check = 1;
-        assert!(needs_concrete_body_or_call_check_enabled(&t));
+        t.needs_concrete_class_function_pointer_check = None;
+        assert_eq!(needs_concrete_class_function_pointer_check(&t), 1);
+        t.needs_concrete_class_function_pointer_check = Some(2);
+        assert_eq!(needs_concrete_class_function_pointer_check(&t), 2);
 
         t.tco_log_large_fanouts_threshold = None;
         assert!(!log_fanout(&t, 1000));

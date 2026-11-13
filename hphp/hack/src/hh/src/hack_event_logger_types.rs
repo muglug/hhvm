@@ -97,7 +97,6 @@ pub mod per_file_profiling_config {
 pub struct RolloutFlags {
     /// POC: @nzthomas. Collects the age of a saved state (in seconds)
     /// and distance (in globalrevs) for telemetry
-    pub log_saved_state_age_and_distance: bool,
     /// Whether to use Eden rather than Watchman to look up saved states.
     pub saved_state_lookup_use_eden: bool,
     /// POC: @bobren - Fetching old decls remotely to reduce fanout

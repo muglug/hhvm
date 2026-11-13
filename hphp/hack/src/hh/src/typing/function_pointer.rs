@@ -460,9 +460,7 @@ pub(crate) fn synth_static_method(
     let method_ty = set_function_pointer(env, method_ty);
     let method_ty = set_capture_only_readonly(env, method_ty);
     let method_ty = {
-        let contains_generics =
-            env.genv.tcopt.tco_disallow_specialized_function_refs && has_explicit_targs;
-        make_function_ref(contains_generics, pos, method_ty)
+        make_function_ref(has_explicit_targs, pos, method_ty)
     };
     let expr = aast::Expr_::FunctionPointer(Box::new((
         aast::FunctionPtrId::FPClassConst(tclass_id, method_name.clone()),
@@ -565,8 +563,7 @@ pub(crate) fn synth_mono(
             // All function pointers are readonly since they don't capture any values
             let fpty = set_capture_only_readonly(env, fpty);
             let fpty = {
-                let contains_generics = !tal.is_empty()
-                    || env.genv.tcopt.tco_disallow_specialized_function_refs && !targs.is_empty();
+                let contains_generics = !tal.is_empty() || !targs.is_empty();
                 make_function_ref(contains_generics, pos, fpty)
             };
             make_result(

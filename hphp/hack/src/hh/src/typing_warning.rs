@@ -228,6 +228,16 @@ pub mod static_property_override {
     }
 }
 
+pub mod readonly_property_override {
+    use oxidized::pos_or_decl::PosOrDecl;
+
+    #[derive(Clone, Debug)]
+    pub struct T {
+        pub prop_name: String,
+        pub child_prop_pos: PosOrDecl,
+    }
+}
+
 pub mod string_to_class_pointer {
     use oxidized::pos_or_decl::PosOrDecl;
 
@@ -258,52 +268,6 @@ pub mod call_needs_concrete {
         pub meth_name: String,
         pub decl_pos: PosOrDecl,
         pub via: Via,
-    }
-}
-
-pub mod abstract_access_via_static {
-    use oxidized::pos::Pos;
-    use oxidized::pos_or_decl::PosOrDecl;
-
-    #[derive(Clone, Debug)]
-    pub struct T {
-        pub access_pos: Pos,
-        pub class_name: String,
-        pub member_name: String,
-        pub decl_pos: PosOrDecl,
-        pub containing_method_pos: Option<Pos>,
-    }
-}
-
-pub mod uninstantiable_class_via_static {
-    use oxidized::pos::Pos;
-    use oxidized::pos_or_decl::PosOrDecl;
-
-    #[derive(Clone, Debug)]
-    pub struct T {
-        pub usage_pos: Pos,
-        pub class_name: String,
-        pub decl_pos: PosOrDecl,
-        pub containing_method_pos: Option<Pos>,
-    }
-}
-
-pub mod needs_concrete_override {
-    use oxidized::pos_or_decl::PosOrDecl;
-
-    #[derive(Clone, Debug)]
-    pub struct T {
-        pub pos: PosOrDecl,
-        pub parent_pos: PosOrDecl,
-        /// `Some m` iff `m` is a trait method of a trait that is used by the
-        /// class. In such cases, the location for the warning will be a class
-        /// name, so we need to preserve the method name to give a meaningful
-        /// error message.
-        /// Example:   `class Child extends Parent { use Tr; }`
-        ///                   ~~~~~
-        /// where trait `Tr` defines the method with the incorrect override of
-        /// `Parent::m`
-        pub method_name_for_method_defined_outside_class: Option<String>,
     }
 }
 
@@ -404,6 +368,16 @@ pub mod dynamic_call {
     }
 }
 
+pub mod dynamic_return {
+    use oxidized::pos_or_decl::PosOrDecl;
+
+    #[derive(Clone, Debug)]
+    pub struct T {
+        pub return_type: String,
+        pub return_type_pos: PosOrDecl,
+    }
+}
+
 pub mod sealed_not_override {
     #[derive(Clone, Debug)]
     pub struct T {
@@ -422,6 +396,13 @@ pub mod redundant_require_this_as {
     }
 }
 
+pub mod redundant_concurrent {
+    /// `unit` in OCaml; a type of its own here, because the renderer of a
+    /// warning is chosen by the type of its data (`tany_found::T` is `()`).
+    #[derive(Clone, Debug)]
+    pub struct T;
+}
+
 /// The constructors of `kind`, without the types they are indexed by: what a
 /// function that is polymorphic in `('x, 'a) kind` matches on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -438,12 +419,10 @@ pub enum KindTag {
     Switch_redundancy,
     Static_call_on_trait,
     Static_property_override,
+    Readonly_property_override,
     String_to_class_pointer,
     Null_coalesce_always,
     Call_needs_concrete,
-    Abstract_access_via_static,
-    Uninstantiable_class_via_static,
-    Needs_concrete_override,
     Expect_bool_for_condition,
     Redundant_nullsafe_operation,
     Unbound_name_warning,
@@ -452,8 +431,10 @@ pub enum KindTag {
     Tany_found,
     Consistent_construct_abstract_final,
     Dynamic_call,
+    Dynamic_return,
     Sealed_not_override,
     Redundant_require_this_as,
+    Redundant_concurrent,
 }
 
 /// `('x, 'a) kind`. The only values are the constants below, one for each
@@ -551,19 +532,6 @@ impl Kind<call_needs_concrete::T, Warn> {
     pub const Call_needs_concrete: Self = Self::new(KindTag::Call_needs_concrete);
 }
 
-impl Kind<abstract_access_via_static::T, Warn> {
-    pub const Abstract_access_via_static: Self = Self::new(KindTag::Abstract_access_via_static);
-}
-
-impl Kind<uninstantiable_class_via_static::T, Warn> {
-    pub const Uninstantiable_class_via_static: Self =
-        Self::new(KindTag::Uninstantiable_class_via_static);
-}
-
-impl Kind<needs_concrete_override::T, Warn> {
-    pub const Needs_concrete_override: Self = Self::new(KindTag::Needs_concrete_override);
-}
-
 impl Kind<expect_bool_for_condition::T, Warn> {
     pub const Expect_bool_for_condition: Self = Self::new(KindTag::Expect_bool_for_condition);
 }
@@ -592,6 +560,19 @@ impl Kind<tany_found::T, Warn> {
 impl Kind<consistent_construct_abstract_final::T, Warn> {
     pub const Consistent_construct_abstract_final: Self =
         Self::new(KindTag::Consistent_construct_abstract_final);
+}
+
+impl Kind<readonly_property_override::T, Warn> {
+    pub const Readonly_property_override: Self =
+        Self::new(KindTag::Readonly_property_override);
+}
+
+impl Kind<dynamic_return::T, Warn> {
+    pub const Dynamic_return: Self = Self::new(KindTag::Dynamic_return);
+}
+
+impl Kind<redundant_concurrent::T, Warn> {
+    pub const Redundant_concurrent: Self = Self::new(KindTag::Redundant_concurrent);
 }
 
 impl Kind<dynamic_call::T, Warn> {

@@ -280,6 +280,14 @@ pub fn to_diagnostic(error: NamingError) -> Diagnostic {
             pos,
             "Variadic named parameters (e.g. `named int...`) are not enabled.",
         ),
+        TraitSelfShapeKey { pos, key_name } => err(
+            Code::TraitSelfShapeKey,
+            pos,
+            format!(
+                "`{}` cannot be used as a shape key inside a trait; qualify the declaring class, trait, or interface explicitly",
+                key_name
+            ),
+        ),
         PrimitiveTopLevel(pos) => err(
             Code::PrimitiveToplevel,
             pos,

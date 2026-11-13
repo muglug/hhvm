@@ -62,6 +62,29 @@ pub type RefinementConstraintKind = ViolatedRefinementConstraintCstr;
 /// the AST being typed to be transformable into a user error.
 /// This can be done via applying a `Reasons_callback.t` using
 /// `apply_reasons`.
+/// `Typing_error.Secondary.Shape_splat_cycle`
+pub mod shape_splat_cycle {
+    use oxidized::pos_or_decl::PosOrDecl;
+
+    use crate::typing_defs_core::Ty;
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum EdgeKind {
+        Direct_upper,
+        Indirect_upper,
+        Nested_upper,
+        Nested_lower,
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct Edge {
+        pub pos: PosOrDecl,
+        pub source: Ty,
+        pub target: Ty,
+        pub kind: EdgeKind,
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum T {
     Of_error(Box<error::T>),
@@ -164,6 +187,10 @@ pub enum T {
         decl_pos: PosOrDecl,
         name: String,
         field: String,
+    },
+    Unsupported_cyclic_shape_splat_bounds {
+        pos: PosOrDecl,
+        cycle: Vec<shape_splat_cycle::Edge>,
     },
     Accept_disposable_invariant {
         pos: PosOrDecl,

@@ -139,16 +139,31 @@ fn relative_path(path: &str) -> String {
 /// The lines of source covering [start_line - before, end_line + after] for a
 /// position, as (line_number, line_text option) pairs. Mirrors the window used
 /// by the highlighted formatter, including its past-end-of-file sentinel.
-fn load_context_lines(before: isize, after: isize, pos: &Absolute) -> Vec<(isize, Option<String>)> {
+fn load_context_lines(
+    source: Option<&(String, String)>,
+    before: isize,
+    after: isize,
+    pos: &Absolute,
+) -> Vec<(isize, Option<String>)> {
     let path = crate::pos::filename(pos);
     let (start_line, _) = crate::pos::line_column_absolute(pos);
     let (end_line, end_col) = crate::pos::end_line_column_absolute(pos);
     // Internal errors can report the whole file; cap the window.
     let end_line = std::cmp::min(start_line + 1000, end_line);
-    match diagnostics_state::read_lines(&path) {
+    // The lines, and whether all of them are valid UTF-8.
+    let (lines, valid) = match source {
+        Some((source_path, content)) if path == *source_path => (
+            // `String.split_lines`
+            content.lines().map(|line| line.to_string()).collect(),
+            true,
+        ),
+        Some(_) | None => diagnostics_state::read_lines_with_validity(&path),
+    };
+    match lines {
         lines if lines.is_empty() => (start_line..=end_line)
             .map(|line_num| (line_num, None))
             .collect(),
+        _ if !valid => vec![],
         lines => {
             let numbered = lines
                 .into_iter()
@@ -363,7 +378,7 @@ fn file_header(groups: &[&PositionGroup]) -> String {
     let (line, col) = crate::pos::line_column_absolute(&primary_pos);
     format!(
         "{}:{}:{}",
-        relative_path(&crate::pos::filename(&primary_pos)),
+        relative_path(&crate::pos::filename_for_display(&primary_pos)),
         line,
         col + 1
     )
@@ -392,7 +407,7 @@ fn format_header(severity: &Severity, code: isize, ordered: &[MarkedMessage]) ->
     }
 }
 
-pub fn to_string(error: &FinalizedDiagnostic) -> String {
+fn format(source: Option<&(String, String)>, error: &FinalizedDiagnostic) -> String {
     let UserDiagnostic {
         severity,
         code,
@@ -420,8 +435,12 @@ pub fn to_string(error: &FinalizedDiagnostic) -> String {
             groups
                 .into_iter()
                 .map(|g| {
-                    let lines =
-                        load_context_lines(n_extra_lines, n_extra_lines, &g.aggregate_position);
+                    let lines = load_context_lines(
+                        source,
+                        n_extra_lines,
+                        n_extra_lines,
+                        &g.aggregate_position,
+                    );
                     (g, lines)
                 })
                 .collect()
@@ -460,6 +479,15 @@ pub fn to_string(error: &FinalizedDiagnostic) -> String {
         buf.push_str(&(custom_msgs.join("\n") + "\n"));
     }
     buf
+}
+
+pub fn to_string(error: &FinalizedDiagnostic) -> String {
+    format(None, error)
+}
+
+pub fn to_string_with_source(source: Option<String>, error: &FinalizedDiagnostic) -> String {
+    let path = crate::pos::filename(&error.claim.0);
+    format(source.map(|source| (path, source)).as_ref(), error)
 }
 
 #[cfg(test)]

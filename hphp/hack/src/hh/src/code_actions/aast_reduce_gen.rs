@@ -659,6 +659,13 @@ pub trait Reducer<'node, P: Params, A> {
     ) -> A {
         p.srecurse(c, self.object())
     }
+    fn visit_shape_expr_field(
+        &mut self,
+        c: &mut P::Context,
+        p: &'node ShapeExprField<P::Ex, P::En>,
+    ) -> A {
+        p.srecurse(c, self.object())
+    }
     fn visit_shape_field_info(
         &mut self,
         c: &mut P::Context,
@@ -2172,6 +2179,18 @@ impl<P: Params> SNode<P> for ShapeElement {
         match self {
             ShapeElement::SEField(a0) => a0.saccept(c, v),
             ShapeElement::SESplat(a0) => a0.saccept(c, v),
+        }
+    }
+}
+
+impl<P: Params> SNode<P> for ShapeExprField<P::Ex, P::En> {
+    fn saccept<'node, A>(&'node self, c: &mut P::Context, v: &mut dyn Reducer<'node, P, A>) -> A {
+        v.visit_shape_expr_field(c, self)
+    }
+    fn srecurse<'node, A>(&'node self, c: &mut P::Context, v: &mut dyn Reducer<'node, P, A>) -> A {
+        match self {
+            ShapeExprField::SFField(a0, a1) => { let r0 = a0.saccept(c, v); let r1 = a1.saccept(c, v); let r0 = v.plus(r0, r1); r0 },
+            ShapeExprField::SFSplat(a0) => a0.saccept(c, v),
         }
     }
 }

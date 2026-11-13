@@ -1440,6 +1440,35 @@ fn check_prop_const_mismatch(
     }
 }
 
+/// Property `readonly`-ness is invariant across overrides: reading a mutable
+/// property through a `readonly` view, or writing a `readonly` property through
+/// a mutable view, would both be unsound. We only warn (rather than error) for
+/// now, following `check_override_concrete_static_prop`.
+fn check_readonly_prop_override(
+    parent_pos: &Pos,
+    env: &Env,
+    member_name: &str,
+    parent_class_elt: &ClassElt,
+    class_elt: &ClassElt,
+) {
+    if get_ce_readonly_prop_or_needs_concrete(class_elt)
+        != get_ce_readonly_prop_or_needs_concrete(parent_class_elt)
+    {
+        let child_prop_pos = ce_pos(class_elt);
+        typing_warning_utils::add(
+            env,
+            (
+                parent_pos.clone(),
+                typing_warning::Kind::Readonly_property_override,
+                typing_warning::readonly_property_override::T {
+                    prop_name: member_name.to_string(),
+                    child_prop_pos,
+                },
+            ),
+        )
+    }
+}
+
 fn check_abstract_overrides_concrete(
     env: &Env,
     member_kind: MemberKind,
@@ -1472,7 +1501,9 @@ fn check_abstract_overrides_concrete(
 /// Why this check: It would be unsound for a class that needs concrete
 /// (`<<__NeedsConcrete>>`) to override one that does not, since a
 /// __NeedsConcrete method imposes stricter requirements on its input
-/// (`static` must point to a concrete class)
+/// (`static` must point to a concrete class).
+/// A final, concrete class is exempt: its methods only run with `static` bound
+/// to the class itself.
 fn check_needs_concrete_override(
     env: &Env,
     parent_class_elt: &ClassElt,
@@ -1481,10 +1512,9 @@ fn check_needs_concrete_override(
     class_pos: &Pos,
     member_name: &str,
 ) {
-    let check_level = env.genv.tcopt.needs_concrete_override_check;
-    if (check_level == 1 || check_level == 2)
-        && !get_ce_readonly_prop_or_needs_concrete(parent_class_elt)
+    if !get_ce_readonly_prop_or_needs_concrete(parent_class_elt)
         && get_ce_readonly_prop_or_needs_concrete(class_elt)
+        && !(cls::final_(class_) && typing_env::is_concrete_class(env, class_))
     {
         let defined_in_same_class = class_elt.ce_origin == cls::name(class_);
         let (error_pos, method_name_for_method_defined_outside_class) =
@@ -1496,30 +1526,15 @@ fn check_needs_concrete_override(
             };
         let method_pos = ce_pos(class_elt);
         let parent_pos = ce_pos(parent_class_elt);
-        match check_level {
-            1 => typing_warning_utils::add(
-                env,
-                (
-                    error_pos,
-                    typing_warning::Kind::Needs_concrete_override,
-                    typing_warning::needs_concrete_override::T {
-                        pos: method_pos,
-                        method_name_for_method_defined_outside_class,
-                        parent_pos,
-                    },
-                ),
-            ),
-            2 => typing_error_utils::add_typing_error(
-                &typing_error::primary(primary::T::Needs_concrete_override {
-                    pos: error_pos,
-                    method_pos,
-                    parent_pos,
-                    method_name_for_method_defined_outside_class,
-                }),
-                env,
-            ),
-            _ => {}
-        }
+        typing_error_utils::add_typing_error(
+            &typing_error::primary(primary::T::Needs_concrete_override {
+                pos: error_pos,
+                method_pos,
+                parent_pos,
+                method_name_for_method_defined_outside_class,
+            }),
+            env,
+        )
     }
 }
 
@@ -1926,14 +1941,19 @@ fn check_override(
     check_class_elt_visibility(env, parent_class_elt, class_elt, &on_error);
     check_prop_const_mismatch(env, parent_class_elt, class_elt, &on_error);
     check_abstract_overrides_concrete(env, member_kind, parent_class_elt, class_elt, &on_error);
-    check_needs_concrete_override(
-        env,
-        parent_class_elt,
-        class_,
-        class_elt,
-        class_pos,
-        member_name,
-    );
+    // On properties the shared flag means readonly, not __NeedsConcrete
+    if member_kind::is_method(member_kind) {
+        check_needs_concrete_override(
+            env,
+            parent_class_elt,
+            class_,
+            class_elt,
+            class_pos,
+            member_name,
+        );
+    } else if member_kind::is_property(member_kind) {
+        check_readonly_prop_override(parent_pos, env, member_name, parent_class_elt, class_elt);
+    }
 
     let pos = ce_pos(class_elt);
 
@@ -2847,6 +2867,7 @@ fn tconst_subsumption(
                 match (sub, super_) {
                     (Some(sub), Some(super_)) => typing_ops::sub_type_decl(
                         Some(is_coeffect),
+                        Some(false),
                         on_error.clone(),
                         pos.clone(),
                         reason,
@@ -2989,6 +3010,7 @@ fn tconst_subsumption(
                     )
                 } else {
                     typing_ops::sub_type_decl(
+                        None,
                         None,
                         on_error.clone(),
                         pos.clone(),

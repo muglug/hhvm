@@ -36,6 +36,7 @@ use oxidized::quickfix::Quickfix;
 use oxidized::s_set::SSet;
 
 use super::super::common;
+use crate::typing_error::primary;
 use super::T;
 use super::create;
 use crate::naming_errors::render;
@@ -303,31 +304,6 @@ pub fn unsatisfied_req_this_as(
     create(ErrorCode::UnsatisfiedReq, claim, Some(reasons), None)
 }
 
-pub fn req_class_not_final(pos: Pos, trait_pos: PosOrDecl, req_pos: PosOrDecl) -> T {
-    let reasons = Lazy::new(move || {
-        let r = Message(
-            trait_pos.clone(),
-            "The trait with a require class constraint is used here".into(),
-        );
-        if trait_pos == req_pos {
-            vec![r]
-        } else {
-            vec![
-                r,
-                Message(req_pos, "The require class constraint is here".into()),
-            ]
-        }
-    });
-    let claim = Lazy::new(move || {
-        Message(
-            pos,
-            "This class must be final because it uses a trait with a require class constraint."
-                .into(),
-        )
-    });
-    create(ErrorCode::UnsatisfiedReq, claim, Some(reasons), None)
-}
-
 pub fn incompatible_reqs(
     pos: Pos,
     req_name: String,
@@ -356,8 +332,15 @@ pub fn trait_not_used(
     req_class_pos: PosOrDecl,
     class_pos: PosOrDecl,
     class_name: &str,
+    req_constraint_kind: primary::TraitNotUsedReqConstraintKind,
 ) -> T {
     let class_name = strip_ns(class_name).to_string();
+    let (requires_text, requirement_text) = match req_constraint_kind {
+        primary::TraitNotUsedReqConstraintKind::class_ => ("requires class ", "require class"),
+        primary::TraitNotUsedReqConstraintKind::this_as => {
+            ("requires this as ", "require this as")
+        }
+    };
     let reasons = {
         let class_name = class_name.clone();
         Lazy::new(move || {
@@ -368,7 +351,7 @@ pub fn trait_not_used(
                 ),
                 Message(
                     req_class_pos,
-                    "The require class requirement is here.".into(),
+                    format!("The {} requirement is here.", requirement_text).into(),
                 ),
             ]
         })
@@ -377,8 +360,9 @@ pub fn trait_not_used(
         Message(
             pos,
             format!(
-                "Trait {} requires class {} but {} does not use it. Either use the trait or delete it.",
+                "Trait {} {}{} but {} does not use it. Either use the trait or delete it.",
                 strip_ns(&trait_name),
+                requires_text,
                 strip_ns(&class_name),
                 strip_ns(&class_name)
             )
@@ -797,10 +781,8 @@ pub fn typing_too_many_args(
     decl_pos: PosOrDecl,
     actual: isize,
     expected: isize,
-    hint_convert_to_optional: Option<PosOrDecl>,
 ) -> T {
-    let (code, claim, reasons) =
-        common::typing_too_many_args(pos, decl_pos, actual, expected, hint_convert_to_optional);
+    let (code, claim, reasons) = common::typing_too_many_args(pos, decl_pos, actual, expected);
     create(code, claim, Some(reasons), None)
 }
 
@@ -1845,6 +1827,132 @@ pub fn abstract_access_via_static(
     )
 }
 
+pub fn this_refinement_in_generic_class(pos: Pos, class_name: String, decl_pos: PosOrDecl) -> T {
+    let claim = Lazy::new(move || {
+        Message(
+            pos,
+            format!(
+                "`is this` and `as this` check only the class at runtime, not the type arguments of generic class {}, so they cannot refine to `this`. Refine to the class with wildcard type arguments instead.",
+                md_codify(strip_ns(&class_name))
+            )
+            .into(),
+        )
+    });
+    let reasons = Lazy::new(move || {
+        vec![Message(
+            decl_pos,
+            "The generic class is declared here".into(),
+        )]
+    });
+    create(
+        ErrorCode::ThisRefinementInGenericClass,
+        claim,
+        Some(reasons),
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn private_member_variance(
+    pos: Pos,
+    class_name: String,
+    member_name: String,
+    is_write: bool,
+    tparam_name: String,
+    variance: oxidized::ast_defs::Variance,
+    use_pos: PosOrDecl,
+    decl_pos: PosOrDecl,
+) -> T {
+    use oxidized::ast_defs::Variance;
+    let (kind, effect) = match variance {
+        Variance::Contravariant => ("contravariant", "narrowed"),
+        Variance::Covariant | Variance::Invariant => ("covariant", "widened"),
+    };
+    let use_variance = match (is_write, variance) {
+        (true, Variance::Covariant) | (false, Variance::Contravariant) => "covariantly",
+        _ => "contravariantly",
+    };
+    let tparam = md_codify(&tparam_name);
+    let claim = {
+        let tparam = tparam.clone();
+        Lazy::new(move || {
+            Message(
+                pos,
+                format!(
+                    "Private member {} of {} can only be {} through `$this`: its type uses the {} type parameter {} {}, and through another receiver the type arguments may have been {}.",
+                    md_codify(&member_name),
+                    md_codify(strip_ns(&class_name)),
+                    if is_write { "written" } else { "called" },
+                    kind,
+                    tparam,
+                    use_variance,
+                    effect
+                )
+                .into(),
+            )
+        })
+    };
+    let reasons = Lazy::new(move || {
+        vec![
+            Message(
+                use_pos,
+                format!("{} is used {} here", tparam, use_variance).into(),
+            ),
+            Message(
+                decl_pos,
+                "The class and its type parameters are declared here".into(),
+            ),
+        ]
+    });
+    create(ErrorCode::PrivateMemberVariance, claim, Some(reasons), None)
+}
+
+pub fn memoize_erased_generic_return(
+    pos: Pos,
+    tparam_name: String,
+    attr_pos: Pos,
+    via_param: Option<Pos>,
+) -> T {
+    let name = md_codify(&tparam_name);
+    let problem = match via_param {
+        None => {
+            " appears in an invariant or contravariant position of the return type of a memoized function. The memoization cache ignores erased generics"
+        }
+        Some(_) => {
+            " reaches the result of a memoized function through the type arguments of an `IMemoizeParam` parameter, whose cache key comes only from `getInstanceKey()`"
+        }
+    };
+    let claim = Lazy::new(move || {
+        Message(
+            pos,
+            format!(
+                "Erased generic {}{}, so calls with different {} can share one result. Make {} reified, or remove the memoization attribute.",
+                name, problem, name, name
+            )
+            .into(),
+        )
+    });
+    let reasons = Lazy::new(move || {
+        // Pos_or_decl.of_raw_pos
+        let mut reasons = vec![Message(attr_pos, "The function is memoized here".into())];
+        match via_param {
+            None => {}
+            Some(p) => reasons.push(Message(
+                // Pos_or_decl.of_raw_pos
+                p,
+                "This parameter is keyed by its `getInstanceKey()`".into(),
+            )),
+        }
+        reasons
+    });
+    create(
+        ErrorCode::MemoizeErasedGenericReturn,
+        claim,
+        Some(reasons),
+        None,
+    )
+}
+
 pub fn uninstantiable_class_via_static(
     pos: Pos,
     _class_name: &str,
@@ -2296,7 +2404,7 @@ pub fn enum_uncheckable_value(
             Message(
                 pos,
                 format!(
-                    "{} cannot be statically checked for duplicate values. Member values must be int or string literals, `nameof`, or `::class` to be checked; references to global constants (or other computed expressions) cannot be. Fix the flagged values and only include enums that can be checked, or add `<<__AllowUncheckedEnumValues>>` to the enum.",
+                    "{} cannot be statically checked for duplicate values. Member values must be int or string literals or `nameof` to be checked; references to global constants (or other computed expressions) cannot be. Fix the flagged values and only include enums that can be checked, or add `<<__AllowUncheckedEnumValues>>` to the enum.",
                     md_codify(strip_ns(&name))
                 )
                 .into(),
@@ -3021,25 +3129,6 @@ This class does not satisfy all the requirements of its traits or interfaces. (T
         );
     }
 
-    // require_class/requireclass_abstract_01.bad.php.exp
-    #[test]
-    fn test_req_class_not_final() {
-        assert_eq!(
-            render(&req_class_not_final(
-                pos("requireclass_abstract_01.bad.php", 5, 16, 16),
-                pos("requireclass_abstract_01.bad.php", 6, 7, 7),
-                pos("requireclass_abstract_01.bad.php", 10, 17, 17)
-            )),
-            r#"ERROR: File "requireclass_abstract_01.bad.php", line 5, characters 16-16:
-This class must be final because it uses a trait with a require class constraint. (Typing[4111])
-  File "requireclass_abstract_01.bad.php", line 6, characters 7-7:
-  The trait with a require class constraint is used here
-  File "requireclass_abstract_01.bad.php", line 10, characters 17-17:
-  The require class constraint is here
-"#
-        );
-    }
-
     // require_class/requireclass_conflict_01.bad.php.exp
     #[test]
     fn test_incompatible_reqs() {
@@ -3069,7 +3158,8 @@ This trait defines incompatible requirements. (Typing[4111])
                 s("\\T1"),
                 pos("requireclass_nouse_01.bad.php", 9, 17, 17),
                 pos("requireclass_nouse_01.bad.php", 16, 13, 13),
-                "\\C"
+                "\\C",
+                primary::TraitNotUsedReqConstraintKind::class_
             )),
             r#"ERROR: File "requireclass_nouse_01.bad.php", line 8, characters 7-8:
 Trait T1 requires class C but C does not use it. Either use the trait or delete it. (Typing[4466])
@@ -3460,7 +3550,6 @@ You are trying to access the method `assertIsFoo` but this object can be null. (
                 pos("class_meth5.php", 19, 8, 14),
                 1,
                 0,
-                None
             )),
             r#"ERROR: File "class_meth5.php", line 20, characters 10-18:
 Too many positional arguments (expected 0 but got 1) (Typing[4105])
@@ -4780,7 +4869,7 @@ This enum has members `DECIMAL_STRING` and `HEX_INT` with the same value `461168
                 )),
             )),
             r#"ERROR: File "enum_uncheckable_values.php", line 45, characters 6-24:
-`EnumManyUncheckable` cannot be statically checked for duplicate values. Member values must be int or string literals, `nameof`, or `::class` to be checked; references to global constants (or other computed expressions) cannot be. Fix the flagged values and only include enums that can be checked, or add `<<__AllowUncheckedEnumValues>>` to the enum. (Typing[4520])
+`EnumManyUncheckable` cannot be statically checked for duplicate values. Member values must be int or string literals or `nameof` to be checked; references to global constants (or other computed expressions) cannot be. Fix the flagged values and only include enums that can be checked, or add `<<__AllowUncheckedEnumValues>>` to the enum. (Typing[4520])
   File "enum_uncheckable_values.php", line 46, characters 3-4:
   `R1` cannot be checked
   File "enum_uncheckable_values.php", line 47, characters 3-4:
@@ -4808,7 +4897,7 @@ This enum has members `DECIMAL_STRING` and `HEX_INT` with the same value `461168
                 )),
             )),
             r#"ERROR: File "enum_alias_exempt.php", line 43, characters 6-26:
-`PartlyUncheckableBase` cannot be statically checked for duplicate values. Member values must be int or string literals, `nameof`, or `::class` to be checked; references to global constants (or other computed expressions) cannot be. Fix the flagged values and only include enums that can be checked, or add `<<__AllowUncheckedEnumValues>>` to the enum. (Typing[4520])
+`PartlyUncheckableBase` cannot be statically checked for duplicate values. Member values must be int or string literals or `nameof` to be checked; references to global constants (or other computed expressions) cannot be. Fix the flagged values and only include enums that can be checked, or add `<<__AllowUncheckedEnumValues>>` to the enum. (Typing[4520])
   File "enum_alias_exempt.php", line 46, characters 3-4:
   `PC` cannot be checked
 "#

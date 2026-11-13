@@ -54,25 +54,31 @@ pub mod hhconfig {
         abstract_static_props,
         allowed_decl_fixme_codes,
         auto_namespace_map,
+        ban_memoize_erased_generic_return,
+        ban_this_escape_in_overridable_constructors,
+        ban_this_refinement_in_generic_class,
         const_static_props,
         deregister_php_stdlib,
         disable_xhp_children_declarations,
         disable_xhp_element_mangling,
         disallow_non_annotated_memoize,
-        disallow_static_constants_in_default_func_args,
-        enable_class_pointer_hint,
         enable_experimental_stx_features,
         enable_xhp_class_modifier,
         expression_tree_shape_no_unwrap,
+        allow_single_statement_concurrent,
         everything_sdt,
+        forget_one_branch_tconst_refinements,
+        foreach_key_after_value,
         ignore_string_methods,
         interpret_soft_types_as_like_types,
         is_systemlib,
         keep_user_attributes,
+        list_assign_right_to_left,
+        missing_targs_as_fresh_generics,
         package_support_multifile_tests,
         treat_non_annotated_memoize_as_kbic,
+        type_structure_fields_may_be_absent,
         union_intersection_type_hints,
-
         // global options and typechecker options
         allow_all_files_for_module_declarations,
         allow_class_string_cast,
@@ -80,14 +86,8 @@ pub mod hhconfig {
         allowed_files_for_ignore_readonly,
         allowed_files_for_module_declarations,
         allowed_fixme_codes_strict,
-        call_coeffects,
         class_class_type,
-        class_pointer_array_literal_keys,
-        class_pointer_array_write_keys,
-        class_pointer_tyvar_lower_bound,
-        class_pointer_tyvar_upper_bound,
         class_pointer_ban_class_array_key,
-        class_pointer_ban_classname_static_meth,
         class_sub_classname,
         code_agnostic_fixme,
         const_attribute,
@@ -95,9 +95,9 @@ pub mod hhconfig {
         constraint_method_call,
         disable_physical_equality,
         disallow_discarded_nullable_awaitables,
-        disallow_specialized_function_refs,
         check_duplicate_enum_values,
         include_enum_member_values,
+        include_const_shape_key_values,
         disallow_toplevel_requires,
         disallow_unresolved_type_variables,
         dump_tast_hashes,
@@ -110,21 +110,15 @@ pub mod hhconfig {
         hack_warnings,
         hh_distc_exponential_backoff_num_retries,
         hh_distc_should_disable_trace_store,
-        ignore_unsafe_cast,
         implicit_inherit_sdt,
         language_feature_logging,
         like_casts,
-        local_coeffects,
         locl_cache_capacity,
         locl_cache_node_threshold,
         log_levels,
         meth_caller_only_public_visibility,
-        needs_concrete,
-        needs_concrete_body_check,
-        needs_concrete_forwarding_call_check,
         needs_concrete_class_call_check,
-        needs_concrete_override_check,
-        package_allow_as_expression_violations,
+        needs_concrete_class_function_pointer_check,
         package_allow_enforceable_enum_violations,
         package_allow_all_tconst_violations,
         package_allow_classconst_violations,
@@ -165,10 +159,8 @@ pub mod hhconfig {
         typecheck_sample_rate,
         typeconst_concrete_concrete_error,
         type_printer_fuel,
-        use_module_error_for_member_access,
         warnings_default_all,
         warnings_in_sandcastle,
-
         // server options
         current_saved_state_rollout_flag_index,
         deactivate_saved_state_rollout,
@@ -198,6 +190,7 @@ pub mod hhconfig {
         version,
         warn_on_non_opt_build,
         warnings_generated_files,
+        xhp_attribute_reads_not_refined,
     }
 }
 
@@ -207,14 +200,15 @@ pub mod hhconfig {
 pub mod hhconf {
     keys! {
         // distc
-        abort_on_distc_failure,
         enable_fanout_aware_distc,
         hh_distc_fanout_full_init_threshold,
         hh_distc_fanout_threshold,
         use_compressed_dep_graph,
         use_distc,
         use_distc_crawl_dircache,
-
+        eden_prefetch_enabled,
+        eden_prefetch_fanout_threshold,
+        eden_prefetch_workers,
         // edenfs file watcher
         edenfs_file_watcher_debug_logging,
         edenfs_file_watcher_enabled,
@@ -224,8 +218,8 @@ pub mod hhconf {
         edenfs_file_watcher_throttle_time_ms,
         edenfs_file_watcher_timeout_secs,
         edenfs_file_watcher_tracked_states,
-
         // experiments / infrastructure
+        art_cli_lite_exit_status_enabled,
         experiments,
         experiments_config_enabled,
         experiments_config_path,
@@ -238,15 +232,15 @@ pub mod hhconf {
         log_large_fanouts_threshold,
         min_log_level,
         use_justknobs,
-
         // IDE
         go_to_implementation,
+        ide_file_watcher_enabled,
+        ide_file_watcher_max_changed_files,
         ide_load_naming_table_on_disk,
         ide_naming_table_update_threshold,
         ide_parser_cache,
         ide_symbolindex_search_provider,
         symbolindex_quiet,
-
         // misc
         dump_tasts,
         eden_fetch_parallelism,
@@ -255,7 +249,6 @@ pub mod hhconf {
         status_single_use_cached_diagnostics,
         workload_quantile,
         zstd_decompress_by_file,
-
         // profiling
         memtrace_dir,
         profile_decling,
@@ -266,17 +259,16 @@ pub mod hhconf {
         profile_type_check_duration_threshold,
         profile_type_check_memory_threshold_mb,
         profile_type_check_twice,
-
         // provider backend
         allow_unstable_features,
         cache_remote_decls,
         rust_provider_backend,
-
+        set_global_provider_backend_in_workers,
+        isolation_allow_decl_repackaging,
         // saved state
         load_state_natively_dirty_files_timeout,
         load_state_natively_download_timeout,
         load_state_natively_v4,
-        log_saved_state_age_and_distance,
         saved_state_max_expected_age_days,
         saved_state_lookup_use_eden,
         saved_state_database_shard_name,
@@ -291,10 +283,10 @@ pub mod hhconf {
         use_manifold_cython_client,
         use_mini_state,
         use_mini_state_when_indexing,
-
         // server operations
         attempt_fix_credentials,
         consume_streaming_errors,
+        use_agent_error_format,
         cpu_priority,
         enable_fuzzy_search,
         enable_global_access_check,
@@ -311,6 +303,7 @@ pub mod hhconf {
         prefetch_decls_threshold,
         block_client_connections_while_deferring,
         hg_aware,
+        allow_restart_from_precomputed_saved_state,
         hg_aware_parsing_restart_threshold,
         hg_aware_redecl_restart_threshold,
         hg_aware_recheck_restart_threshold,
@@ -339,7 +332,6 @@ pub mod hhconf {
         type_decl_bucket_size,
         use_dummy_informant,
         use_full_fidelity_parser,
-
         // watchman
         use_watchman,
         watchman_debug_logging,
@@ -432,10 +424,10 @@ mod tests {
             "require_types_tco_require_types_class_consts"
         );
         assert_eq!(hhconf::use_watchman, "use_watchman");
-        assert_eq!(hhconfig::KEYS.len(), 143);
-        assert_eq!(hhconf::KEYS.len(), 123);
+        assert_eq!(hhconfig::KEYS.len(), 138);
+        assert_eq!(hhconf::KEYS.len(), 131);
         // No key is in both files, so `all_keys` has them all.
-        assert_eq!(all_keys.len(), 143 + 123);
+        assert_eq!(all_keys.len(), 138 + 131);
         assert_eq!(hhconfig::KEYS.first(), Some(&"abstract_static_props"));
         assert_eq!(hhconf::KEYS.last(), Some(&"watchman_synchronous_timeout"));
     }

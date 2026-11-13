@@ -816,6 +816,7 @@ fn refresh_tvar(tv: tvid::T, on_error: &reasons_callback::T, renv: &mut RefreshE
                 let ty_err: Option<typing_error::T> = t_utils::sub_type_i(
                     &mut renv.env,
                     None,
+                    None,
                     tv_ity.clone(),
                     ity,
                     elim_on_error(pos, &name),
@@ -842,6 +843,7 @@ fn refresh_tvar(tv: tvid::T, on_error: &reasons_callback::T, renv: &mut RefreshE
             for (ity, pos, name) in add {
                 let ty_err: Option<typing_error::T> = t_utils::sub_type_i(
                     &mut renv.env,
+                    None,
                     None,
                     ity,
                     tv_ity.clone(),

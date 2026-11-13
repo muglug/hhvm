@@ -247,24 +247,26 @@ mod tell_memo {
 pub fn sub_type_i(
     env: &mut Env,
     is_coeffect: Option<bool>,
+    class_sub_classname: Option<bool>,
     ty_sub: InternalType,
     ty_super: InternalType,
     on_error: Option<reasons_callback::T>,
 ) -> Option<typing_error::T> {
     let is_coeffect = is_coeffect.unwrap_or(false);
+    let class_sub_classname = class_sub_classname.unwrap_or_else(|| should_cls_sub_cn(env));
     let subtype_env = subtype_env::create(
-        None,                   // require_soundness
-        None,                   // require_completeness
-        None,                   // ignore_readonly
-        None,                   // no_top_bottom
-        Some(false),            // is_dynamic_aware
-        Some(is_coeffect),      // is_coeffect
-        None,                   // in_transitive_closure
-        None,                   // ignore_likes
-        None,                   // has_member_arg_posl
-        None,                   // report_ambiguous_shape_splat
-        should_cls_sub_cn(env), // class_sub_classname
-        2,                      // log_level
+        None,                // require_soundness
+        None,                // require_completeness
+        None,                // ignore_readonly
+        None,                // no_top_bottom
+        Some(false),         // is_dynamic_aware
+        Some(is_coeffect),   // is_coeffect
+        None,                // in_transitive_closure
+        None,                // ignore_likes
+        None,                // has_member_arg_posl
+        None,                // report_ambiguous_shape_splat
+        class_sub_classname, // class_sub_classname
+        2,                   // log_level
         on_error,
     );
     let old_env = env.clone();

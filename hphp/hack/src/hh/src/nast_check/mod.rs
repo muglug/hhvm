@@ -37,6 +37,7 @@ mod nast_generics_check;
 pub(crate) mod nast_init_check;
 mod nast_visitor;
 mod package_expression_check;
+mod placeholder_check;
 mod private_final_check;
 mod prop_modifier_prohibited_check;
 mod read_from_append_check;
@@ -205,6 +206,7 @@ fn handlers<'a>(ctx: &'a Ctx, def: &'a nast::Def) -> Vec<Box<dyn nast_visitor::H
     ));
     handlers.push(Box::new(attribute_nast_checks::AttributeNastChecks));
     handlers.push(Box::new(list_rvalue_check::ListRvalueCheck));
+    handlers.push(Box::new(placeholder_check::PlaceholderCheck));
     handlers.push(Box::new(private_final_check::PrivateFinalCheck));
     handlers.push(Box::new(
         well_formed_internal_trait::WellFormedInternalTrait,

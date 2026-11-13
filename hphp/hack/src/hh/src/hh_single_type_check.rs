@@ -161,7 +161,6 @@ pub fn make_tcopt(flags: &Flags) -> Result<Options, crate::yojson::JsonError> {
             .unwrap_or(default.po.deregister_php_stdlib),
         everything_sdt: true,
         allowed_decl_fixme_codes: flags.allowed_decl_fixme_codes.clone().unwrap_or_default(),
-        enable_class_pointer_hint: flags.enable_class_pointer_hint,
         disallow_non_annotated_memoize: flags.disallow_non_annotated_memoize,
         treat_non_annotated_memoize_as_kbic: flags.treat_non_annotated_memoize_as_kbic,
         // These don't have command-line flags: their defaults.
@@ -180,8 +179,6 @@ pub fn make_tcopt(flags: &Flags) -> Result<Options, crate::yojson::JsonError> {
         tco_skip_hierarchy_checks: flags.skip_hierarchy_checks,
         tco_skip_tast_checks: flags.skip_tast_checks,
         tco_strict_contexts: flags.strict_contexts,
-        tco_coeffects: flags.call_coeffects,
-        tco_coeffects_local: flags.local_coeffects,
         tco_like_casts: false,
         log_levels: flags.log_levels.clone(),
         glean_reponame: flags.glean_reponame.clone(),
@@ -385,9 +382,8 @@ mod tests {
         assert!(t.po.allow_unstable_features);
         assert!(!t.po.use_legacy_experimental_feature_config);
         assert!(!t.tco_like_casts);
-        assert!(t.tco_coeffects && t.tco_coeffects_local && t.tco_strict_contexts);
+        assert!(t.tco_strict_contexts);
         assert!(t.tco_meth_caller_only_public_visibility);
-        assert!(t.po.enable_class_pointer_hint);
         assert!(!t.tco_disallow_discarded_nullable_awaitables);
         assert_eq!(opts.packages_config_path, None);
         assert!(!opts.enable_implicit_packages);
@@ -400,7 +396,6 @@ mod tests {
             "disallow_discarded_nullable_awaitables=true",
             "meth_caller_only_public_visibility=false",
             "disable_physical_equality=true",
-            "local_coeffects=false",
             "keep_user_attributes=true",
             "implicit_inherit_sdt=true",
             "typecheck_if_name_matches_regexp=^foo",
@@ -409,7 +404,6 @@ mod tests {
         assert!(t.tco_disallow_discarded_nullable_awaitables);
         assert!(!t.tco_meth_caller_only_public_visibility);
         assert!(t.tco_disable_physical_equality);
-        assert!(!t.tco_coeffects_local);
         assert!(t.po.keep_user_attributes);
         assert!(t.tco_implicit_inherit_sdt);
         assert_eq!(t.tco_typecheck_if_name_matches_regexp.as_deref(), Some("^foo"));
@@ -425,28 +419,25 @@ mod tests {
     fn config_wins_over_flags() {
         let t = tcopt(Flags {
             keep_user_attributes: true,
-            local_coeffects: false,
             enable_global_access_check: true,
             meth_caller_only_public_visibility: false,
             ..with_config(&[
                 "keep_user_attributes=false",
-                "local_coeffects=true",
                 "meth_caller_only_public_visibility=false",
                 "meth_caller_only_public_visibility=true",
             ])
         });
         assert!(!t.po.keep_user_attributes);
-        assert!(t.tco_coeffects_local);
         assert!(t.tco_meth_caller_only_public_visibility);
         assert!(t.tco_global_access_check_enabled);
         // What a key does not set stays as the flag set it.
         let t = tcopt(Flags {
             keep_user_attributes: true,
-            call_coeffects: false,
+            strict_contexts: false,
             ..Flags::default()
         });
         assert!(t.po.keep_user_attributes);
-        assert!(!t.tco_coeffects);
+        assert!(!t.tco_strict_contexts);
     }
 
     /// The experimental features of the flags are added to those of the

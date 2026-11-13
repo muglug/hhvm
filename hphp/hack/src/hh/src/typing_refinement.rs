@@ -177,6 +177,171 @@ fn typing_print_subtype_prop(env: &Env, prop: &typing_logic::SubtypeProp) -> Str
 
 // ---------------------------------------------------------------------------
 
+fn is_safe_for_strict_equality_refinement_impl(
+    expansions: &im::OrdSet<String>,
+    env: &mut Env,
+    ty: &Ty,
+) -> bool {
+    use crate::folded_class as cls;
+    // `Common.List.map_env` checks every type, in order; the result is the
+    // conjunction.
+    fn all(expansions: &im::OrdSet<String>, env: &mut Env, tys: &[Ty]) -> bool {
+        let safe: Vec<bool> = tys
+            .iter()
+            .map(|ty| is_safe_for_strict_equality_refinement_impl(expansions, env, ty))
+            .collect();
+        safe.into_iter().all(|b| b)
+    }
+    let ty = typing_env::expand_type(env, ty.clone());
+    match get_node(&ty) {
+        Ty_::Tnonnull => true,
+        Ty_::Tprim(
+            Tprim::Tnull
+            | Tprim::Tbool
+            | Tprim::Tint
+            | Tprim::Tfloat
+            | Tprim::Tnum
+            | Tprim::Tresource
+            | Tprim::Tarraykey,
+        ) => true,
+        Ty_::Tclass((_, name), _, tys)
+            if tys.is_empty() && name == "\\HH\\string" =>
+        {
+            true
+        }
+        Ty_::Tclass((_, name), _, tys)
+            if name == sn::collections::VEC || name == sn::collections::KEYSET =>
+        {
+            all(expansions, env, tys)
+        }
+        Ty_::Tclass((_, name), _, tys) if tys.len() == 2 && name == sn::collections::DICT => {
+            is_safe_for_strict_equality_refinement_impl(expansions, env, &tys[1])
+        }
+        Ty_::Tclass((_, name), _, tys) if tys.is_empty() => {
+            match typing_env::get_class(env, name) {
+                decl_entry::T::Found(cls) if cls::tparams(&cls).is_empty() => true,
+                _ => false,
+            }
+        }
+        Ty_::TvecOrDict(_, value) => {
+            is_safe_for_strict_equality_refinement_impl(expansions, env, value)
+        }
+        Ty_::Ttuple(TupleType {
+            required,
+            optional,
+            extra: TupleExtra::Tvariadic(ty),
+        }) => {
+            let mut tys = vec![ty.clone()];
+            tys.extend(required.iter().cloned());
+            tys.extend(optional.iter().cloned());
+            all(expansions, env, &tys)
+        }
+        Ty_::Tshape(ShapeType::ShapeSimple(ShapeTypeSimple {
+            fields,
+            unknown_value,
+            ..
+        })) => {
+            // `TShapeMap.fold (fun _ { sft_ty; _ } tys -> sft_ty :: tys)
+            // s_fields [s_unknown_value]`: the fields from the last key to the
+            // first, then the type of the unknown fields.
+            let mut tys: Vec<Ty> = fields.values().rev().map(|sft| sft.ty.clone()).collect();
+            tys.push(unknown_value.clone());
+            all(expansions, env, &tys)
+        }
+        Ty_::Toption(ty) => is_safe_for_strict_equality_refinement_impl(expansions, env, ty),
+        Ty_::Tunion(tys) if tys.is_empty() => true,
+        Ty_::Tunion(tys) | Ty_::Tintersection(tys) => {
+            let tys: Vec<Ty> = tys
+                .iter()
+                .map(|ty| typing_env::expand_type(env, ty.clone()))
+                .collect();
+            let tys: Vec<Ty> = tys
+                .into_iter()
+                .filter(|ty| !typing_defs::is_dynamic(ty))
+                .collect();
+            if tys.is_empty() {
+                false
+            } else {
+                all(expansions, env, &tys)
+            }
+        }
+        Ty_::Tnewtype(name, tyargs, _)
+            if tyargs.len() == 1 && name == sn::classes::SUPPORT_DYN =>
+        {
+            is_safe_for_strict_equality_refinement_impl(expansions, env, &tyargs[0])
+        }
+        Ty_::Tnewtype(name, _, _)
+            if expansions.contains(name) || name == sn::classes::ENUM_CLASS_LABEL =>
+        {
+            false
+        }
+        Ty_::Tnewtype(name, tyargs, _)
+            if tyargs.is_empty()
+                && typing_env::is_enum(env, name)
+                && !typing_env::is_enum_class(env, name) =>
+        {
+            match typing_env::get_class(env, name) {
+                decl_entry::T::Found(cls) => match cls::enum_type(&cls) {
+                    Some(enum_type) => {
+                        let (err, representation) =
+                            typing_utils::localize(&empty_expand_env(), env, &enum_type.base);
+                        if err.is_some() {
+                            false
+                        } else {
+                            let mut expansions = expansions.clone();
+                            expansions.insert(name.clone());
+                            is_safe_for_strict_equality_refinement_impl(
+                                &expansions,
+                                env,
+                                &representation,
+                            )
+                        }
+                    }
+                    None => false,
+                },
+                _ => false,
+            }
+        }
+        Ty_::Tnewtype(name, tyargs, _) => match typing_env::get_typedef(env, name) {
+            decl_entry::T::Found(td) => match &td.type_assignment {
+                TypedefTypeAssignment::SimpleTypeDef(_, representation)
+                    if td.tparams.len() == tyargs.len() =>
+                {
+                    let ety_env = ExpandEnv {
+                        substs: decl_subst_make_locl(&td.tparams, tyargs),
+                        ..empty_expand_env()
+                    };
+                    let (err, representation) =
+                        typing_utils::localize(&ety_env, env, representation);
+                    if err.is_some() {
+                        false
+                    } else {
+                        let mut expansions = expansions.clone();
+                        expansions.insert(name.clone());
+                        is_safe_for_strict_equality_refinement_impl(
+                            &expansions,
+                            env,
+                            &representation,
+                        )
+                    }
+                }
+                _ => false,
+            },
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+pub fn is_safe_for_strict_equality_refinement(env: &mut Env, ty: &Ty) -> bool {
+    let unresolved = typing_utils::contains_unresolved_tyvars(env, ty);
+    if unresolved {
+        false
+    } else {
+        is_safe_for_strict_equality_refinement_impl(&im::OrdSet::new(), env, ty)
+    }
+}
+
 /// given [a..z]
 /// return [(a, [b..z]); (b, [a;c..z]); (c, [a..b;d..z]); ... (z, [b..z])]
 /// i.e. map each element in the input to a pair of that element and the other

@@ -651,6 +651,13 @@ pub fn forget_suffixed(ledger: T, suffix: &str, blame: Blame) -> T {
     conditionally_forget(is_prefixed, ledger, blame)
 }
 
+pub fn forget_static_named(ledger: T, member_name: &str, blame: Blame) -> T {
+    let suffix = format!("::{}", member_name);
+    let is_named =
+        |(fake_id, _blame): &blame_set::Elt| local_id::get_name(fake_id).ends_with(&suffix);
+    conditionally_forget(is_named, ledger, blame)
+}
+
 /// Add a valid fake member access
 pub fn add(ledger: T, lid: LocalId, pos: Pos) -> T {
     let reason = Blame::Blame(pos, BlameSource::BSoutOfScope);

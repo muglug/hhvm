@@ -214,6 +214,7 @@ pub fn sub_type_against_expected_type(
 pub type SubTypeI = fn(
     &mut Env,
     Option<bool>, // is_coeffect
+    Option<bool>, // class_sub_classname
     InternalType,
     InternalType,
     Option<reasons_callback::T>,
@@ -225,13 +226,21 @@ pub static sub_type_i_ref: SubTypeI = crate::typing_subtype::sub_type_i;
 pub fn sub_type_i(
     env: &mut Env,
     is_coeffect: Option<bool>,
+    class_sub_classname: Option<bool>,
     ty_sub: InternalType,
     ty_super: InternalType,
     on_error: Option<reasons_callback::T>,
 ) -> Option<typing_error::T> {
     let is_coeffect = is_coeffect.unwrap_or(false);
     let f: SubTypeI = sub_type_i_ref;
-    f(env, Some(is_coeffect), ty_sub, ty_super, on_error)
+    f(
+        env,
+        Some(is_coeffect),
+        class_sub_classname,
+        ty_sub,
+        ty_super,
+        on_error,
+    )
 }
 
 /// `type is_sub_type_type`
@@ -599,7 +608,10 @@ pub fn localize_disjoint_union(
 /// `crate::decl_subst::make_locl` maps the names to
 /// `oxidized::typing_defs_core::Ty`, which has no inferred types (PORTING.md:
 /// never use it for one); this is the same function for [`Ty`].
-fn decl_subst_make_locl(tparams: &[DeclTparam], tyl: &[Ty]) -> crate::pmap::Map<String, Ty> {
+pub(crate) fn decl_subst_make_locl(
+    tparams: &[DeclTparam],
+    tyl: &[Ty],
+) -> crate::pmap::Map<String, Ty> {
     let mut subst = crate::pmap::Map::new();
     let mut tyl = tyl;
     for t in tparams {
@@ -840,7 +852,7 @@ pub fn is_tyvar_error(env: &Env, ty: &Ty) -> bool {
     }
 }
 
-fn contains_unresolved_tyvars(env: &mut Env, ty: &Ty) -> bool {
+pub fn contains_unresolved_tyvars(env: &mut Env, ty: &Ty) -> bool {
     struct Finder<'a> {
         env: &'a mut Env,
         /// The type variables whose solution has been visited without finding
@@ -975,7 +987,17 @@ pub fn get_newtype_sub_opt(env: &mut Env, name: &str, tyargs: &[Ty]) -> Option<T
 }
 
 pub fn get_newtype_super(env: &mut Env, r: Reason, name: &str, tyargs: &[Ty]) -> Ty {
-    if typing_env::is_enum(env, name) {
+    // Special case for supportdyn<T>: use the localized arg directly
+    // to avoid supportdynamic.hhi leaking into reasons. This applies even when
+    // the typedef is unbound: under everything_sdt the unbound fallthrough
+    // below returns supportdyn<mixed>, which does not reduce supportdyn itself
+    // and sends subtyping into an infinite loop.
+    if name == sn::classes::SUPPORT_DYN {
+        match tyargs {
+            [ty] => ty.clone(),
+            _ => make_type::mixed(r),
+        }
+    } else if typing_env::is_enum(env, name) {
         match typing_env::get_enum_constraint(env, name) {
             decl_entry::T::Found(Some(ty)) => {
                 let (_err, ty) = localize(&empty_expand_env(), env, &ty);
@@ -995,33 +1017,26 @@ pub fn get_newtype_super(env: &mut Env, r: Reason, name: &str, tyargs: &[Ty]) ->
     } else {
         match typing_env::get_typedef(env, name) {
             decl_entry::T::Found(td)
-                if (!typing_reason::predicates::is_opaque_type_from_module(&r))
-                    || name == sn::classes::SUPPORT_DYN =>
+                if !typing_reason::predicates::is_opaque_type_from_module(&r) =>
             {
-                // Special case for supportdyn<T>: use the localized arg directly
-                // to avoid supportdynamic.hhi leaking into reasons
-                if name == sn::classes::SUPPORT_DYN {
-                    tyargs.first().expect("List.hd_exn").clone()
+                let decl_cstr = match &td.as_constraint {
+                    None => decl_mixed(decl_implicit_upper_bound(&td.pos, "?nonnull")),
+                    Some(cstr) => cstr.clone(),
+                };
+                let substs = decl_subst_make_locl(&td.tparams, tyargs);
+                let ety_env = ExpandEnv {
+                    substs,
+                    ..empty_expand_env()
+                };
+                let (_err, bound) = localize(&ety_env, env, &decl_cstr);
+                // It's not helpful to report the trivial bound for FunctionRef. Also,
+                // preserve the reason for opaque types created during localization
+                if name == C_FUNCTION_REF
+                    || typing_reason::predicates::is_opaque_type_from_module(&r)
+                {
+                    with_reason(bound, r)
                 } else {
-                    let decl_cstr = match &td.as_constraint {
-                        None => decl_mixed(decl_implicit_upper_bound(&td.pos, "?nonnull")),
-                        Some(cstr) => cstr.clone(),
-                    };
-                    let substs = decl_subst_make_locl(&td.tparams, tyargs);
-                    let ety_env = ExpandEnv {
-                        substs,
-                        ..empty_expand_env()
-                    };
-                    let (_err, bound) = localize(&ety_env, env, &decl_cstr);
-                    // It's not helpful to report the trivial bound for FunctionRef. Also,
-                    // preserve the reason for opaque types created during localization
-                    if name == C_FUNCTION_REF
-                        || typing_reason::predicates::is_opaque_type_from_module(&r)
-                    {
-                        with_reason(bound, r)
-                    } else {
-                        bound
-                    }
+                    bound
                 }
             }
             // `Decl_entry.DoesNotExist | Decl_entry.NotYetAvailable | _`

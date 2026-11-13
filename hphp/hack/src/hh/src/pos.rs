@@ -75,6 +75,27 @@ pub fn shrink_to_start(pos: &Pos) -> Pos {
     pos.with_raw_span(PosSpanRaw { start, end: start })
 }
 
+/// `filename_for_display` of an absolute position.
+pub fn filename_for_display(pos: &Absolute) -> String {
+    let path = filename(pos);
+    let hhi_path = match crate::relative_path::path_of_prefix(crate::relative_path::Prefix::Hhi)
+    {
+        Ok(hhi_path) => hhi_path,
+        // .hhi path hasn't been set (e.g. when running tests).
+        Err(_) => String::new(),
+    };
+    // Strip temporary .hhi directories from the path shown.
+    match path.strip_prefix(&hhi_path) {
+        Some(file_path) => file_path.to_string(),
+        None => path,
+    }
+}
+
+pub fn shrink_to_end(pos: &Pos) -> Pos {
+    let PosSpanRaw { start: _, end } = pos.to_raw_span();
+    pos.with_raw_span(PosSpanRaw { start: end, end })
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;

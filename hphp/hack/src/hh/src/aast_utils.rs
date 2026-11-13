@@ -23,6 +23,7 @@ use oxidized::aast::FunParam;
 use oxidized::aast::FunParamInfo;
 use oxidized::aast::Fun_;
 use oxidized::aast::PackageMembership;
+use oxidized::aast::ShapeExprField;
 use oxidized::pos::Pos;
 
 pub fn can_be_captured<Ex, En>(e: &Expr_<Ex, En>) -> bool {
@@ -155,7 +156,10 @@ pub fn is_const_expr<Ex, En>(expr: &Expr<Ex, En>) -> bool {
         Expr_::Pair(e) => is_const_expr(&e.1) && is_const_expr(&e.2),
         Expr_::ValCollection(e) => e.2.iter().all(is_const_expr),
         Expr_::String2(exprs) | Expr_::Tuple(exprs) => exprs.iter().all(is_const_expr),
-        Expr_::Shape(shapes) => shapes.iter().all(|(_, e)| is_const_expr(e)),
+        Expr_::Shape(shapes) => shapes.iter().all(|field| match field {
+            ShapeExprField::SFField(_, e) => is_const_expr(e),
+            ShapeExprField::SFSplat(e) => is_const_expr(e),
+        }),
         Expr_::KeyValCollection(e) => {
             (e.2.iter()).all(|field| is_const_expr(&field.0) && is_const_expr(&field.1))
         }
@@ -263,11 +267,18 @@ pub fn get_package_name(membership: &PackageMembership) -> String {
 
 pub fn find_shape_field<'a, Ex, En>(
     name: &str,
-    fields: &'a [(oxidized::ast_defs::ShapeFieldName, Expr<Ex, En>)],
-) -> Option<&'a (oxidized::ast_defs::ShapeFieldName, Expr<Ex, En>)> {
-    fields.iter().find(|(field_name, _e)| match field_name {
-        oxidized::ast_defs::ShapeFieldName::SFlitStr((_, n)) => name.as_bytes() == n.as_slice(),
-        _ => false,
+    fields: &'a [ShapeExprField<Ex, En>],
+) -> Option<(&'a oxidized::ast_defs::ShapeFieldName, &'a Expr<Ex, En>)> {
+    fields.iter().find_map(|field| match field {
+        ShapeExprField::SFField(field_name, e) => match field_name {
+            oxidized::ast_defs::ShapeFieldName::SFlitStr((_, n))
+                if name.as_bytes() == n.as_slice() =>
+            {
+                Some((field_name, e))
+            }
+            _ => None,
+        },
+        ShapeExprField::SFSplat(_) => None,
     })
 }
 

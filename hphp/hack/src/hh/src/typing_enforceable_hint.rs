@@ -407,3 +407,49 @@ pub fn validate_type(
 ) {
     validator().validate_type(env, use_pos, ty, None, emit_error)
 }
+
+/// `is this` and `as this` check only the class at runtime, so in a generic
+/// class they would refine to an instantiation that was never checked.
+pub fn check_this_refinement_in_generic_class(env: &Env, hint: &aast::Hint) {
+    let aast::Hint(pos, _) = hint;
+    if env::get_tcopt(env).tco_ban_this_refinement_in_generic_class {
+        match env::get_self_class(env) {
+            decl_entry::T::Found(cls) if !cls::tparams(&cls).is_empty() => {
+                struct MentionsThis;
+                impl crate::type_visitor::DeclTypeVisitor<bool> for MentionsThis {
+                    fn on_tthis(&mut self, _: bool, _: &R) -> bool {
+                        true
+                    }
+
+                    // `this::T` names a type constant, not the class
+                    fn on_taccess(
+                        &mut self,
+                        found: bool,
+                        _: &R,
+                        _: &d::TaccessType<R, DeclTy>,
+                    ) -> bool {
+                        found
+                    }
+
+                    // (`method! on_type found ty = found || parent#on_type found
+                    // ty` only stops early: every other method returns what it
+                    // is given.)
+                }
+                use crate::type_visitor::DeclTypeVisitor as _;
+                if MentionsThis.on_type(false, &crate::decl_hint::hint(&env.decl_env, hint)) {
+                    crate::typing_error_utils::add_typing_error(
+                        &typing_error::primary(
+                            typing_error::primary::T::This_refinement_in_generic_class {
+                                pos: pos.clone(),
+                                class_name: cls::name(&cls),
+                                decl_pos: cls::pos(&cls),
+                            },
+                        ),
+                        env,
+                    )
+                }
+            }
+            _ => {}
+        }
+    }
+}

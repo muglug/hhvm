@@ -88,7 +88,7 @@ pub mod constraints {
             ConstraintDirection::As => (ty, cstr_ty),
             ConstraintDirection::Super => (cstr_ty, ty),
         };
-        crate::typing_ops::sub_type(
+        crate::typing_ops::sub_type(None, 
             t_pos.clone(),
             crate::typing_reason::Ureason::URnewtypeCstr,
             env,

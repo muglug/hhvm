@@ -277,12 +277,6 @@ fn report_variadic_memoize(variadic_param: Option<&nast::FunParam>, errors: &mut
     }
 }
 
-fn report_named_memoize(params: &[nast::FunParam], errors: &mut Errors) {
-    if let Some(p) = params.iter().find(|fp| fp.named.is_some()) {
-        errors.add(NastCheckError::NamedParamsMemoize(p.pos.clone()));
-    }
-}
-
 /// The first parameter that is variadic (`Aast_utils.is_param_variadic`) or a
 /// splat (`Aast_utils.is_param_splat`).
 fn variadic_param(params: &[nast::FunParam]) -> Option<&nast::FunParam> {
@@ -312,7 +306,6 @@ impl<'a> Handler<'a> for AttributeNastChecks {
         // Ban variadic and named arguments on memoized functions.
         if attrs::mem(ua::MEMOIZE, &f.user_attributes) {
             report_variadic_memoize(variadic_param, errors);
-            report_named_memoize(&f.params, errors);
         }
         check_attribute_arity(
             &f.user_attributes,
@@ -392,7 +385,6 @@ impl<'a> Handler<'a> for AttributeNastChecks {
             || attrs::mem(ua::MEMOIZE_LSB, &m.user_attributes)
         {
             report_variadic_memoize(variadic_param, errors);
-            report_named_memoize(&m.params, errors);
         }
     }
 

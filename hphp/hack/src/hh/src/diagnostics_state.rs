@@ -137,9 +137,6 @@ fn warning_of_enum(code: ErrorCode) -> Option<error_codes::Warning> {
         12022 => StringToClassPointer,
         12023 => NullCoalesceAlways,
         12024 => CallNeedsConcrete,
-        12025 => AbstractAccessViaStatic,
-        12026 => UninstantiableClassViaStatic,
-        12027 => NeedsConcreteOverride,
         12028 => ExpectBoolForCondition,
         12029 => RedundantNullsafeMemberSelect,
         12030 => NullsafeMemberSelectOnNull,
@@ -156,6 +153,9 @@ fn warning_of_enum(code: ErrorCode) -> Option<error_codes::Warning> {
         12041 => SealedNotOverride,
         12042 => DynamicPropertyAccess,
         12043 => RedundantRequireThisAs,
+        12044 => DynamicReturn,
+        12045 => ReadonlyPropertyOverride,
+        12048 => RedundantConcurrent,
         _ => return None,
     })
 }
@@ -796,17 +796,75 @@ pub fn run_in_decl_mode<A>(f: impl FnOnce() -> A) -> A {
     f()
 }
 
-pub fn read_lines(path: &str) -> Vec<String> {
-    match std::fs::read(path) {
-        // `In_channel.read_lines`: no last empty line, and no `\r` at the end
-        // of a line.
-        Ok(contents) => String::from_utf8_lossy(&contents)
-            .lines()
-            .map(|line| line.to_string())
-            .collect(),
-        // `Sys_error`: maybe a part of a multifile, else no lines.
-        Err(_) => crate::multifile::read_file_from_multifile(path).unwrap_or_default(),
+/// The text of the hhi files that are not on disk, by absolute path.
+///
+/// OCaml extracts the hhi files (and the `--extra-builtin` files of
+/// `hh_single_type_check`) into a temporary directory, the `Hhi` prefix, and
+/// `read_lines` reads them there. Here they are in the binary, under a `Hhi`
+/// prefix that is not a directory; `read_lines` finds their text here.
+static HHI_SOURCES: LazyLock<RwLock<BTreeMap<String, String>>> =
+    LazyLock::new(|| RwLock::new(BTreeMap::new()));
+
+/// Makes the text of an hhi file that is not on disk available to
+/// [`read_lines`]. `path` is its absolute path (under the `Hhi` prefix).
+pub fn register_hhi_source(path: String, contents: String) {
+    HHI_SOURCES.write().unwrap().insert(path, contents);
+}
+
+/// The text of an hhi file that is not on disk: one that was registered, or
+/// one of the binary's.
+fn hhi_source(path: &str) -> Option<String> {
+    if let Some(contents) = HHI_SOURCES.read().unwrap().get(path) {
+        return Some(contents.clone());
     }
+    let hhi_path = crate::relative_path::path_of_prefix(crate::relative_path::Prefix::Hhi).ok()?;
+    if hhi_path.is_empty() {
+        return None;
+    }
+    let name = path.strip_prefix(&hhi_path)?;
+    let name = name.strip_prefix('/').unwrap_or(name);
+    hhi::HHI_CONTENTS
+        .iter()
+        .find(|(hhi_name, _)| *hhi_name == name)
+        .map(|(_, contents)| contents.to_string())
+}
+
+/// `In_channel.read_lines`: no last empty line, and no `\r` at the end of a
+/// line.
+fn lines_of(contents: &str) -> Vec<String> {
+    contents.lines().map(|line| line.to_string()).collect()
+}
+
+/// The lines of `read_lines path`, and whether each of them is valid UTF-8
+/// (`Stdlib.String.is_valid_utf_8`; the lines here are made valid).
+pub fn read_lines_with_validity(path: &str) -> (Vec<String>, bool) {
+    match std::fs::read(path) {
+        Ok(contents) => (
+            lines_of(&String::from_utf8_lossy(&contents)),
+            std::str::from_utf8(&contents).is_ok(),
+        ),
+        // `Sys_error`: maybe a part of a multifile, else no lines.
+        Err(_) => {
+            let lines = crate::multifile::read_file_from_multifile(path).unwrap_or_default();
+            if !lines.is_empty() {
+                (lines, true)
+            } else {
+                match hhi_source(path) {
+                    Some(contents) => (lines_of(&contents), true),
+                    None => (vec![], true),
+                }
+            }
+        }
+    }
+}
+
+pub fn read_lines(path: &str) -> Vec<String> {
+    read_lines_with_validity(path).0
+}
+
+pub fn read_lines_for_highlighted(path: &str) -> Option<Vec<String>> {
+    let (lines, valid) = read_lines_with_validity(path);
+    if valid { Some(lines) } else { None }
 }
 
 /// `int_of_float (Float.log10 (float_of_int x)) + 1`. For `x <= 0` the

@@ -615,33 +615,35 @@ fn pp_expr<Ex, En>(ppf: &mut Formatter, aast::Expr(_, _, expr_): &aast::Expr<Ex,
 fn pp_expr_<Ex, En>(ppf: &mut Formatter, expr_: &aast::Expr_<Ex, En>) {
     use aast::Expr_;
     match expr_ {
-        Expr_::Shape(flds) => fmt::prefix(
-            const_string("shape"),
-            |ppf, flds: &[(ast_defs::ShapeFieldName, aast::Expr<Ex, En>)]| {
-                fmt::parens(
-                    |ppf, flds: &[(ast_defs::ShapeFieldName, aast::Expr<Ex, En>)]| {
-                        fmt::list(
-                            Some(&fmt::comma),
-                            |ppf, (name, e): &(ast_defs::ShapeFieldName, aast::Expr<Ex, En>)| {
-                                fmt::pair(
-                                    Some(&fmt::fat_arrow),
-                                    pp_shape_field_name,
-                                    pp_expr,
-                                    ppf,
-                                    (name, e),
-                                )
-                            },
-                            ppf,
-                            flds,
-                        )
-                    },
-                    ppf,
-                    flds,
-                )
-            },
-            ppf,
-            flds.as_slice(),
-        ),
+        Expr_::Shape(flds) => {
+            let pp_shape_expr_field =
+                |ppf: &mut Formatter, field: &aast::ShapeExprField<Ex, En>| match field {
+                    aast::ShapeExprField::SFField(name, expr) => fmt::pair(
+                        Some(&fmt::fat_arrow),
+                        pp_shape_field_name,
+                        pp_expr,
+                        ppf,
+                        (name, expr),
+                    ),
+                    aast::ShapeExprField::SFSplat(expr) => {
+                        fmt::prefix(const_string("..."), pp_expr, ppf, expr)
+                    }
+                };
+            fmt::prefix(
+                const_string("shape"),
+                |ppf, flds: &[aast::ShapeExprField<Ex, En>]| {
+                    fmt::parens(
+                        |ppf, flds: &[aast::ShapeExprField<Ex, En>]| {
+                            fmt::list(Some(&fmt::comma), &pp_shape_expr_field, ppf, flds)
+                        },
+                        ppf,
+                        flds,
+                    )
+                },
+                ppf,
+                flds.as_slice(),
+            )
+        }
         Expr_::ValCollection(b) => {
             let ((_, kind), targ_opt, exprs) = &**b;
             let delim: Delim<'_, &[aast::Expr<Ex, En>]> = match kind {

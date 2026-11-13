@@ -620,16 +620,18 @@ pub fn with_special_coeffects<A>(
     let init = env::next_cont_opt(env).map(|next_cont| {
         let initial_locals = next_cont.local_types;
         let tpenv = env::get_tpenv(env);
-        (initial_locals, tpenv)
+        let initial_loaded_packages = next_cont.loaded_packages;
+        (initial_locals, tpenv, initial_loaded_packages)
     });
     let conts = env::all_continuations(env);
     lenv::stash_and_do(env, &conts, move |env| {
         match init {
             None => {}
-            Some((initial_locals, tpenv)) => {
+            Some((initial_locals, tpenv, initial_loaded_packages)) => {
                 env::reinitialize_locals(env);
                 env::set_locals(env, &initial_locals);
                 env::env_with_tpenv(env, tpenv);
+                env::set_loaded_packages(env, initial_loaded_packages);
             }
         }
         let _ty = crate::typing_coeffects::register_capabilities(env, cap_ty, unsafe_cap_ty);
@@ -998,6 +1000,44 @@ pub(crate) fn set_local(is_using_clause: Option<bool>, env: &mut Env, lid: aast:
     }
 }
 
+/// A generic class named without type arguments only checks the class at
+/// runtime, so give it fresh rigid type arguments, as `is C<_>` does, rather
+/// than inference variables.
+pub(crate) fn fresh_generic_targs_for_bare_class(env: &mut Env, sid: &nast::Sid, ty: Ty) -> Ty {
+    let ast_defs::Id(pos, _) = sid;
+    if env::get_tcopt(env).tco_missing_targs_as_fresh_generics {
+        match get_node(&ty) {
+            Ty_::Tclass(id, exact, targs) if !targs.is_empty() => {
+                let (_, name) = id;
+                let hint = aast::Hint(
+                    pos.clone(),
+                    Box::new(aast::Hint_::Happly(
+                        ast_defs::Id(pos.clone(), name.clone()),
+                        targs
+                            .iter()
+                            .map(|_| aast::Hint(pos.clone(), Box::new(aast::Hint_::Hwildcard)))
+                            .collect(),
+                    )),
+                );
+                let (ty_err_opt, refined) = phase::localize_hint_for_refinement(env, &hint);
+                if let Some(ty_err) = &ty_err_opt {
+                    typing_error_utils::add_typing_error(ty_err, env)
+                }
+                match get_node(&refined) {
+                    Ty_::Tclass(_, _, targs) => mk((
+                        get_reason(&ty).clone(),
+                        Ty_::Tclass(id.clone(), exact.clone(), targs.clone()),
+                    )),
+                    _ => ty,
+                }
+            }
+            _ => ty,
+        }
+    } else {
+        ty
+    }
+}
+
 /// Require a new construct with disposable
 pub(crate) fn enforce_return_disposable<Ex, En>(env: &Env, e: &aast::Expr<Ex, En>) {
     match e {
@@ -1147,6 +1187,7 @@ pub(crate) fn as_expr(
         _ => (ty1.clone(), false),
     };
     let ty_err_opt1 = crate::typing_ops::sub_type_i(
+        None,
         None,
         pe.clone(),
         Ureason::URforeach,
@@ -1605,7 +1646,7 @@ pub(crate) fn stash_conts_for_closure<A>(
         aast::CaptureLid(local, lid)
     };
     let captured: Vec<aast::CaptureLid<crate::typing_local_types::Local>> =
-        if is_anon && tco::any_coeffects(&env::get_tcopt(env)) {
+        if is_anon {
             // The elements of a list literal are evaluated from right to left.
             let capability = with_ty_for_lid(
                 env,
@@ -1786,7 +1827,17 @@ pub(crate) fn check_class_get<Ex, En>(
     is_method: bool,
 ) {
     let aast::ClassId(_, cid_pos, e) = class_id;
-    crate::typing_needs_concrete::check_class_get(env, p, def_pos, cid, mid, ce, e, is_method);
+    crate::typing_needs_concrete::check_class_get(
+        env,
+        p,
+        def_pos,
+        cid,
+        mid,
+        ce,
+        e,
+        function_pointer,
+        is_method,
+    );
     match e {
         aast::ClassId_::CIself if get_ce_abstract(ce) => {
             match env::get_self_id(env) {
@@ -2160,6 +2211,7 @@ pub mod fun_id {
         if let Some(err) = &tyargs_err_opt {
             typing_error_utils::add_typing_error(err, env)
         }
+        crate::typing_needs_concrete::check_reified_targs(env, &fun_ty.tparams, &ty_args);
         let (ty_err_opt, fun_ty) = phase::localize_ft(
             Some(phase::MethodInstantiation {
                 use_name: crate::utils::strip_ns(fun_name).to_string(),
@@ -2593,11 +2645,6 @@ pub(crate) fn check_arity_and_names(
     let (exp_min, required_names) = arity_and_names_required(ft);
     let positional_params: Vec<&FunParam> =
         ft.params.iter().filter(|fp| !get_fp_is_named(fp)).collect();
-    let optional_params: Vec<&FunParam> = ft
-        .params
-        .iter()
-        .filter(|fp| get_fp_is_optional(fp))
-        .collect();
     let check_arity = || {
         if arity < exp_min {
             typing_error_utils::add_typing_error(
@@ -2616,24 +2663,12 @@ pub(crate) fn check_arity_and_names(
             let exp_max = positional_params.len() as isize;
             let arity = if did_unpack { arity + 1 } else { arity };
             if arity > exp_max {
-                let should_show_hint_for_convert_to_optional =
-                    // If the function has optional parameters, and the optional
-                    // paramaters are provided as if they are mandatory, provide a hint
-                    arity == exp_min + optional_params.len() as isize;
-                let hint_convert_to_optional = if should_show_hint_for_convert_to_optional {
-                    let last_args: Vec<&FunParam> =
-                        ft.params.iter().skip(exp_min.max(0) as usize).collect();
-                    Some(merge_first_last_pos(&last_args))
-                } else {
-                    None
-                };
                 typing_error_utils::add_typing_error(
                     &typing_error::primary(primary::T::Typing_too_many_args {
                         expected: exp_max,
                         actual: arity,
                         pos: pos.clone(),
                         decl_pos: pos_def.clone(),
-                        hint_convert_to_optional,
                     }),
                     env,
                 )
@@ -2699,7 +2734,7 @@ pub(crate) enum SplatOrVariadic {
     Variadic(FunParam),
 }
 
-/// The last parameter of a function can be
+/// The last positional parameter of a function can be
 ///    variadic (written t...), meaning any number of t's
 /// or
 ///    splat (written ...t), meaning further parameters corresponding to the elements of tuple type t
@@ -2713,14 +2748,20 @@ pub(crate) fn get_variadic_or_splat_param(
             Some(SplatOrVariadic::Splat(fp.clone())),
         ),
         _ if get_ft_variadic(ft) => {
-            let (named, positional): (Vec<FunParam>, Vec<FunParam>) =
-                ft.params.iter().cloned().partition(get_fp_is_named);
-            match positional.last() {
-                Some(variadic) => {
-                    let variadic = variadic.clone();
-                    let mut params = positional[..positional.len() - 1].to_vec();
-                    params.extend(named);
-                    (params, Some(SplatOrVariadic::Variadic(variadic)))
+            // `List.split_while (List.rev ft.ft_params) ~f:get_fp_is_named`:
+            // the named parameters at the end, and the rest.
+            let trailing_named = ft
+                .params
+                .iter()
+                .rev()
+                .take_while(|fp| get_fp_is_named(fp))
+                .count();
+            let rest = &ft.params[..ft.params.len() - trailing_named];
+            match rest.split_last() {
+                Some((variadic, rest)) => {
+                    let mut params = rest.to_vec();
+                    params.extend(ft.params[ft.params.len() - trailing_named..].iter().cloned());
+                    (params, Some(SplatOrVariadic::Variadic(variadic.clone())))
                 }
                 None => (ft.params.clone(), None),
             }
@@ -2751,14 +2792,13 @@ pub(crate) fn check_lambda_arity(
                     .cloned()
                     .collect()
             };
-            let optional_params_of = |ft: &FunType| -> Vec<FunParam> {
-                ft.params
-                    .iter()
+            let optional_positional_params_of = |ft: &FunType| -> Vec<FunParam> {
+                positional_params_of(ft)
+                    .into_iter()
                     .filter(|fp| get_fp_is_optional(fp))
-                    .cloned()
                     .collect()
             };
-            let optional_params = optional_params_of(expected_ft);
+            let optional_params = optional_positional_params_of(expected_ft);
             // what's the most arguments this type can take (assuming no splat or variadics)
             let expected_max = positional_params_of(expected_ft).len() as isize;
             let actual_max = positional_params_of(lambda_ft).len() as isize;
@@ -2789,27 +2829,12 @@ pub(crate) fn check_lambda_arity(
                 )
             }
             if too_many {
-                let should_show_hint_for_convert_to_optional =
-                    // If the function has optional parameters, and the optional
-                    // paramaters are provided as if they are mandatory, provide a hint
-                    actual_min == expected_min + optional_params.len() as isize;
-                let hint_convert_to_optional = if should_show_hint_for_convert_to_optional {
-                    let last_args: Vec<&FunParam> = lambda_ft
-                        .params
-                        .iter()
-                        .skip(expected_min.max(0) as usize)
-                        .collect();
-                    Some(merge_first_last_pos(&last_args))
-                } else {
-                    None
-                };
                 typing_error_utils::add_typing_error(
                     &typing_error::primary(primary::T::Typing_too_many_args {
                         expected: expected_min,
                         actual: actual_min,
                         pos: lambda_pos.clone(),
                         decl_pos: def_pos.clone(),
-                        hint_convert_to_optional,
                     }),
                     env,
                 )
@@ -2990,6 +3015,15 @@ pub(crate) fn make_a_local_of(
             let local = env::fake_members::make_static(env, cname, member_name, p.clone());
             Some(aast::Lid(p.clone(), local))
         }
+        aast::Expr(_, _, aast::Expr_::ObjGet(og))
+            if matches!(
+                &og.1,
+                aast::Expr(_, _, aast::Expr_::Id(id)) if id.1.starts_with(':')
+            ) && env::get_tcopt(env).tco_xhp_attribute_reads_not_refined =>
+        {
+            // Each read calls `getAttribute`, which may return something else
+            None
+        }
         aast::Expr(_, p, aast::Expr_::ObjGet(og))
             if matches!(
                 &og.0,
@@ -3048,6 +3082,15 @@ pub(crate) fn make_a_local_of_tast(
             let cname = tast::to_nast_class_id_(cname.clone());
             let local = env::fake_members::make_static(env, &cname, member_name, p.clone());
             Some(aast::Lid(p.clone(), local))
+        }
+        aast::Expr_::ObjGet(og)
+            if matches!(
+                converted(&og.1),
+                Some(aast::Expr_::Id(id)) if id.1.starts_with(':')
+            ) && env::get_tcopt(env).tco_xhp_attribute_reads_not_refined =>
+        {
+            // Each read calls `getAttribute`, which may return something else
+            None
         }
         aast::Expr_::ObjGet(og) => {
             let (obj, member, _, _) = &**og;
@@ -3380,6 +3423,79 @@ pub(crate) fn class_for_refinement(
                 is_class,
             )
         }
+        // Even without structural information from ivar_ty, recurse so that
+        // wildcards in nested classes are simplified, e.g. covariant ones
+        // replaced by their bound.
+        (_, Ty_::Ttuple(tuple)) => {
+            let required: Vec<Ty> = tuple
+                .required
+                .iter()
+                .map(|hint_ty| {
+                    let (ty, _) = class_for_refinement(
+                        env,
+                        p,
+                        reason,
+                        ivar_pos,
+                        &make_type::mixed(reason.clone()),
+                        hint_ty.clone(),
+                    );
+                    ty
+                })
+                .collect();
+            (
+                mk((
+                    get_reason(&hint_ty).clone(),
+                    Ty_::Ttuple(TupleType {
+                        required,
+                        ..tuple.clone()
+                    }),
+                )),
+                false,
+            )
+        }
+        (_, Ty_::Toption(hint_ty_inner)) => {
+            let ivar_ty = match get_node(ivar_ty) {
+                Ty_::Toption(ivar_ty) => ivar_ty.clone(),
+                _ => make_type::mixed(reason.clone()),
+            };
+            let (ty, _) =
+                class_for_refinement(env, p, reason, ivar_pos, &ivar_ty, hint_ty_inner.clone());
+            (mk((get_reason(&hint_ty).clone(), Ty_::Toption(ty))), false)
+        }
+        (_, Ty_::Tshape(ShapeType::ShapeSimple(shape))) => {
+            let empty = t_shape_map::T::new();
+            let ivar_fields = match get_node(ivar_ty) {
+                Ty_::Tshape(ShapeType::ShapeSimple(ShapeTypeSimple { fields, .. })) => fields,
+                _ => &empty,
+            };
+            // `TShapeMap.map_env`: in the order of the keys.
+            let mut fields = t_shape_map::T::new();
+            for (name, sft) in shape.fields.iter() {
+                let ivar_ty = match ivar_fields.get(name) {
+                    Some(ShapeFieldType { ty, .. }) => ty.clone(),
+                    None => make_type::mixed(reason.clone()),
+                };
+                let (sft_ty, _) =
+                    class_for_refinement(env, p, reason, ivar_pos, &ivar_ty, sft.ty.clone());
+                fields.insert(
+                    name.clone(),
+                    ShapeFieldType {
+                        ty: sft_ty,
+                        ..sft.clone()
+                    },
+                );
+            }
+            (
+                mk((
+                    get_reason(&hint_ty).clone(),
+                    Ty_::Tshape(ShapeType::ShapeSimple(ShapeTypeSimple {
+                        fields,
+                        ..shape.clone()
+                    })),
+                )),
+                false,
+            )
+        }
         _ => (hint_ty.clone(), false),
     }
 }
@@ -3490,22 +3606,26 @@ pub(crate) fn refine_for_pattern(
     }
 }
 
-pub(crate) fn refine_for_equality(pos: &Pos, env: &mut Env, te: &tast::Expr, ty: Ty) {
-    let locl = make_a_local_of_tast(true, env, te);
-    let var_type = &te.0;
-    match locl {
-        Some(locl_ivar) if !is_dynamic(var_type) => {
-            let refined_ty = refine_and_simplify_intersection(
-                env,
-                pos,
-                &reason::equal(pos.clone()),
-                &locl_ivar.0,
-                var_type.clone(),
-                ty,
-            );
-            set_local(None, env, locl_ivar, refined_ty)
+pub(crate) fn refine_for_strict_equality(pos: &Pos, env: &mut Env, te: &tast::Expr, ty: Ty) {
+    let eligible = crate::typing_refinement::is_safe_for_strict_equality_refinement(env, &ty);
+    if !eligible {
+    } else {
+        let locl = make_a_local_of_tast(true, env, te);
+        let var_type = &te.0;
+        match locl {
+            Some(locl_ivar) if !is_dynamic(var_type) => {
+                let refined_ty = refine_and_simplify_intersection(
+                    env,
+                    pos,
+                    &reason::equal(pos.clone()),
+                    &locl_ivar.0,
+                    var_type.clone(),
+                    ty,
+                );
+                set_local(None, env, locl_ivar, refined_ty)
+            }
+            _ => {}
         }
-        _ => {}
     }
 }
 
@@ -3654,7 +3774,14 @@ pub(crate) mod aast_map {
                 Expr_::Shape(fields) => Expr_::Shape(
                     fields
                         .iter()
-                        .map(|(name, e)| (name.clone(), self.on_expr(e)))
+                        .map(|field| match field {
+                            ShapeExprField::SFField(name, e) => {
+                                ShapeExprField::SFField(name.clone(), self.on_expr(e))
+                            }
+                            ShapeExprField::SFSplat(e) => {
+                                ShapeExprField::SFSplat(self.on_expr(e))
+                            }
+                        })
                         .collect(),
                 ),
                 Expr_::ValCollection(x) => {

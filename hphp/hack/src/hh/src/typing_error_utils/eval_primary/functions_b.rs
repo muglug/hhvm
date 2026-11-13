@@ -52,6 +52,7 @@ use super::nested::eval_modules;
 use super::nested::eval_package;
 use super::nested::eval_readonly;
 use super::nested::eval_shape;
+use super::nested::eval_shape_splat;
 use super::nested::eval_simplihack;
 use super::nested::eval_switch;
 use super::nested::eval_wellformedness;
@@ -2011,7 +2012,7 @@ pub fn string_to_class_pointer(pos: Pos, cls_name: &str, ty_pos: PosOrDecl) -> T
 /// Where an arm forces several lazy values to call a function, they are
 /// forced from the last argument to the first: OCaml leaves the order
 /// unspecified, and that is the order its compilers use.
-pub fn to_error<E: ?Sized>(t: primary::T, env: &E) -> T {
+pub fn to_error(t: primary::T, env: &crate::typing_env_types::Env) -> T {
     use primary::T::*;
     match t {
         Coeffect(err) => eval_coeffect::to_error(err, env),
@@ -2056,6 +2057,7 @@ pub fn to_error<E: ?Sized>(t: primary::T, env: &E) -> T {
         Explain_constraint(pos) => explain_constraint(pos),
         Rigid_tvar_escape { pos, what } => rigid_tvar_escape(pos, what),
         Invalid_type_hint(pos) => invalid_type_hint(pos),
+        Shape_splat(err) => eval_shape_splat::to_error(err, env),
         Gated_by_feature_flag { pos, name, feature } => {
             let claim = lazy!(Message(
                 pos,
@@ -2108,11 +2110,6 @@ pub fn to_error<E: ?Sized>(t: primary::T, env: &E) -> T {
             req_name,
             req_pos,
         } => unsatisfied_req_this_as(pos, trait_pos, req_name, req_pos),
-        Req_class_not_final {
-            pos,
-            trait_pos,
-            req_pos,
-        } => req_class_not_final(pos, trait_pos, req_pos),
         Incompatible_reqs {
             pos,
             req_name,
@@ -2125,7 +2122,15 @@ pub fn to_error<E: ?Sized>(t: primary::T, env: &E) -> T {
             req_class_pos,
             class_pos,
             class_name,
-        } => trait_not_used(pos, trait_name, req_class_pos, class_pos, &class_name),
+            req_constraint_kind,
+        } => trait_not_used(
+            pos,
+            trait_name,
+            req_class_pos,
+            class_pos,
+            &class_name,
+            req_constraint_kind,
+        ),
         Invalid_echo_argument(pos) => invalid_echo_argument(pos),
         Index_type_mismatch {
             pos,
@@ -2241,8 +2246,7 @@ pub fn to_error<E: ?Sized>(t: primary::T, env: &E) -> T {
             decl_pos,
             actual,
             expected,
-            hint_convert_to_optional,
-        } => typing_too_many_args(pos, decl_pos, actual, expected, hint_convert_to_optional),
+        } => typing_too_many_args(pos, decl_pos, actual, expected),
         Typing_too_few_args {
             pos,
             decl_pos,
@@ -2490,6 +2494,36 @@ pub fn to_error<E: ?Sized>(t: primary::T, env: &E) -> T {
             decl_pos,
             containing_method_pos,
         } => uninstantiable_class_via_static(pos, &class_name, decl_pos, containing_method_pos),
+        This_refinement_in_generic_class {
+            pos,
+            class_name,
+            decl_pos,
+        } => this_refinement_in_generic_class(pos, class_name, decl_pos),
+        Private_member_variance {
+            pos,
+            class_name,
+            member_name,
+            is_write,
+            tparam_name,
+            variance,
+            use_pos,
+            decl_pos,
+        } => private_member_variance(
+            pos,
+            class_name,
+            member_name,
+            is_write,
+            tparam_name,
+            variance,
+            use_pos,
+            decl_pos,
+        ),
+        Memoize_erased_generic_return {
+            pos,
+            tparam_name,
+            attr_pos,
+            via_param,
+        } => memoize_erased_generic_return(pos, tparam_name, attr_pos, via_param),
         Needs_concrete_override {
             pos,
             method_pos,
@@ -3105,6 +3139,21 @@ mod tests {
     use relative_path::RelativePath;
 
     use super::*;
+
+    fn env() -> crate::typing_env_types::Env {
+        let ctx = crate::ctx::Ctx::new(
+            std::path::Path::new("/"),
+            oxidized::typechecker_options::TypecheckerOptions::default(),
+        )
+        .unwrap();
+        crate::typing_env_types::empty(
+            None,
+            None,
+            Arc::new(ctx),
+            Arc::new(RelativePath::make(Prefix::Root, PathBuf::from("foo.php"))),
+            None,
+        )
+    }
 
     /// The code, the message and the messages of the reasons.
     fn render(err: T) -> (isize, String, Vec<String>) {
@@ -4345,7 +4394,7 @@ mod tests {
                     name: s("\\T"),
                     feature: s("shape_splat_type_parameters"),
                 },
-                &(),
+                &env(),
             )),
             (
                 4509,
@@ -4363,7 +4412,7 @@ mod tests {
                     member_name: s("secret"),
                     class_name: s("\\BadClass"),
                 },
-                &(),
+                &env(),
             )),
             (
                 4515,
@@ -4382,7 +4431,7 @@ mod tests {
                 name: s("\\stdClass"),
                 decl_pos: decl_pos.clone(),
             },
-            &(),
+            &env(),
         );
         assert_eq!(positions(&err), (extend_pos, vec![decl_pos]));
         assert_eq!(
@@ -4397,7 +4446,7 @@ mod tests {
         assert_eq!(
             render(to_error(
                 primary::T::Expecting_return_type_hint(Pos::NONE),
-                &()
+                &env()
             )),
             (4030, s("Was expecting a return type hint"), vec![])
         );

@@ -38,14 +38,18 @@ fn key(name: &ShapeFieldName) -> Key<'_> {
     }
 }
 
-fn error_if_duplicate_names(fdl: &[(ShapeFieldName, nast::Expr)], errors: &mut Errors) {
+fn error_if_duplicate_names(fdl: &[nast::ShapeExprField], errors: &mut Errors) {
     // The names seen so far: a scan of a vector for the usual small shapes,
     // a hash set for big ones (only membership is asked, so the order of
     // the errors is the order of the fields either way).
     const SMALL: usize = 16;
     let mut seen_small: Vec<Key<'_>> = Vec::new();
     let mut seen = hash::HashSet::default();
-    for (name, _) in fdl {
+    for field in fdl {
+        let name = match field {
+            nast::ShapeExprField::SFField(name, _) => name,
+            nast::ShapeExprField::SFSplat(_) => continue,
+        };
         let k = key(name);
         let fresh = if fdl.len() <= SMALL {
             if seen_small.contains(&k) {

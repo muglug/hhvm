@@ -1540,7 +1540,7 @@ pub fn expr_(
                 let r = reason::witness(p.clone());
                 let mixed = make_type::mixed(r.clone());
                 let expected_type = make_type::awaitable(r, mixed);
-                let ty_err_opt = crate::typing_ops::sub_type(
+                let ty_err_opt = crate::typing_ops::sub_type(None, 
                     p.clone(),
                     Ureason::URdelay,
                     env,
@@ -1574,6 +1574,7 @@ pub fn expr_(
             aast::Expr_::Is(is) => {
                 let (e, hint) = &**is;
                 let (te, _) = expr(None, &sub_ctxt(ctxt, false), env, e);
+                crate::typing_enforceable_hint::check_this_refinement_in_generic_class(env, hint);
                 let (ty_err_opt, _hint_ty) = phase::localize_hint_for_refinement(env, hint);
                 add_typing_error_opt(env, &ty_err_opt);
                 make_result(
@@ -1979,6 +1980,7 @@ fn expr_clone(ctxt: &context::T, env: &mut Env, p: &Pos, e: &nast::Expr) -> (tas
     add_typing_error_opt(env, &ty_err_opt);
     let (_tel, _typed_unpack_element, _ty, _should_forget_fakes) =
         super::call(None, None, None, None, None, p, p, p, env, tfty, &[], None);
+    might_throw(p, env);
     make_result(env, p.clone(), aast::Expr_::Clone(Box::new(te)), ty)
 }
 
@@ -2400,6 +2402,7 @@ fn expr_array_get(
     let ty_err_opt = sub_type::sub_type_i(
         env,
         None,
+        None,
         InternalType::LoclType(ty2.clone()),
         InternalType::LoclType(key_ty.clone()),
         Some(reasons_callback::unify_error_at(p.clone())),
@@ -2423,6 +2426,7 @@ fn expr_array_get(
     };
     let ty_err_opt = sub_type::sub_type_i(
         env,
+        None,
         None,
         InternalType::LoclType(ty1.clone()),
         InternalType::ConstraintType(mk_constraint_type((
@@ -2817,6 +2821,7 @@ fn expr_obj_get_static(
         ast_defs::OperatorNullFlavor::Regular => {
             let ty_err_opt = crate::typing_ops::sub_type_i(
                 None,
+                None,
                 p1.clone(),
                 Ureason::URnone,
                 env,
@@ -2840,6 +2845,7 @@ fn expr_obj_get_static(
             // For the true case, we need to intersect the receiver type with
             // `nonnull` and assert the `has_member` constraint
             let ty_err_opt = crate::typing_ops::sub_type_i(
+                None,
                 None,
                 p1.clone(),
                 Ureason::URnone,
@@ -3011,6 +3017,8 @@ fn expr_yield(env: &mut Env, p: &Pos, af: &nast::Afield) -> (tast::Expr, Ty) {
     add_typing_error_opt(env, &ty_err_opt);
     env::forget_members(env, Blame::Blame(p.clone(), BlameSource::BScall));
     lenv::save_and_merge_next_in_cont(env, p, c::T::Exit);
+    // The generator can be resumed with Generator::raise
+    might_throw(p, env);
     make_result(
         env,
         p.clone(),
@@ -3159,8 +3167,6 @@ fn expr_as(ctxt: &context::T, env: &mut Env, p: &Pos, as_: &nast::As_) -> (tast:
     might_throw(p, env);
     let should_check_package_boundary = if *is_nullable {
         crate::typing_packages::CheckReason::No
-    } else if env::package_allow_as_expression_violations(env) {
-        crate::typing_packages::CheckReason::LintOnly
     } else {
         crate::typing_packages::CheckReason::Yes(
             primary::package::TargetSymbolSpec::As_expression,
@@ -3172,6 +3178,7 @@ fn expr_as(ctxt: &context::T, env: &mut Env, p: &Pos, as_: &nast::As_) -> (tast:
         env,
         hint,
     );
+    crate::typing_enforceable_hint::check_this_refinement_in_generic_class(env, hint);
     let (ty_err_opt1, hint_ty) = phase::localize_hint_for_refinement(env, hint);
     add_typing_error_opt(env, &ty_err_opt1);
     let (_, hint_ty) = tutils::strip_supportdyn(env, hint_ty);
@@ -3306,15 +3313,30 @@ fn expr_shape(
     ctxt: &context::T,
     env: &mut Env,
     p: &Pos,
-    fdm: &[(ast_defs::ShapeFieldName, nast::Expr)],
+    fdm: &[nast::ShapeExprField],
 ) -> (tast::Expr, Ty) {
     let expr_helper = |expected: Option<&expected_ty::T>,
                        env: &mut Env,
-                       (k, e): &(ast_defs::ShapeFieldName, nast::Expr)|
+                       (k, e): &(&ast_defs::ShapeFieldName, &nast::Expr)|
      -> (ast_defs::ShapeFieldName, tast::Expr, Ty) {
         let (et, ty) = expr(expected, &sub_ctxt(ctxt, false), env, e);
-        (k.clone(), et, ty)
+        ((*k).clone(), et, ty)
     };
+    let has_splats = fdm.iter().any(|field| match field {
+        aast::ShapeExprField::SFSplat(_) => true,
+        aast::ShapeExprField::SFField(_, _) => false,
+    });
+    if has_splats {
+        return expr_shape_with_splats(expected, ctxt, env, p, fdm);
+    }
+    let fields: Vec<(&ast_defs::ShapeFieldName, &nast::Expr)> = fdm
+        .iter()
+        .filter_map(|field| match field {
+            aast::ShapeExprField::SFField(k, e) => Some((k, e)),
+            aast::ShapeExprField::SFSplat(_) => None,
+        })
+        .collect();
+    let fdm = &fields;
     // The OCaml goes on with the environment from before the expansion in its
     // last case (`| _ -> List.map_env env ~f:expr_helper fdm`).
     let env0 = env.clone();
@@ -3381,9 +3403,25 @@ fn expr_shape(
     make_result(
         env,
         p.clone(),
-        aast::Expr_::Shape(tfdm.into_iter().map(|(k, te, _)| (k, te)).collect()),
+        aast::Expr_::Shape(
+            tfdm.into_iter()
+                .map(|(k, te, _)| aast::ShapeExprField::SFField(k, te))
+                .collect(),
+        ),
         make_type::closed_shape(reason::shape_literal(p.clone()), fdm_ty),
     )
+}
+
+/// The `has_splats` branch of `Shape fdm`: `shape(...$a, ...$b, 'x' => 1)`.
+#[inline(never)]
+fn expr_shape_with_splats(
+    _expected: Option<&expected_ty::T>,
+    _ctxt: &context::T,
+    _env: &mut Env,
+    _p: &Pos,
+    _fdm: &[nast::ShapeExprField],
+) -> (tast::Expr, Ty) {
+    todo!("Typing.expr (Shape with SF_splat): needs Typing_corners.resolve_for_read")
 }
 
 /// `EnumClassLabel (Some enum_name, name)`
@@ -3421,6 +3459,7 @@ fn expr_enum_class_label(
     )));
     env::set_tyvar_variance_i(env, None, None, &has_const);
     let err = crate::typing_ops::sub_type_i(
+        None,
         None,
         p.clone(),
         Ureason::URlabel,

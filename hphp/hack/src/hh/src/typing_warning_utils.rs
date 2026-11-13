@@ -734,6 +734,35 @@ impl Warning for typing_warning::static_property_override::T {
     }
 }
 
+// module Readonly_property_override
+impl Warning for typing_warning::readonly_property_override::T {
+    fn code(&self) -> Codes {
+        Codes::ReadonlyPropertyOverride
+    }
+
+    fn codes() -> Vec<Codes> {
+        vec![Codes::ReadonlyPropertyOverride]
+    }
+
+    fn claim(&self) -> String {
+        format!(
+            "The readonly-ness of property {} is changed by this override",
+            md_codify(&self.prop_name)
+        )
+    }
+
+    fn reasons(&self) -> Vec<Message<PosOrDecl>> {
+        vec![message(
+            self.child_prop_pos.clone(),
+            "Overriding property is here",
+        )]
+    }
+
+    fn quickfixes(&self) -> Vec<Quickfix<Pos>> {
+        vec![]
+    }
+}
+
 // module String_to_class_pointer
 impl Warning for typing_warning::string_to_class_pointer::T {
     fn code(&self) -> Codes {
@@ -800,114 +829,6 @@ impl Warning for typing_warning::call_needs_concrete::T {
 
     fn reasons(&self) -> Vec<Message<PosOrDecl>> {
         vec![message(self.decl_pos.clone(), "Declaration is here")]
-    }
-
-    fn quickfixes(&self) -> Vec<Quickfix<Pos>> {
-        vec![]
-    }
-}
-
-/// The quickfix of `Abstract_access_via_static` and
-/// `Uninstantiable_class_via_static`.
-fn add_needs_concrete_attribute(containing_method_pos: &Option<Pos>) -> Vec<Quickfix<Pos>> {
-    match containing_method_pos {
-        Some(function_pos) => {
-            let title = format!("Add {} attribute", sn::user_attributes::NEEDS_CONCRETE);
-            vec![Quickfix {
-                title,
-                edits: Edits::AddFunctionAttribute {
-                    function_pos: function_pos.clone(),
-                    attribute_name: sn::user_attributes::NEEDS_CONCRETE.to_string(),
-                },
-                hint_styles: vec![],
-            }]
-        }
-        None => vec![],
-    }
-}
-
-// module Abstract_access_via_static
-impl Warning for typing_warning::abstract_access_via_static::T {
-    fn code(&self) -> Codes {
-        Codes::AbstractAccessViaStatic
-    }
-
-    fn codes() -> Vec<Codes> {
-        vec![Codes::AbstractAccessViaStatic]
-    }
-
-    fn claim(&self) -> String {
-        format!(
-            "Dangerous access of abstract member {}; it may be abstract and `static` might refer to an abstract class here. Consider adding the `__NeedsConcrete` attribute to the containing method.",
-            md_codify(&format!(
-                "{}::{}",
-                utils_strip_ns(&self.class_name),
-                self.member_name
-            ))
-        )
-    }
-
-    fn reasons(&self) -> Vec<Message<PosOrDecl>> {
-        vec![message(self.decl_pos.clone(), "Declaration is here")]
-    }
-
-    fn quickfixes(&self) -> Vec<Quickfix<Pos>> {
-        add_needs_concrete_attribute(&self.containing_method_pos)
-    }
-}
-
-// module Uninstantiable_class_via_static
-impl Warning for typing_warning::uninstantiable_class_via_static::T {
-    fn code(&self) -> Codes {
-        Codes::UninstantiableClassViaStatic
-    }
-
-    fn codes() -> Vec<Codes> {
-        vec![Codes::UninstantiableClassViaStatic]
-    }
-
-    fn claim(&self) -> String {
-        "Dangerous instantiation via `static`: `static` might refer to a non-concrete class here. Consider adding the `__NeedsConcrete` attribute to the containing method.".to_string()
-    }
-
-    fn reasons(&self) -> Vec<Message<PosOrDecl>> {
-        vec![message(self.decl_pos.clone(), "Declaration is here")]
-    }
-
-    fn quickfixes(&self) -> Vec<Quickfix<Pos>> {
-        add_needs_concrete_attribute(&self.containing_method_pos)
-    }
-}
-
-// module Needs_concrete_override
-impl Warning for typing_warning::needs_concrete_override::T {
-    fn code(&self) -> Codes {
-        Codes::NeedsConcreteOverride
-    }
-
-    fn codes() -> Vec<Codes> {
-        vec![Codes::NeedsConcreteOverride]
-    }
-
-    fn claim(&self) -> String {
-        let method_text = match &self.method_name_for_method_defined_outside_class {
-            Some(method_name) => format!("Method `{}`", method_name),
-            None => "This method".to_string(),
-        };
-        format!(
-            "{} is declared as `__NeedsConcrete` but overrides a non-`__NeedsConcrete` method. Please add `__NeedsConcrete` to the overridden method or remove it from the current method. (The `__NeedsConcrete` attribute indicates that a method requires `static` to point to a concrete class)",
-            method_text
-        )
-    }
-
-    fn reasons(&self) -> Vec<Message<PosOrDecl>> {
-        vec![
-            message(
-                self.pos.clone(),
-                "It is unsafe to declare this method as `__NeedsConcrete`, since it overrides a non-`__NeedsConcrete` method",
-            ),
-            message(self.parent_pos.clone(), "Previously defined here"),
-        ]
     }
 
     fn quickfixes(&self) -> Vec<Quickfix<Pos>> {
@@ -1176,6 +1097,35 @@ impl Warning for typing_warning::dynamic_call::T {
     }
 }
 
+// module Dynamic_return
+impl Warning for typing_warning::dynamic_return::T {
+    fn code(&self) -> Codes {
+        Codes::DynamicReturn
+    }
+
+    fn codes() -> Vec<Codes> {
+        vec![Codes::DynamicReturn]
+    }
+
+    fn claim(&self) -> String {
+        format!(
+            "Returning a value of type `dynamic` through a non-fully-enforced return type {}",
+            md_codify(&self.return_type)
+        )
+    }
+
+    fn reasons(&self) -> Vec<Message<PosOrDecl>> {
+        vec![message(
+            self.return_type_pos.clone(),
+            "This return type is not fully enforced at runtime",
+        )]
+    }
+
+    fn quickfixes(&self) -> Vec<Quickfix<Pos>> {
+        vec![]
+    }
+}
+
 // module Consistent_construct_abstract_final
 impl Warning for typing_warning::consistent_construct_abstract_final::T {
     fn code(&self) -> Codes {
@@ -1273,6 +1223,29 @@ impl Warning for typing_warning::redundant_require_this_as::T {
     }
 }
 
+// module Redundant_concurrent
+impl Warning for typing_warning::redundant_concurrent::T {
+    fn code(&self) -> Codes {
+        Codes::RedundantConcurrent
+    }
+
+    fn codes() -> Vec<Codes> {
+        vec![Codes::RedundantConcurrent]
+    }
+
+    fn claim(&self) -> String {
+        "A `concurrent` block containing a single statement is redundant. Concurrency within a statement is already implied by `await`.".to_string()
+    }
+
+    fn reasons(&self) -> Vec<Message<PosOrDecl>> {
+        vec![]
+    }
+
+    fn quickfixes(&self) -> Vec<Quickfix<Pos>> {
+        vec![]
+    }
+}
+
 /// A type-dependent warning is one that does depends on type precision and
 /// therefore can be invalidated by dynamic. Warnings which do not depend on
 /// type can always trusted.
@@ -1282,18 +1255,17 @@ fn is_type_dependent<X, A>(kind: &typing_warning::Kind<X, A>) -> bool {
         // invalidated by dynamic
         KindTag::Static_call_on_trait => false,
         KindTag::Static_property_override => false,
+        KindTag::Readonly_property_override => false,
         KindTag::Duplicate_properties => false,
         KindTag::Class_pointer_to_string => false,
         KindTag::String_to_class_pointer => false,
         KindTag::Call_needs_concrete => false,
-        KindTag::Abstract_access_via_static => false,
-        KindTag::Uninstantiable_class_via_static => false,
-        KindTag::Needs_concrete_override => false,
         KindTag::Unbound_name_warning => false,
         KindTag::Sealed_not_subtype => false,
         KindTag::Sealed_not_override => false,
         KindTag::Consistent_construct_abstract_final => false,
         KindTag::Redundant_require_this_as => false,
+        KindTag::Redundant_concurrent => false,
         // Type-dependent: rely on type precision that could differ under
         // dynamic
         KindTag::Is_as_always => true,
@@ -1309,6 +1281,7 @@ fn is_type_dependent<X, A>(kind: &typing_warning::Kind<X, A>) -> bool {
         KindTag::Redundant_nullsafe_operation => true,
         KindTag::Set_or_keyset_array_get => true,
         KindTag::Dynamic_call => true,
+        KindTag::Dynamic_return => true,
         KindTag::Tany_found => true,
     }
 }
@@ -1635,34 +1608,6 @@ mod tests {
         );
         assert_eq!(prettify_class_list(&[]), "");
         assert_eq!(prettify_class_list(&["A".to_string()]), "A");
-    }
-
-    #[test]
-    fn quickfixes() {
-        use typing_warning::abstract_access_via_static::T;
-        let warning = |containing_method_pos| T {
-            access_pos: pos(7, 0..3),
-            class_name: "\\C".to_string(),
-            member_name: "X".to_string(),
-            decl_pos: pos(2, 0..1),
-            containing_method_pos,
-        };
-        assert!(warning(None).quickfixes().is_empty());
-        assert_eq!(
-            warning(Some(pos(6, 0..9))).quickfixes(),
-            vec![Quickfix {
-                title: "Add __NeedsConcrete attribute".to_string(),
-                edits: Edits::AddFunctionAttribute {
-                    function_pos: pos(6, 0..9),
-                    attribute_name: "__NeedsConcrete".to_string(),
-                },
-                hint_styles: vec![],
-            }]
-        );
-        assert_eq!(
-            warning(None).claim(),
-            "Dangerous access of abstract member `C::X`; it may be abstract and `static` might refer to an abstract class here. Consider adding the `__NeedsConcrete` attribute to the containing method."
-        );
     }
 
     #[test]

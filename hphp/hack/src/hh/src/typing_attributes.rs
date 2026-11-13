@@ -102,6 +102,7 @@ pub mod sn {
             ),
             ("__Deprecated", &[ak::fn_, ak::mthd]),
             ("__DisableTypecheckerInternal", &[ak::fn_, ak::mthd]),
+            ("__DisjointShapeSplat", &[ak::typealias]),
             ("__Docs", &[ak::cls, ak::enum_, ak::enumcls, ak::typealias]),
             ("__DynamicallyCallable", &[ak::fn_, ak::mthd]),
             ("__DynamicallyConstructible", &[ak::cls]),
@@ -161,6 +162,7 @@ pub mod sn {
             ("__ReturnDisposable", &[ak::fn_, ak::mthd, ak::lambda]),
             ("__SafeForGlobalAccessCheck", &[ak::staticProperty]),
             ("__Sealed", &[ak::cls, ak::enumcls, ak::enum_, ak::mthd]),
+            ("__ShapeKey", &[ak::clscst]),
             (
                 "__SimpliHack",
                 &[
@@ -447,7 +449,7 @@ mod tests {
         for map in [user_attributes::as_map, user_attributes::systemlib_map] {
             assert!(map.windows(2).all(|w| w[0].0 < w[1].0));
         }
-        assert_eq!(user_attributes::as_map.len(), 59);
+        assert_eq!(user_attributes::as_map.len(), 61);
         assert_eq!(user_attributes::systemlib_map.len(), 7);
     }
 }

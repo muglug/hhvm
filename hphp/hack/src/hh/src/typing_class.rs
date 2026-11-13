@@ -1496,7 +1496,7 @@ fn typeconst_def(
                             let (ty_err_opt1, as_) = phase::localize_hint_no_subst(env, false, as_);
                             match &ty_default_opt {
                                 Some(ty) => {
-                                    let ty_err_opt2 = typing_ops::sub_type(
+                                    let ty_err_opt2 = typing_ops::sub_type(None, 
                                         pos.clone(),
                                         Ureason::URtypeconstCstr,
                                         env,
@@ -1516,7 +1516,7 @@ fn typeconst_def(
                             let (te1, super_) = phase::localize_hint_no_subst(env, false, super_);
                             match &ty_default_opt {
                                 Some(ty) => {
-                                    let te2 = typing_ops::sub_type(
+                                    let te2 = typing_ops::sub_type(None, 
                                         pos.clone(),
                                         Ureason::URtypeconstCstr,
                                         env,

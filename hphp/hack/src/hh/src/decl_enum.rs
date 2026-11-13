@@ -201,6 +201,7 @@ mod tests {
             ty,
             origin: TypeName::new("\\E"),
             refs: Box::new([]),
+            is_shape_key: false,
             value: ty::decl::ConstValue::CVAbsent,
         }
     }

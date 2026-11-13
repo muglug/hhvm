@@ -171,6 +171,7 @@ pub mod naming {
             2134 => T::VariadicNamedParameterDisallowed,
             2135 => T::ImplicitPackageFileDirectlyUnderPath,
             2136 => T::ImplicitPackageInvalidMemberDir,
+            2137 => T::TraitSelfShapeKey,
             _ => return None,
         })
     }
@@ -179,7 +180,7 @@ pub mod naming {
     pub const min: isize = 2001;
 
     /// `max` (`[@@deriving enum]`): the largest code.
-    pub const max: isize = 2136;
+    pub const max: isize = 2137;
 
     /// `show` (`[@@deriving show { with_path = false }]`): the name of the
     /// OCaml constructor.
@@ -263,6 +264,7 @@ pub mod naming {
             T::VariadicNamedParameterDisallowed => "VariadicNamedParameterDisallowed",
             T::ImplicitPackageFileDirectlyUnderPath => "ImplicitPackageFileDirectlyUnderPath",
             T::ImplicitPackageInvalidMemberDir => "ImplicitPackageInvalidMemberDir",
+            T::TraitSelfShapeKey => "TraitSelfShapeKey",
         }
         .to_string()
     }
@@ -351,8 +353,9 @@ pub mod nast_check {
             3110 => T::ObservationNotAllowedForPackage,
             3111 => T::PackageOverrideTargetNotIncluded,
             3112 => T::RedundantPackageOverride,
-            3113 => T::NamedParamsMemoize,
             3114 => T::OverrideNotAllowedForPackage,
+            3115 => T::PlaceholderRead,
+            3116 => T::PlaceholderInoutWrite,
             _ => return None,
         })
     }
@@ -361,7 +364,7 @@ pub mod nast_check {
     pub const min: isize = 3001;
 
     /// `max` (`[@@deriving enum]`): the largest code.
-    pub const max: isize = 3114;
+    pub const max: isize = 3116;
 
     /// `show` (`[@@deriving show { with_path = false }]`): the name of the
     /// OCaml constructor.
@@ -426,8 +429,9 @@ pub mod nast_check {
             T::ObservationNotAllowedForPackage => "ObservationNotAllowedForPackage",
             T::PackageOverrideTargetNotIncluded => "PackageOverrideTargetNotIncluded",
             T::RedundantPackageOverride => "RedundantPackageOverride",
-            T::NamedParamsMemoize => "NamedParamsMemoize",
             T::OverrideNotAllowedForPackage => "OverrideNotAllowedForPackage",
+            T::PlaceholderRead => "PlaceholderRead",
+            T::PlaceholderInoutWrite => "PlaceholderInoutWrite",
         }
         .to_string()
     }
@@ -798,6 +802,14 @@ pub mod typing {
             4528 => T::CallNeedsConcrete,
             4529 => T::AbstractAccessViaStatic,
             4530 => T::UninstantiableClassViaStatic,
+            4531 => T::RedundantShapeSplat,
+            4532 => T::UnsupportedCyclicShapeSplatBounds,
+            4533 => T::ShapeKeyClassConstMissingAttribute,
+            4534 => T::ShapeKeyClassConstValueUnresolvable,
+            4535 => T::ShapeKeyClassConstIsAbstract,
+            4536 => T::ThisRefinementInGenericClass,
+            4537 => T::PrivateMemberVariance,
+            4538 => T::MemoizeErasedGenericReturn,
             _ => return None,
         })
     }
@@ -806,7 +818,7 @@ pub mod typing {
     pub const min: isize = 0;
 
     /// `max` (`[@@deriving enum]`): the largest code.
-    pub const max: isize = 4530;
+    pub const max: isize = 4538;
 
     /// `show` (`[@@deriving show { with_path = false }]`): the name of the
     /// OCaml constructor.
@@ -1161,6 +1173,14 @@ pub mod typing {
             T::CallNeedsConcrete => "CallNeedsConcrete",
             T::AbstractAccessViaStatic => "AbstractAccessViaStatic",
             T::UninstantiableClassViaStatic => "UninstantiableClassViaStatic",
+            T::RedundantShapeSplat => "RedundantShapeSplat",
+            T::UnsupportedCyclicShapeSplatBounds => "UnsupportedCyclicShapeSplatBounds",
+            T::ShapeKeyClassConstMissingAttribute => "ShapeKeyClassConstMissingAttribute",
+            T::ShapeKeyClassConstValueUnresolvable => "ShapeKeyClassConstValueUnresolvable",
+            T::ShapeKeyClassConstIsAbstract => "ShapeKeyClassConstIsAbstract",
+            T::ThisRefinementInGenericClass => "ThisRefinementInGenericClass",
+            T::PrivateMemberVariance => "PrivateMemberVariance",
+            T::MemoizeErasedGenericReturn => "MemoizeErasedGenericReturn",
         }
         .to_string()
     }
@@ -1209,9 +1229,6 @@ pub mod warning {
             12022 => T::StringToClassPointer,
             12023 => T::NullCoalesceAlways,
             12024 => T::CallNeedsConcrete,
-            12025 => T::AbstractAccessViaStatic,
-            12026 => T::UninstantiableClassViaStatic,
-            12027 => T::NeedsConcreteOverride,
             12028 => T::ExpectBoolForCondition,
             12029 => T::RedundantNullsafeMemberSelect,
             12030 => T::NullsafeMemberSelectOnNull,
@@ -1228,6 +1245,9 @@ pub mod warning {
             12041 => T::SealedNotOverride,
             12042 => T::DynamicPropertyAccess,
             12043 => T::RedundantRequireThisAs,
+            12044 => T::DynamicReturn,
+            12045 => T::ReadonlyPropertyOverride,
+            12048 => T::RedundantConcurrent,
             _ => return None,
         })
     }
@@ -1236,7 +1256,7 @@ pub mod warning {
     pub const min: isize = 12001;
 
     /// `max` (`[@@deriving enum]`): the largest code.
-    pub const max: isize = 12043;
+    pub const max: isize = 12048;
 
     /// `show` (`[@@deriving show { with_path = false }]`): the name of the
     /// OCaml constructor.
@@ -1261,9 +1281,6 @@ pub mod warning {
             T::StringToClassPointer => "StringToClassPointer",
             T::NullCoalesceAlways => "NullCoalesceAlways",
             T::CallNeedsConcrete => "CallNeedsConcrete",
-            T::AbstractAccessViaStatic => "AbstractAccessViaStatic",
-            T::UninstantiableClassViaStatic => "UninstantiableClassViaStatic",
-            T::NeedsConcreteOverride => "NeedsConcreteOverride",
             T::ExpectBoolForCondition => "ExpectBoolForCondition",
             T::RedundantNullsafeMemberSelect => "RedundantNullsafeMemberSelect",
             T::NullsafeMemberSelectOnNull => "NullsafeMemberSelectOnNull",
@@ -1280,6 +1297,9 @@ pub mod warning {
             T::SealedNotOverride => "SealedNotOverride",
             T::DynamicPropertyAccess => "DynamicPropertyAccess",
             T::RedundantRequireThisAs => "RedundantRequireThisAs",
+            T::DynamicReturn => "DynamicReturn",
+            T::ReadonlyPropertyOverride => "ReadonlyPropertyOverride",
+            T::RedundantConcurrent => "RedundantConcurrent",
         }
         .to_string()
     }

@@ -27,8 +27,6 @@ pub struct Flags {
     pub skip_hierarchy_checks: bool,
     pub skip_tast_checks: bool,
     pub skip_check_under_dynamic: bool,
-    pub call_coeffects: bool,
-    pub local_coeffects: bool,
     pub strict_contexts: bool,
     pub enable_supportdyn_hint: bool,
     pub glean_reponame: String,
@@ -48,7 +46,6 @@ pub struct Flags {
     pub custom_error_config_path: Option<String>,
     pub allow_all_files_for_module_declarations: bool,
     pub loop_iteration_upper_bound: Option<isize>,
-    pub enable_class_pointer_hint: bool,
     pub disallow_non_annotated_memoize: bool,
     pub treat_non_annotated_memoize_as_kbic: bool,
 }
@@ -66,8 +63,6 @@ impl Default for Flags {
             skip_hierarchy_checks: false,
             skip_tast_checks: false,
             skip_check_under_dynamic: false,
-            call_coeffects: true,
-            local_coeffects: true,
             strict_contexts: true,
             enable_supportdyn_hint: false,
             // `Glean_options.reponame Global_options.default`
@@ -88,7 +83,6 @@ impl Default for Flags {
             custom_error_config_path: None,
             allow_all_files_for_module_declarations: true,
             loop_iteration_upper_bound: None,
-            enable_class_pointer_hint: true,
             disallow_non_annotated_memoize: false,
             treat_non_annotated_memoize_as_kbic: false,
         }

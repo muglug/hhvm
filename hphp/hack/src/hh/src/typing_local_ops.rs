@@ -45,11 +45,7 @@ fn check_local_capability(
     mk_err_opt: impl FnOnce(&Local, &Ty) -> Option<typing_error::T>,
     env: &mut Env,
 ) {
-    // gate the check behavior on coeffects TC option
-    let tcopt = env::get_tcopt(env);
-    // `Typechecker_options.local_coeffects`
-    let should_skip_check =
-        !tcopt.tco_coeffects_local || tast::is_under_dynamic_assumptions(env.checked);
+    let should_skip_check = tast::is_under_dynamic_assumptions(env.checked);
     if !should_skip_check {
         let available = env::get_local(env, &typing_coeffects::local_capability_id());
         let required = mk_required(env);

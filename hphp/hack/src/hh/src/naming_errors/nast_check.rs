@@ -217,6 +217,14 @@ pub fn to_diagnostic(error: NastCheckError) -> Diagnostic {
                 prop_msgs,
             )
         }
+        ThisEscapesOverridableConstructor { pos, class_name } => err(
+            Code::CallBeforeInit,
+            pos,
+            format!(
+                "`$this` escapes the constructor of {}, which a subclass's constructor may run before initializing its own properties. Make the class final, or keep `$this` in its constructor.",
+                md_codify(strip_ns(&class_name))
+            ),
+        ),
         CallBeforeInit { pos, prop_name } => {
             let reason = if prop_name == "parent::__construct" {
                 "you forgot to call `parent::__construct`".to_string()
@@ -466,11 +474,6 @@ pub fn to_diagnostic(error: NastCheckError) -> Diagnostic {
             pos,
             "Memoized functions cannot be variadic or use the type-splat operator.",
         ),
-        NamedParamsMemoize(pos) => err(
-            Code::NamedParamsMemoize,
-            pos,
-            "Memoized functions cannot have named parameters yet. Make this parameter positional or drop the memoization.",
-        ),
         AbstractMethodMemoize(pos) => err(
             Code::AbstractMethodMemoize,
             pos,
@@ -507,6 +510,17 @@ pub fn to_diagnostic(error: NastCheckError) -> Diagnostic {
             Code::ListRvalue,
             pos,
             "`list()` can only be used for destructuring assignment. Did you mean `tuple()` or `vec[]`?",
+        ),
+        PlaceholderRead(pos) => err(
+            Code::PlaceholderRead,
+            pos,
+            "Cannot read from the placeholder `$_`. Please name this variable instead",
+        ),
+        PlaceholderInoutWrite { pos, param_pos } => err_with_reasons(
+            Code::PlaceholderInoutWrite,
+            pos,
+            "Cannot write to the placeholder `$_` when it is an `inout` parameter. Please name this variable instead",
+            vec![(param_pos, "This is an `inout` parameter".to_string())],
         ),
         IllegalDestructor(pos) => err(
             Code::IllegalDestructor,

@@ -1275,7 +1275,7 @@ fn get_field_info(env: &mut Env, key: &ShapeFieldName) -> (Pos, Option<(String, 
                                 },
                             ))
                         };
-                        let e2 = typing_ops::sub_type(
+                        let e2 = typing_ops::sub_type(None, 
                             key_pos.clone(),
                             Ureason::URnone,
                             env,

@@ -649,7 +649,7 @@ pub fn assert_subtype(
     ty_expect: Ty,
     on_error: typing_error::callback::T,
 ) {
-    let ty_err_opt = typing_ops::sub_type(p, reason, env, ty_have, ty_expect, on_error);
+    let ty_err_opt = typing_ops::sub_type(None, p, reason, env, ty_have, ty_expect, on_error);
     if let Some(err) = &ty_err_opt {
         typing_error_utils::add_typing_error(err, env)
     }

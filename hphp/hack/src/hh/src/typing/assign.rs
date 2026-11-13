@@ -63,6 +63,16 @@ fn option_merge<A>(a: Option<A>, b: Option<A>, f: impl FnOnce(A, A) -> A) -> Opt
     }
 }
 
+/// HHVM writes a list()'s elements right to left.
+fn list_writes_in_order<A>(env: &Env, mut l: Vec<A>) -> Vec<A> {
+    if env::get_tcopt(env).tco_list_assign_right_to_left {
+        l.reverse();
+        l
+    } else {
+        l
+    }
+}
+
 fn add_typing_error_opt(ty_err_opt: &Option<typing_error::T>, env: &Env) {
     if let Some(err) = ty_err_opt {
         typing_error_utils::add_typing_error(err, env)
@@ -148,6 +158,15 @@ pub(crate) fn assign_with_subtype_err_(
                         Blame::Blame(p.clone(), BlameSource::BSassignment),
                     )
                 }
+                // `self::$x` and `C::$x` can name the same property
+                aast::Expr(_, _, aast::Expr_::ClassGet(cg)) => {
+                    let (_, (_, property), _) = &**cg;
+                    env::forget_static_named_members(
+                        env,
+                        property,
+                        Blame::Blame(p.clone(), BlameSource::BSassignment),
+                    )
+                }
                 _ => {}
             }
             match e1 {
@@ -179,6 +198,20 @@ pub(crate) fn assign_with_subtype_err_(
                     (te, ty, None)
                 }
                 aast::Expr(_, p1, aast::Expr_::List(el)) => {
+                    // Destructuring throws when the rhs is too short, which a tuple of the
+                    // list's arity is not. Like types count by their non-dynamic part.
+                    {
+                        let ty2_nondyn =
+                            crate::typing_dynamic_utils::strip_dynamic(env, ty2.clone());
+                        let tuple_of_arity = make_type::tuple(
+                            reason::none(),
+                            el.iter().map(|_| make_type::mixed(reason::none())).collect(),
+                        );
+                        if tutils::is_sub_type(env, &ty2_nondyn, &tuple_of_arity) {
+                        } else {
+                            might_throw(p, env)
+                        }
+                    }
                     // Generate fresh types for each lhs list element, then subtype against
                     // rhs type. If original type was generated from an error, propagate this to
                     // avoid cascading errors.
@@ -206,25 +239,20 @@ pub(crate) fn assign_with_subtype_err_(
                         make_type::list_destructure(reason::destructure(p1.clone()), tyl.clone());
                     env::set_tyvar_variance_i(env, None, None, &destructure_ty);
                     let lty2 = InternalType::LoclType(ty2.clone());
-                    let assign_accumulate =
-                        |env: &mut Env,
-                         (tel, errs): &mut (Vec<tast::Expr>, Vec<Option<(Ty, Ty)>>),
-                         lvalue: &nast::Expr,
-                         ty2: Ty| {
-                            let (te, _, err_opt) = assign(None, p, env, lvalue, pos2, ty2);
-                            // `te :: tel` and `err_opt :: errs`: kept in order
-                            // here, so nothing is reversed afterwards.
-                            tel.push(te);
-                            errs.push(err_opt);
-                        };
                     let type_list_elem = |env: &mut Env| {
-                        // `List.fold2_exn el tyl`: the lists have the same
+                        // `List.zip_exn el tyl`: the lists have the same
                         // length by construction.
-                        let mut acc = (vec![], vec![]);
-                        for (lvalue, ty2) in el.iter().zip(tyl.iter()) {
-                            assign_accumulate(env, &mut acc, lvalue, ty2.clone());
+                        let pairs = list_writes_in_order(
+                            env,
+                            el.iter().zip(tyl.iter()).collect::<Vec<_>>(),
+                        );
+                        let mut results: Vec<(tast::Expr, Option<(Ty, Ty)>)> = vec![];
+                        for (lvalue, ty2) in pairs {
+                            let (te, _, err_opt) = assign(None, p, env, lvalue, pos2, ty2.clone());
+                            results.push((te, err_opt));
                         }
-                        let (tel, subtype_errs) = acc;
+                        let (tel, subtype_errs): (Vec<tast::Expr>, Vec<Option<(Ty, Ty)>>) =
+                            list_writes_in_order(env, results).into_iter().unzip();
                         let (te, ty) =
                             make_result(env, p1.clone(), aast::Expr_::List(tel), ty2.clone());
                         (te, ty, subtype_errs)
@@ -244,6 +272,7 @@ pub(crate) fn assign_with_subtype_err_(
                     // now have types so we can subtype each element, accumulate the errors
                     // and pack back into the rhs structure as our expected type
                     let ty_err1 = typing_ops::sub_type_i(
+                        None,
                         None,
                         p.clone(),
                         ur.clone(),
@@ -467,11 +496,7 @@ pub(crate) fn assign_with_subtype_err_(
                         unreachable!("`Array_get (e1, None)` is the case above")
                     };
                     let (te, ty) = expr::expr(None, &expr::context::default(), env, e);
-                    let ty = typing_class_pointers::coerce_to_name(
-                        env.genv.tcopt.tco_class_pointer_array_write_keys,
-                        env,
-                        ty,
-                    );
+                    let ty = typing_class_pointers::coerce_to_name(env, ty);
                     let parent_lenv = env.lenv.clone();
                     let (te1, ty1) =
                         expr::update_array_type(false, pos, env, e1, valkind::T::Lvalue);
@@ -483,6 +508,7 @@ pub(crate) fn assign_with_subtype_err_(
                             let val_ty = env::fresh_type_invariant(env, p.clone());
                             let ty_err_opt = sub_type::sub_type_i(
                                 env,
+                                None,
                                 None,
                                 InternalType::LoclType(ty1.clone()),
                                 InternalType::ConstraintType(mk_constraint_type((

@@ -240,7 +240,6 @@ mod tests {
 meth_caller_only_public_visibility = false
 tco_global_access_check_enabled = true
 disable_physical_equality = true
-local_coeffects = false
 typecheck_if_name_matches_regexp = ^foo
 keep_user_attributes = true
 auto_namespace_map = {"Vec": "HH\\Lib\\Vec"}
@@ -255,8 +254,6 @@ ignored_paths = ["^vendor/", "^gen/"]
         // the check is enabled by `enable_global_access_check` of hh.conf.
         assert!(!tco.tco_global_access_check_enabled);
         assert!(tco.tco_disable_physical_equality);
-        assert!(!tco.tco_coeffects_local);
-        assert!(tco.tco_coeffects);
         assert_eq!(
             tco.tco_typecheck_if_name_matches_regexp.as_deref(),
             Some("^foo")

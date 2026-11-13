@@ -406,6 +406,7 @@ pub mod expose_to_tast_env {
     pub use super::get_class_or_typedef_tparams;
     pub use super::get_const;
     pub use super::get_construct;
+    pub use super::valid_newable_class;
     pub use super::get_enum;
     pub use super::get_fun;
     pub use super::get_gconst;
@@ -1455,10 +1456,6 @@ pub fn package_allow_all_tconst_violations(env: &Env) -> bool {
     env.genv.tcopt.tco_package_allow_all_tconst_violations
 }
 
-pub fn package_allow_as_expression_violations(env: &Env) -> bool {
-    env.genv.tcopt.tco_package_allow_as_expression_violations
-}
-
 pub fn package_allow_enforceable_enum_violations(env: &Env) -> bool {
     env.genv.tcopt.tco_package_allow_enforceable_enum_violations
 }
@@ -1807,6 +1804,20 @@ pub fn get_construct(env: &Env, class_: &cls::T) -> (Option<ClassElt>, Consisten
     cls::construct(class_)
 }
 
+/// Check whether a class is a valid newable bound, recording a constructor
+/// dependency when its consistency is inspected.
+pub fn valid_newable_class(env: &Env, class_: &cls::T) -> bool {
+    if crate::ast_defs::is_c_class(cls::kind(class_)) {
+        cls::final_(class_)
+            || !matches!(get_construct(env, class_).1, ConsistentKind::Inconsistent)
+    } else {
+        // There is currently a bug with interfaces that allows constructors to
+        // change their signature, so they are not considered here.
+        // TODO: T41093452
+        false
+    }
+}
+
 pub fn get_return(env: &Env) -> typing_env_return_info::T {
     env.genv.return_.clone()
 }
@@ -1984,24 +1995,26 @@ pub fn get_no_auto_likes(env: &Env) -> bool {
     env.genv.no_auto_likes
 }
 
-fn containing_class_is_final_and_concrete(env: &Env) -> bool {
-    let is_final_non_abstract = |class_: &cls::T| cls::final_(class_) && !cls::abstract_(class_);
-    let is_final_non_consistent_construct = |class_: &cls::T| match get_construct(env, class_).1 {
+/// Whether `static` bound to exactly this class satisfies `__NeedsConcrete`:
+/// the class is non-abstract, or final without an inherited
+/// `__ConsistentConstruct`.
+pub fn is_concrete_class(env: &Env, class_: &cls::T) -> bool {
+    let has_final_class_consistency = || match get_construct(env, class_).1 {
         ConsistentKind::FinalClass => true,
         ConsistentKind::Inconsistent | ConsistentKind::ConsistentConstruct => false,
     };
+    !cls::abstract_(class_) || (cls::final_(class_) && has_final_class_consistency())
+}
+
+fn containing_class_is_final_and_concrete(env: &Env) -> bool {
     match decl_entry::to_option(get_self_class(env)) {
-        Some(class_) => {
-            is_final_non_abstract(&class_) || is_final_non_consistent_construct(&class_)
-        }
+        Some(class_) => cls::final_(&class_) && is_concrete_class(env, &class_),
         None => false,
     }
 }
 
 /// when true, the receiver of `static::foo()` is a concrete class
-/// where "concrete" means that the class is
-///  - non-abstract
-///  - OR final+non-__ConsistentConstruct
+/// in the sense of [is_concrete_class]
 pub fn static_points_to_concrete_class(env: &Env) -> bool {
     // if we're in a __NeedsConcrete method, `static` points to a concrete class
     env.genv.needs_concrete
@@ -2530,6 +2543,14 @@ pub fn forget_prefixed_members(env: &mut Env, lid: &LocalId, blame: Blame) {
 pub fn forget_suffixed_members(env: &mut Env, suffix: &str, blame: Blame) {
     forget_generic(
         |fake_members, blame| fake::forget_suffixed(fake_members, suffix, blame),
+        env,
+        blame,
+    )
+}
+
+pub fn forget_static_named_members(env: &mut Env, member_name: &str, blame: Blame) {
+    forget_generic(
+        |fake_members, blame| fake::forget_static_named(fake_members, member_name, blame),
         env,
         blame,
     )

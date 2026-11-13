@@ -1012,7 +1012,14 @@ fn get_data_srcs_from_expr(env: &Env, ctx: &Ctx, Expr(tp, _, te): &tast::Expr) -
                 }
             }
         }
-        Expr_::Shape(tpl) => get_data_srcs_of_pair_expr_list(tpl.iter().map(|(_, e)| e).collect()),
+        Expr_::Shape(tpl) => get_data_srcs_of_pair_expr_list(
+            tpl.iter()
+                .map(|field| match field {
+                    oxidized::aast::ShapeExprField::SFField(_, e)
+                    | oxidized::aast::ShapeExprField::SFSplat(e) => e,
+                })
+                .collect(),
+        ),
         Expr_::ValCollection(vc) => get_data_srcs_of_expr_list(&vc.2),
         Expr_::KeyValCollection(kvc) => {
             get_data_srcs_of_pair_expr_list(kvc.2.iter().map(|tast_field| &tast_field.1).collect())

@@ -194,6 +194,12 @@ pub fn class_const(
         &[],
         cid,
     );
+    let cty = match cid {
+        aast::ClassId(_, _, aast::ClassId_::CI(sid)) if is_class_ptr => {
+            fresh_generic_targs_for_bare_class(env, sid, cty)
+        }
+        _ => cty,
+    };
     let should_check_packages = {
         let aast::ClassId(_, _, cid_) = cid;
         match cid_ {
@@ -581,7 +587,7 @@ pub fn new_object(
                 // for generic and dependent types to be correctly carried
                 // through the 'new $foo()' iff the constructed obj_ty is a
                 // supertype of the variable-dictated c_ty
-                let ty_err_opt = typing_ops::sub_type(
+                let ty_err_opt = typing_ops::sub_type(None, 
                     p.clone(),
                     Ureason::URnone,
                     env,
@@ -833,11 +839,7 @@ pub fn arraykey_value(
     let aast::Expr(_, pos, _) = x;
     let (te, ty) = array_value(expected, env, x);
     // A class pointer in a key position is used for its name.
-    let ty = typing_class_pointers::coerce_to_name(
-        env.genv.tcopt.tco_class_pointer_array_literal_keys,
-        env,
-        ty,
-    );
+    let ty = typing_class_pointers::coerce_to_name(env, ty);
     let (ty_arraykey, reason) = if is_set {
         (
             make_type::arraykey(reason::idx_set_element(pos.clone())),
@@ -1161,8 +1163,7 @@ pub fn dispatch_call(
                                 transform_fty: Option<&dyn Fn(DeclFunType) -> DeclFunType>|
      -> ((tast::Expr, Ty), bool) {
         let aast::ClassId(_, pos, e1_) = e1;
-        let require_class_ptr =
-            class_id::classname_error(env, |t: &tco::T| t.class_pointer_ban_classname_static_meth);
+        let require_class_ptr = class_id::ClassnameExprError::Error;
         let (_tal, tcid, ty1): (Vec<tast::Targ>, tast::ClassId, Ty) = class_id::class_expr(
             None,                    // check_targs_integrity
             None,                    // attribute_check_policy
@@ -1299,6 +1300,16 @@ pub fn dispatch_call(
                     }
                     _ => {}
                 }
+                match cid {
+                    aast::ClassId(_, _, aast::ClassId_::CIstatic) => {
+                        crate::typing_needs_concrete::check_abstract_tconst_via_static(
+                            env,
+                            pos,
+                            &cst.to_string(),
+                        )
+                    }
+                    _ => {}
+                }
                 result
             }
             _ => {
@@ -1365,11 +1376,6 @@ pub fn dispatch_call(
                 // `unsafe_cast`
                 let unsafe_cast = x;
                 let result = match el {
-                    [aast::Argument::Anormal(original_expr)]
-                        if env::get_tcopt(env).tco_ignore_unsafe_cast =>
-                    {
-                        expr(None, &context::default(), env, original_expr)
-                    }
                     _ => {
                         // first type the `unsafe_cast` as a call, handling arity errors
                         let (fty, tal) =
@@ -1685,6 +1691,7 @@ pub fn dispatch_call(
                                     let ty_err_opt = sub_type::sub_type_i(
                                         env,
                                         None, // is_coeffect
+                                        None, // class_sub_classname
                                         InternalType::LoclType(tshape),
                                         InternalType::ConstraintType(mk_constraint_type((
                                             reason::witness(p.clone()),
@@ -2013,6 +2020,38 @@ pub fn dispatch_call(
                 // that the receiver has a method that is a subtype of it. Since function parameters
                 // are contravariant, this will check that the arguments are subtypes of the
                 // parameters
+                let duplicate_arg_names: Vec<String> = {
+                    let mut acc: im::OrdSet<String> = im::OrdSet::new();
+                    // Consed in OCaml: the last duplicate first.
+                    let mut dupes: Vec<String> = vec![];
+                    for arg in el {
+                        match crate::typing_defs::named_params::name_of_arg(arg) {
+                            Some(name) => {
+                                // `S_set.add pre_existing_key` preserves physical equality
+                                // https://ocaml.org/manual/5.3/api/Set.S.html
+                                // (which is how the OCaml sees that the name is already
+                                // in the set)
+                                if acc.contains(&name) {
+                                    dupes.push(name)
+                                } else {
+                                    acc.insert(name);
+                                }
+                            }
+                            None => {}
+                        }
+                    }
+                    dupes.reverse();
+                    dupes
+                };
+                if !duplicate_arg_names.is_empty() {
+                    typing_error_utils::add_typing_error(
+                        &typing_error::primary(primary::T::Duplicate_named_args {
+                            duplicate_names: duplicate_arg_names,
+                            pos: crate::pos::btw(pos_id, p),
+                        }),
+                        env,
+                    )
+                }
                 let expr_with_edt = |env: &mut Env, e: &nast::Expr| -> (tast::Expr, Ty) {
                     let (tast, ty) = expr(None, &context::default(), env, e);
                     let ty = expr_dep_ty::make(env, &aast::ClassId_::CIexpr(e.clone()), ty);
@@ -2107,6 +2146,7 @@ pub fn dispatch_call(
                 );
                 let ty_err_opt = tutils::sub_type_i(
                     env,
+                    None,
                     None, // is_coeffect
                     InternalType::LoclType(ty1.clone()),
                     has_member_ty,

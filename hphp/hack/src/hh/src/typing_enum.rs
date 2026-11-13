@@ -145,7 +145,7 @@ fn enum_check_const(
         None
     } else {
         let p = cc.id.0.clone();
-        typing_ops::sub_type(
+        typing_ops::sub_type(None, 
             p,
             Ureason::URenum,
             env,
@@ -294,7 +294,7 @@ fn enum_class_check_type(
                     trail: vec![],
                 }))
             };
-            typing_ops::sub_type(
+            typing_ops::sub_type(None, 
                 pos_or_decl::unsafe_to_raw_pos(pos.clone()),
                 ur,
                 env,
@@ -401,7 +401,7 @@ pub fn enum_class_check(
                         &ty,
                         callback::enum_constraint_must_be_arraykey(),
                     );
-                    typing_ops::sub_type(
+                    typing_ops::sub_type(None, 
                         pos_or_decl::unsafe_to_raw_pos(pos.clone()),
                         Ureason::URenumIncompatibleCstr,
                         env,

@@ -216,9 +216,28 @@ pub mod const_value {
             }
             ConstValue::CVLabel => format!("\"{}\"", member_name),
             ConstValue::CVNameof(s) => format!("nameof {}", s),
-            ConstValue::CVClassPointer(s) => format!("{}::class", s),
             ConstValue::CVConstAccess(cls, member) => format!("{}::{}", cls, member),
             ConstValue::CVAbsent => "<absent>".to_string(),
+        }
+    }
+
+    /// Values used only for shape key normalisation.
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub enum ConcreteValue {
+        SKVInt(String),
+        SKVString(String),
+    }
+
+    pub fn concrete_value(member_name: &str, value: &T) -> Option<ConcreteValue> {
+        match value {
+            ConstValue::CVInt(value) => Some(ConcreteValue::SKVInt(value.to_string())),
+            ConstValue::CVLargeInt(value) => Some(ConcreteValue::SKVInt(value.clone())),
+            ConstValue::CVString(value) => Some(ConcreteValue::SKVString(value.clone())),
+            ConstValue::CVLabel => Some(ConcreteValue::SKVString(member_name.to_string())),
+            ConstValue::CVNameof(value) => Some(ConcreteValue::SKVString(
+                crate::utils::strip_ns(value).to_string(),
+            )),
+            ConstValue::CVAbsent | ConstValue::CVConstAccess(_, _) => None,
         }
     }
 
@@ -601,6 +620,14 @@ pub fn ft_params_without_named_variadic(ft: &FunType) -> &[FunParam] {
 
 pub fn ft_has_positional_variadic(ft: &FunType) -> bool {
     get_ft_variadic(ft)
+}
+
+pub fn ft_positional_variadic_param(ft: &FunType) -> Option<&FunParam> {
+    if ft_has_positional_variadic(ft) {
+        ft.params.iter().rev().find(|fp| !get_fp_is_named(fp))
+    } else {
+        None
+    }
 }
 
 /// The identifier for this
@@ -1303,10 +1330,6 @@ mod tests {
         assert_eq!(
             value_repr("M", &ConstValue::CVNameof("C".into())),
             "nameof C"
-        );
-        assert_eq!(
-            value_repr("M", &ConstValue::CVClassPointer("C".into())),
-            "C::class"
         );
         assert_eq!(
             value_repr("M", &ConstValue::CVConstAccess("E".into(), "A".into())),

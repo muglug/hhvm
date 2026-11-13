@@ -187,7 +187,7 @@ fn verify_has_consistent_bound(env: &Env, tparam: &tast::Tparam) {
         .fold(Some(vec![]), |acc, cls| {
             let mut acc = acc?;
             let cls = cls?;
-            if cls::valid_newable_class(&cls) {
+            if tast_env::valid_newable_class(env, &cls) {
                 acc.push(cls);
                 Some(acc)
             } else {

@@ -1669,6 +1669,35 @@ pub mod aast_defs {
         ps(p, "}");
         close_box(p);
     }
+    /// `pp_shape_expr_field`
+    pub fn pp_shape_expr_field<Ex, En>(
+        p: &mut P<'_, Ex, En>,
+        x: &oxidized::aast_defs::ShapeExprField<Ex, En>,
+    ) {
+        match x {
+            oxidized::aast_defs::ShapeExprField::SFField(a1, a2) => {
+                ps(p, "(");
+                open_box(p, 2);
+                ps(p, "SF_field (");
+                cut(p);
+                ast_defs::pp_shape_field_name(p, a1);
+                comma_space(p);
+                aast_defs::pp_expr(p, a2);
+                cut(p);
+                ps(p, "))");
+                close_box(p);
+            }
+            oxidized::aast_defs::ShapeExprField::SFSplat(a3) => {
+                ps(p, "(");
+                open_box(p, 2);
+                ps(p, "SF_splat");
+                space(p);
+                aast_defs::pp_expr(p, a3);
+                close_box(p);
+                ps(p, ")");
+            }
+        }
+    }
     /// `pp_expr_`
     pub fn pp_expr_<Ex, En>(p: &mut P<'_, Ex, En>, x: &oxidized::aast_defs::Expr_<Ex, En>) {
         match x {
@@ -1685,14 +1714,7 @@ pub mod aast_defs {
                     if i3 > 0 {
                         semi_space(p);
                     }
-                    {
-                        let (a4, a5) = x2;
-                        fprintf_open_tuple(p);
-                        ast_defs::pp_shape_field_name(p, a4);
-                        comma_space(p);
-                        aast_defs::pp_expr(p, a5);
-                        fprintf_close_tuple(p);
-                    }
+                    aast_defs::pp_shape_expr_field(p, x2);
                 }
                 list_close(p);
                 close_box(p);

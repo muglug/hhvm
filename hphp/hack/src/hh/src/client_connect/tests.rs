@@ -296,7 +296,6 @@ fn client_env(root: &str, autostart: bool, deadline: Option<f64>, cb: ProgressCa
     Env {
         root: root.to_string(),
         from: "d1".to_string(),
-        abort_on_distc_failure: false,
         autostart,
         force_dormant_start: false,
         deadline,

@@ -53,6 +53,7 @@ fn log_sub_type(env: &Env, p: &Pos, ty_sub: &InternalType, ty_super: &InternalTy
 
 fn sub_type_i_apply_reason_callback(
     is_coeffect: Option<bool>,
+    class_sub_classname: Option<bool>,
     p: &Pos,
     env: &mut Env,
     ty_sub: InternalType,
@@ -61,12 +62,20 @@ fn sub_type_i_apply_reason_callback(
 ) -> Option<typing_error::T> {
     let is_coeffect = is_coeffect.unwrap_or(false);
     log_sub_type(env, p, &ty_sub, &ty_super);
-    typing_utils::sub_type_i(env, Some(is_coeffect), ty_sub, ty_super, Some(callback))
+    typing_utils::sub_type_i(
+        env,
+        Some(is_coeffect),
+        class_sub_classname,
+        ty_sub,
+        ty_super,
+        Some(callback),
+    )
 }
 
 /// Add constraint or check that ty_sub is subtype of ty_super in envs
 pub fn sub_type_i(
     is_coeffect: Option<bool>,
+    class_sub_classname: Option<bool>,
     p: Pos,
     ur: Ureason,
     env: &mut Env,
@@ -81,6 +90,7 @@ pub fn sub_type_i(
     };
     sub_type_i_apply_reason_callback(
         Some(is_coeffect),
+        class_sub_classname,
         &p,
         env,
         ty_sub,
@@ -101,6 +111,7 @@ fn sub_type_i_w_err_prefix(
     let is_coeffect = is_coeffect.unwrap_or(false);
     sub_type_i_apply_reason_callback(
         Some(is_coeffect),
+        None,
         p,
         env,
         ty_sub,
@@ -110,6 +121,7 @@ fn sub_type_i_w_err_prefix(
 }
 
 pub fn sub_type(
+    class_sub_classname: Option<bool>,
     p: Pos,
     ur: Ureason,
     env: &mut Env,
@@ -119,6 +131,7 @@ pub fn sub_type(
 ) -> Option<typing_error::T> {
     sub_type_i(
         None,
+        class_sub_classname,
         p,
         ur,
         env,
@@ -151,6 +164,7 @@ pub fn sub_type_w_err_prefix(
 
 pub fn sub_type_decl(
     is_coeffect: Option<bool>,
+    class_sub_classname: Option<bool>,
     on_error: reasons_callback::T,
     p: PosOrDecl,
     ur: Ureason,
@@ -168,7 +182,7 @@ pub fn sub_type_decl(
         None,
         Some(is_coeffect),
         None,
-        None,
+        class_sub_classname,
         ty_sub,
         ty_super,
         Some(reasons_callback::prepend_reason(

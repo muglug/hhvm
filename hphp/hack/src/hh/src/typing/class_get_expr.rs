@@ -569,7 +569,24 @@ pub(crate) fn class_get_inner(
                                     phase::localize(&ety_env, env, &cc.ty);
                                 add_typing_error_opt(&ty_err_opt, env);
                                 match cc.kind {
-                                    ty::decl::ClassConstKind::CCAbstract(_) => match cid_ {
+                                    ty::decl::ClassConstKind::CCAbstract(has_default) => {
+                                    // A default resolves at runtime even when `static` is abstract.
+                                    // A type constant's synthesized constant is checked by
+                                    // [Typing_needs_concrete.check_abstract_tconst_via_static]
+                                    if !has_default
+                                        && (!cc.is_synthesized
+                                            || env::get_typeconst(env, &class_, mid).is_none())
+                                    {
+                                        crate::typing_needs_concrete::check_abstract_access_via_static(
+                                            env,
+                                            p,
+                                            &PosOrDecl::from(cc.pos.clone()),
+                                            &cls::name(&class_),
+                                            mid,
+                                            cid_,
+                                        );
+                                    }
+                                    match cid_ {
                                         aast::ClassId_::CIstatic | aast::ClassId_::CIexpr(_) => {}
                                         _ => {
                                             let cc_name = format!("{}::{}", cls::name(&class_), mid);
@@ -582,7 +599,8 @@ pub(crate) fn class_get_inner(
                                             );
                                             typing_error_utils::add_typing_error(&err, env)
                                         }
-                                    },
+                                    }
+                                    }
                                     ty::decl::ClassConstKind::CCConcrete => {}
                                 }
                                 ((cc_locl_type, vec![]), dflt_rval_err)
@@ -682,6 +700,11 @@ pub(crate) fn class_get_inner(
                                                 .collect(),
                                         );
                                         add_typing_error_opt(&ty_err_opt1, env);
+                                        crate::typing_needs_concrete::check_reified_targs(
+                                            env,
+                                            &ft.tparams,
+                                            &explicit_targs,
+                                        );
                                         let ft = typing_enforceability::compute_enforced_and_pessimize_fun_type(
                                             Some(&class_),
                                             env,

@@ -1434,10 +1434,7 @@ pub(crate) fn call(
                         let check_implicit_args = |env: &mut Env| -> Option<typing_error::T> {
                             let capability =
                                 typing_coeffects::get_type(&ft.implicit_params.capability);
-                            let should_skip_check = !env::get_tcopt(env).tco_coeffects;
-                            if should_skip_check {
-                                None
-                            } else {
+                            {
                                 let env_capability = env::get_local_check_defined(
                                     env,
                                     &aast::Lid(expr_pos.clone(), typing_coeffects::capability_id()),
@@ -1454,7 +1451,7 @@ pub(crate) fn call(
                                         required_pos: get_pos(&capability),
                                         required: typing_coeffects::pretty(env, &capability),
                                     });
-                                typing_ops::sub_type(
+                                typing_ops::sub_type(None, 
                                     expr_pos.clone(),
                                     Ureason::URnone,
                                     env,
@@ -1672,6 +1669,7 @@ pub(crate) fn call(
                                         )));
                                     // Populate the type variables from the expression in the splat
                                     let ty_err_opt = typing_ops::sub_type_i(
+                                        None,
                                         None,
                                         p1.clone(),
                                         Ureason::URparam,
@@ -2022,6 +2020,7 @@ pub(crate) fn call_untyped_unpack(
                 make_type::simple_variadic_splat(reason::unpack_param((p.clone(), f_pos, 0)), ty);
             typing_ops::sub_type_i(
                 None,
+                None,
                 p.clone(),
                 Ureason::URnone,
                 env,
@@ -2183,6 +2182,7 @@ pub(crate) fn type_switch(
         env::set_tyvar_variance_i(env, None, None, &type_switch_constraint);
         let ty_err = typing_ops::sub_type_i(
             Some(false),
+            None,
             p.clone(),
             Ureason::URnone,
             env,
@@ -2864,12 +2864,13 @@ pub(crate) fn condition_single(env: &mut Env, tparamet: bool, te: &tast::Expr) {
         aast::Expr_::Hole(hole) => condition_single(env, tparamet, &hole.0),
         aast::Expr_::True if !tparamet => lenv::drop_cont(env, c::T::Next),
         aast::Expr_::False if tparamet => lenv::drop_cont(env, c::T::Next),
-        aast::Expr_::Binop(binop) if matches!(binop.bop, Bop::Eqeq | Bop::Eqeqeq) && tparamet => {
+        aast::Expr_::Binop(binop) if matches!(binop.bop, Bop::Eqeqeq) && tparamet => {
             let aast::Binop { lhs, rhs, .. } = &**binop;
             let aast::Expr(lhs_ty, _, _) = lhs;
             let aast::Expr(rhs_ty, _, _) = rhs;
-            refine_for_equality(p, env, lhs, rhs_ty.clone());
-            refine_for_equality(p, env, rhs, lhs_ty.clone());
+            let refine = refine_for_strict_equality;
+            refine(p, env, lhs, rhs_ty.clone());
+            refine(p, env, rhs, lhs_ty.clone());
         }
         aast::Expr_::Binop(binop) if matches!(binop.bop, Bop::Diff | Bop::Diff2) => {
             let aast::Binop {
