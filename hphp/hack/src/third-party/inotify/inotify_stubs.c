@@ -28,6 +28,8 @@
 #include <caml/callback.h>
 #include <caml/unixsupport.h>
 
+#ifdef __linux__
+
 #include <sys/inotify.h>
 
 static int inotify_flag_table[] = {
@@ -112,3 +114,45 @@ value caml_inotify_convert(value buf) {
 
   CAMLreturn(event);
 }
+
+#else /* !__linux__ */
+
+/* inotify is Linux-only. On other platforms (macOS) these stubs let programs
+   that link this library build; using them raises
+   [Unix.Unix_error(ENOSYS, ...)]. */
+
+value caml_inotify_init(value unit) {
+  CAMLparam1(unit);
+  unix_error(ENOSYS, "inotify_init", Nothing);
+  CAMLreturn(Val_unit);
+}
+
+value caml_inotify_add_watch(value fd, value path, value selector_flags) {
+  CAMLparam3(fd, path, selector_flags);
+  unix_error(ENOSYS, "inotify_add_watch", path);
+  CAMLreturn(Val_unit);
+}
+
+value caml_inotify_rm_watch(value fd, value watch) {
+  CAMLparam2(fd, watch);
+  unix_error(ENOSYS, "inotify_rm_watch", Nothing);
+  CAMLreturn(Val_unit);
+}
+
+value caml_inotify_struct_size(void) {
+  CAMLparam0();
+  CAMLreturn(Val_int(16));
+}
+
+value caml_inotify_name_max(void) {
+  CAMLparam0();
+  CAMLreturn(Val_int(NAME_MAX));
+}
+
+value caml_inotify_convert(value buf) {
+  CAMLparam1(buf);
+  unix_error(ENOSYS, "inotify_convert", Nothing);
+  CAMLreturn(Val_unit);
+}
+
+#endif /* __linux__ */

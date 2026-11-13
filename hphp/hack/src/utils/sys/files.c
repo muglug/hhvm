@@ -18,8 +18,14 @@
 
 #include <sys/time.h>
 
+#ifdef __linux__
 #include <linux/magic.h>
 #include <sys/vfs.h>
+#else
+#include <string.h>
+#include <sys/mount.h>
+#include <sys/param.h>
+#endif
 
 void hh_lutimes(value filename_v) {
   CAMLparam1(filename_v);
@@ -39,6 +45,7 @@ value hh_is_nfs(value filename_v) {
   if (success != 0) {
     caml_failwith("statfs failed");
   }
+#ifdef __linux__
   switch (buf.f_type) {
 #ifdef CIFS_MAGIC_NUMBER
     case CIFS_MAGIC_NUMBER:
@@ -49,6 +56,11 @@ value hh_is_nfs(value filename_v) {
     default:
       CAMLreturn(Val_bool(0));
   }
+#else
+  CAMLreturn(Val_bool(
+      strcmp(buf.f_fstypename, "nfs") == 0 ||
+      strcmp(buf.f_fstypename, "smbfs") == 0));
+#endif
 }
 
 // C89 spec: "The primary use of the freopen function is to change the file associated
@@ -80,6 +92,11 @@ CAMLprim value hh_open_tmpfile(value rd_v, value wr_v, value dir_v, value file_p
   const int file_perm = Int_val(file_perm_v);
   const int rd = Bool_val(rd_v);
   const int wr = Bool_val(wr_v);
+#ifndef __linux__
+  // O_TMPFILE is Linux-only.
+  (void)file_perm; (void)rd; (void)wr;
+  unix_error(ENOSYS, "hh_open_tmpfile", dir_v);
+#else
   int flags = __O_TMPFILE | ((rd && wr) ? O_RDWR : rd ? O_RDONLY : wr ? O_WRONLY : 0);
 
   // Unix.openfile also uses caml_{enter,leave}_blocking_section to allow domain
@@ -94,4 +111,5 @@ CAMLprim value hh_open_tmpfile(value rd_v, value wr_v, value dir_v, value file_p
   int fd = open(dir, flags, file_perm);
   if (fd == -1) uerror("hh_open_tmpfile", dir_v);
   CAMLreturn (Val_int(fd));
+#endif
 }

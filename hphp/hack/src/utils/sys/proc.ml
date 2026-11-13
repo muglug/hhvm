@@ -16,12 +16,34 @@ type proc_stat = {
 
 let cmdline_delimiter_re = Str.regexp "\x00"
 
+(* /proc is Linux's. Elsewhere (macOS) ps(1) answers the same questions: one
+   field of one process, [None] if there is no such process. *)
+let have_procfs : bool Lazy.t = lazy (Stdlib.Sys.file_exists "/proc/self/stat")
+
+let ps_field (pid : int) (field : string) : string option =
+  try
+    let ic =
+      Unix.open_process_in
+        (Printf.sprintf "ps -o %s= -p %d 2>/dev/null" field pid)
+    in
+    let line = In_channel.input_line ic in
+    match (Unix.close_process_in ic, line) with
+    | (Unix.WEXITED 0, Some line) -> Some (String.strip line)
+    | _ -> None
+  with
+  | _ -> None
+
 (* Takes a PID and returns the full command line the process was started with *)
 let get_cmdline (pid : int) : (string, string) result =
   let cmdline_path = Printf.sprintf "/proc/%d/cmdline" pid in
   try
     let line =
-      Str.global_replace cmdline_delimiter_re " " (Disk.cat cmdline_path)
+      if Lazy.force have_procfs then
+        Str.global_replace cmdline_delimiter_re " " (Disk.cat cmdline_path)
+      else
+        match ps_field pid "command" with
+        | Some line -> line
+        | None -> failwith "ps: no such process"
     in
     Ok line
   with
@@ -39,7 +61,16 @@ let get_cmdline (pid : int) : (string, string) result =
 let get_proc_stat (pid : int) : (proc_stat, string) result =
   let stat_path = Printf.sprintf "/proc/%d/stat" pid in
   try
-    let stat = Scanf.Scanning.from_string (Disk.cat stat_path) in
+    let stat =
+      if Lazy.force have_procfs then
+        Disk.cat stat_path
+      else
+        (* The fields of /proc/PID/stat that are read below. *)
+        match ps_field pid "ppid" with
+        | Some ppid -> Printf.sprintf "%d (ps) R %s" pid ppid
+        | None -> failwith "ps: no such process"
+    in
+    let stat = Scanf.Scanning.from_string stat in
     try
       let record =
         Scanf.bscanf

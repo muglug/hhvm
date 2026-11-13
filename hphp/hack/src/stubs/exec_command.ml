@@ -19,6 +19,7 @@ type t =
   | Ps
   | Pstack
   | Shell
+  | Sl
   | Strobeclient
   | Watchman
   | Watchman_diag
@@ -36,6 +37,7 @@ let to_string = function
   | Ps -> "ps"
   | Pstack -> "pstack"
   | Shell -> "/bin/sh"
+  | Sl -> "sl"
   | Strobeclient -> "strobeclient"
   | Watchman -> "watchman"
   | Watchman_diag -> "watchman-diag"

@@ -3,7 +3,11 @@
 #include <caml/mlvalues.h>
 #include <caml/memory.h>
 
-#include <sys/personality.h>
+#if defined(__linux__)
+#  include <sys/personality.h>
+#endif
+#include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 /* Programs using the Daemon module tend to rely heavily on the
@@ -25,6 +29,7 @@
 CAMLprim value caml_disable_ASLR(value args) {
   CAMLparam1(args);
 
+#if defined(__linux__)
   /* Allow users to opt out of this behavior in restricted environments, e.g.
      docker with default seccomp profile */
   if (getenv("HHVM_DISABLE_PERSONALITY")) {
@@ -50,6 +55,7 @@ CAMLprim value caml_disable_ASLR(value args) {
     argv[argc] = (char const*)0;
     (void)execv(argv[0], (char *const *)argv); /* Usually no return. */
   }
-  /* Reachable if the execv fails. */
+#endif
+  /* Reachable on macOS, or if the execv fails. */
   CAMLreturn(Val_unit);
 }

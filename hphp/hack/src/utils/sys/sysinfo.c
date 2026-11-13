@@ -14,13 +14,16 @@
 #include <caml/mlvalues.h>
 
 #include <assert.h>
+#ifdef __linux__
 #include <sys/sysinfo.h>
+#endif
 
 #include <unistd.h>
 
 // This function returns an option of a 9-int-member struct
 value hh_sysinfo(void) {
   CAMLparam0();
+#ifdef __linux__
   CAMLlocal2(result, some);
   result = caml_alloc_tuple(9);
   struct sysinfo info = {0}; // this initializes all members to 0
@@ -39,6 +42,9 @@ value hh_sysinfo(void) {
   some = caml_alloc(1, 0);
   Store_field(some, 0, result);
   CAMLreturn(some);
+#else
+  CAMLreturn(Val_int(0)); // None
+#endif
 }
 
 value hh_nproc(void) {

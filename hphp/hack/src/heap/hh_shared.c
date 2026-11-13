@@ -484,6 +484,29 @@ static int memfd_create_helper(const char *name, const char *shm_dir, size_t sha
 #if defined(MEMFD_CREATE)
     memfd = memfd_create(name, 0);
 #endif
+#if defined(__APPLE__)
+    if (memfd < 0) {
+      char memname[255];
+      snprintf(memname, sizeof(memname), "/%s.%d", name, getpid());
+      // ftruncate fails with EINVAL on a POSIX shared memory object that was
+      // already sized, so drop any leftover object of the same name first.
+      shm_unlink(memname);
+      memfd = shm_open(memname, O_CREAT | O_RDWR, 0666);
+      if (memfd < 0) {
+        uerror("shm_open", Nothing);
+      }
+      // The object stays alive as long as some process maps it or holds the
+      // fd; the name is not needed after this.
+      shm_unlink(memname);
+      // shm_open sets FD_CLOEXEC, but the fd must be inherited by the
+      // workers that reconnect to the shared memory.
+      int fcntl_flags = fcntl(memfd, F_GETFD);
+      if (fcntl_flags == -1) {
+        uerror("fcntl", Nothing);
+      }
+      fcntl(memfd, F_SETFD, fcntl_flags & ~FD_CLOEXEC);
+    }
+#endif
   if (memfd < 0) {
       raise_failed_anonymous_memfd_init();
     }
@@ -572,6 +595,16 @@ static void raise_out_of_shared_memory(void)
   caml_raise_constant(*exn);
 }
 
+#if defined(__APPLE__)
+/* macOS has no posix_fallocate, and fcntl(F_PREALLOCATE) does not work on a
+ * shm_open fd, so this is a no-op: running out of shared memory shows up as
+ * a SIGBUS on first write instead of an out_of_shared_memory exception. */
+static void memfd_reserve(int memfd, char *mem, size_t sz) {
+  (void)memfd;
+  (void)mem;
+  (void)sz;
+}
+#else
 static void memfd_reserve(int memfd, char *mem, size_t sz) {
   off_t offset = (off_t)(mem - shared_mem);
   int err;
@@ -582,6 +615,7 @@ static void memfd_reserve(int memfd, char *mem, size_t sz) {
     raise_out_of_shared_memory();
   }
 }
+#endif
 
 // DON'T WRITE TO THE SHARED MEMORY IN THIS FUNCTION!!!  This function just
 // calculates where the memory is and sets local globals. The shared memory
