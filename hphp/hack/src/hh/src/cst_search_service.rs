@@ -631,3 +631,94 @@ pub fn search(
     };
     search_node(&mut env, pattern, &root)
 }
+
+/// `go genv env ~sort_results ~files_to_search input`
+///
+/// `Multi_worker.call` is not used: the files are searched in one job, in
+/// their order. Without `files_to_search`, the files are those of the naming
+/// table (the OCaml asks the indexer for the Hack files of the root, and
+/// keeps those the naming table has).
+#[cfg(feature = "server")]
+pub fn go(
+    _genv: &crate::server_env::Genv,
+    env: &crate::server_env::Env,
+    sort_results: bool,
+    files_to_search: Option<&[String]>,
+    input: &Json,
+) -> Result<Json, String> {
+    let ctx = crate::provider_utils::ctx_from_server_env(env);
+    let pattern = compile_pattern(&ctx, input)?;
+    let get_job_info = |path: &str| -> Option<crate::relative_path::RelativePath> {
+        let path = crate::relative_path::create_detect_prefix(path);
+        if crate::naming_table::has_file(&env.naming_table, &path) {
+            Some(path)
+        } else {
+            // We may not have the file information for a file such as one that we
+            // ignore in `.hhconfig`.
+            None
+        }
+    };
+    let files: Vec<crate::relative_path::RelativePath> = match files_to_search {
+        Some(files_to_search) => {
+            // `Sys_utils.parse_path_list`
+            let mut paths: Vec<String> = vec![];
+            for path in files_to_search {
+                match path.strip_prefix('@') {
+                    Some(list_file) => {
+                        let list_file = list_file.trim_start_matches('@');
+                        let contents = match crate::sys_utils::cat(list_file) {
+                            Ok(contents) => contents,
+                            Err(e) => panic!("{:?}", e),
+                        };
+                        paths.extend(String::from_utf8_lossy(&contents).lines().map(str::to_string))
+                    }
+                    None => paths.push(path.clone()),
+                }
+            }
+            paths.iter().filter_map(|p| get_job_info(p)).collect()
+        }
+        None => crate::naming_table::get_files(&env.naming_table)
+            .into_iter()
+            .filter(|path| crate::find_utils::is_hack(&crate::relative_path::to_absolute(path)))
+            .collect(),
+    };
+    crate::server_progress::write(None, None, &format!("CST search: searched {} files...", files.len()));
+    // `job`: `(path, result) :: acc`
+    let mut results: Vec<(crate::relative_path::RelativePath, Result_)> = vec![];
+    for path in files {
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let (ctx, entry) = provider_context::add_entry_if_missing(&ctx, path.clone());
+            search(&ctx, &entry, &pattern)
+        }));
+        match r {
+            Ok(Some(result)) => results.insert(0, (path, result)),
+            Ok(None) => {}
+            Err(payload) => {
+                let e = crate::exception::wrap(payload);
+                let prefix = format!(
+                    "Error while running CST search on path {}:\n",
+                    crate::relative_path::to_absolute(&path)
+                );
+                crate::hh_logger::exception_(Some(&prefix), &e);
+                crate::exception::reraise(e)
+            }
+        }
+    }
+    if sort_results {
+        // `compare_rel_path_result` (`[@@deriving ord]`)
+        results = crate::rt::ocaml_list::stable_sort(results, |(p1, r1), (p2, r2)| {
+            crate::relative_path::compare(p1, p2).then_with(|| r1.cmp(r2))
+        });
+    }
+    Ok(Json::Assoc(
+        results
+            .iter()
+            .map(|(path, result)| {
+                (
+                    crate::relative_path::to_absolute(path),
+                    result_to_json(sort_results, Some(result)),
+                )
+            })
+            .collect(),
+    ))
+}

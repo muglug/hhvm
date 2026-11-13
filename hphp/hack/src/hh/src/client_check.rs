@@ -55,6 +55,15 @@ pub fn connect(
     do_post_handoff_handshake: Option<bool>,
     args: &client_env::ClientCheckEnv,
 ) -> Result<client_connect::Conn, Exn> {
+    Ok(connect_(use_priority_pipe, do_post_handoff_handshake, args)?)
+}
+
+/// [`connect`], with the error of `Client_connect`.
+fn connect_(
+    use_priority_pipe: Option<bool>,
+    do_post_handoff_handshake: Option<bool>,
+    args: &client_env::ClientCheckEnv,
+) -> Result<client_connect::Conn, client_connect::ClientConnectError> {
     let use_priority_pipe = use_priority_pipe.unwrap_or(false);
     let do_post_handoff_handshake = do_post_handoff_handshake.unwrap_or(true);
     let client_env::ClientCheckEnv {
@@ -94,7 +103,7 @@ pub fn connect(
     let show_spinner = *show_spinner;
     // `Client_messages.angery_reaccs_only ()` is `false` in the OSS build.
     let angery_reaccs_only = false;
-    Ok(client_connect::connect(&client_connect::Env {
+    client_connect::connect(&client_connect::Env {
         root: root.clone(),
         from: from.clone(),
         autostart: *autostart,
@@ -118,7 +127,7 @@ pub fn connect(
         custom_telemetry_data: custom_telemetry_data.clone(),
         allow_non_opt_build: *allow_non_opt_build,
         preexisting_warnings: *preexisting_warnings,
-    })?)
+    })
 }
 
 /// `connect_then_close args`
@@ -157,6 +166,207 @@ pub fn rpc<A: ResultOf>(
     Ok((result, telemetry))
 }
 
+/// `rpc_with_retry args command`
+fn rpc_with_retry<A>(args: &client_env::ClientCheckEnv, command: server_command_types::T) -> Result<A, Exn>
+where
+    server_command_types::done_or_retry::T<A>: ResultOf,
+{
+    let use_priority_pipe = server_command_types::use_priority_pipe(&command);
+    let conn = || connect_(Some(use_priority_pipe), None, args);
+    Ok(client_connect::rpc_with_retry(conn, &args.desc, command)?)
+}
+
+/// `rpc_with_retry_list args command`
+#[allow(dead_code)]
+fn rpc_with_retry_list<A>(args: &client_env::ClientCheckEnv, command: server_command_types::T) -> Result<Vec<A>, Exn>
+where
+    Vec<server_command_types::done_or_retry::T<A>>: ResultOf,
+{
+    let use_priority_pipe = server_command_types::use_priority_pipe(&command);
+    let conn = || connect_(Some(use_priority_pipe), None, args);
+    Ok(client_connect::rpc_with_retry_list(conn, &args.desc, command)?)
+}
+
+fn input_error<A>() -> Result<A, Exn> {
+    Err(Exn::ExitWith(exit_status::T::InputError))
+}
+
+/// `Sys_utils.read_stdin_to_string ()`
+fn read_stdin_to_string() -> String {
+    use std::io::Read;
+    let mut buf = vec![];
+    let _ = std::io::stdin().read_to_end(&mut buf);
+    String::from_utf8_lossy(&buf).into_owned()
+}
+
+fn print_refs(results: &[crate::search_types::find_refs::Absolute], json: bool) {
+    if json {
+        println!(
+            "{}",
+            crate::yojson::safe::to_string(&crate::find_refs_wire_format::hack_ast::to_json(results))
+        )
+    } else {
+        crate::find_refs_wire_format::cli_human_readable::print_results(results)
+    }
+}
+
+/// `parse_name_or_member_id ~name_only_action ~name_and_member_action name`
+fn parse_name_or_member_id<A>(
+    name_only_action: impl FnOnce(String) -> Result<A, Exn>,
+    name_and_member_action: impl FnOnce(String, String) -> Result<A, Exn>,
+    name: &str,
+) -> Result<A, Exn> {
+    let pieces = ocaml_str::split_literal("::", name);
+    // (`Str.first_chars str 1` raises on an empty string: "Invalid input".)
+    let default_namespace = |str: &str| -> Option<String> {
+        if str.is_empty() {
+            None
+        } else if str.starts_with('\\') {
+            Some(str.to_string())
+        } else {
+            Some(format!("\\{}", str))
+        }
+    };
+    // (`with _ ->`: any exception of the actions is "Invalid input" too.)
+    let result = match pieces.as_slice() {
+        [class_name, member_name, ..] => match default_namespace(class_name) {
+            Some(class_name) => name_and_member_action(class_name, member_name.to_string()).ok(),
+            None => None,
+        },
+        [name] => match default_namespace(name) {
+            Some(name) => name_only_action(name).ok(),
+            None => None,
+        },
+        _ => None,
+    };
+    match result {
+        Some(x) => Ok(x),
+        None => {
+            eprint!("Invalid input\n");
+            input_error()
+        }
+    }
+}
+
+fn expand_path(file: &str) -> String {
+    let path = crate::path::make(file);
+    if crate::path::file_exists(&path) {
+        crate::path::to_string(&path)
+    } else {
+        let cwd = std::env::current_dir().map(|d| d.to_string_lossy().into_owned()).unwrap_or_default();
+        let file = crate::rt::ocaml_filename::concat(&cwd, file);
+        let path = crate::path::make(&file);
+        if crate::path::file_exists(&path) {
+            crate::path::to_string(&path)
+        } else {
+            print!("File not found: {}\n", file);
+            {
+                use std::io::Write;
+                let _ = std::io::stdout().flush();
+            }
+            std::process::exit(2)
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn expand_file_path(file: &str) -> Result<String, Exn> {
+    let path = expand_path(file);
+    if std::path::Path::new(&path).is_dir() {
+        eprintln!("Path is a directory, only files are allowed: '{}'", file);
+        return input_error();
+    }
+    Ok(path)
+}
+
+fn int_of_string(s: &str) -> Option<isize> {
+    crate::rt::ocaml_arg::int_of_string_opt(s)
+}
+
+fn parse_position_string(split_on: &str, arg: &str) -> Result<(isize, isize), Exn> {
+    let tpos = ocaml_str::split_literal(split_on, arg);
+    let parsed = match tpos.as_slice() {
+        [line, char] => int_of_string(line).zip(int_of_string(char)),
+        _ => None,
+    };
+    match parsed {
+        Some(x) => Ok(x),
+        None => {
+            eprint!("Invalid position\n");
+            input_error()
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn parse_positions(positions: &[String]) -> Result<Vec<(String, isize, isize)>, Exn> {
+    positions
+        .iter()
+        .map(|pos| {
+            let parsed = match ocaml_str::split_literal(":", pos).as_slice() {
+                [filename, line, char] => match (int_of_string(line), int_of_string(char)) {
+                    (Some(line), Some(char)) => Some((expand_path(filename), line, char)),
+                    _ => None,
+                },
+                _ => None,
+            };
+            match parsed {
+                Some(x) => Ok(x),
+                None => {
+                    eprint!("Invalid position\n");
+                    input_error()
+                }
+            }
+        })
+        .collect()
+}
+
+/// Filters and prints errors when a path is not a realpath
+fn filter_real_paths(allow_directories: bool, paths: &[String]) -> Vec<String> {
+    paths
+        .iter()
+        .filter_map(|fn_| match crate::sys_utils::realpath(fn_) {
+            Some(path) => {
+                if !allow_directories && std::path::Path::new(fn_).is_dir() {
+                    eprintln!("Path is a directory, only files are allowed: '{}'", fn_);
+                    None
+                } else {
+                    Some(path)
+                }
+            }
+            None => {
+                eprintln!("Could not find file '{}'", fn_);
+                None
+            }
+        })
+        .collect()
+}
+
+/// `[filename; line; char]` or `[line; char]` (the contents are read from
+/// stdin), for `--type-at-pos` and `--type-error-at-pos`.
+fn parse_file_position(arg: &str) -> Option<(server_command_types::FileInput, isize, isize)> {
+    let tpos = ocaml_str::split_literal(":", arg);
+    match tpos.as_slice() {
+        [filename, line, char] => {
+            let fn_ = expand_path(filename);
+            Some((
+                server_command_types::FileInput::FileName(fn_),
+                int_of_string(line)?,
+                int_of_string(char)?,
+            ))
+        }
+        [line, char] => {
+            let content = read_stdin_to_string();
+            Some((
+                server_command_types::FileInput::FileContent(content),
+                int_of_string(line)?,
+                int_of_string(char)?,
+            ))
+        }
+        _ => None,
+    }
+}
+
 /// `Str.regexp` of a configured pattern (a malformed one raises `Failure`).
 fn str_regexp(s: &str) -> ocaml_str::Regexp {
     match ocaml_str::regexp(s) {
@@ -180,6 +390,16 @@ fn error_filter(
             .collect(),
         args.warning_switches.clone(),
     )
+}
+
+/// The paths of a `--package-lint` result, as a JSON list.
+fn print_package_lint_result(results: &server_command_types::package_lint::FastResult) {
+    use crate::yojson::safe as yojson;
+    let paths = results
+        .iter()
+        .map(|p| yojson::T::String(crate::relative_path::to_absolute(p)))
+        .collect();
+    println!("{}", yojson::to_string(&yojson::T::List(paths)))
 }
 
 /// The temporary stand-in for the modes that are not ported yet (plan
@@ -253,8 +473,67 @@ pub fn main_internal(
                 Ok((exit_status, telemetry))
             }
         }
-        mode @ ClientMode::MODESTATUSSINGLE(_) => not_ported(mode),
-        mode @ ClientMode::MODELOGERRORS(_) => not_ported(mode),
+        // (The TASTs of `--single --show-tast` cannot cross the socket: see
+        // `rt::protocol::wire::status_single_result`.)
+        mode @ ClientMode::MODESTATUSSINGLE(client_env::StatusSingle { show_tast: true, .. }) => not_ported(mode),
+        ClientMode::MODESTATUSSINGLE(client_env::StatusSingle {
+            filenames,
+            show_tast,
+            preexisting_warnings,
+        }) => {
+            let mut file_inputs = vec![];
+            for filename in filenames {
+                file_inputs.push(match filename.as_str() {
+                    "-" => server_command_types::FileInput::FileContent(read_stdin_to_string()),
+                    _ => server_command_types::FileInput::FileName(expand_file_path(filename)?),
+                })
+            }
+            let error_filter = error_filter(config, local_config, args);
+            let (((error_list, dropped_count), _tasts), telemetry): (server_command_types::StatusSingleResult, _) =
+                rpc(
+                    args,
+                    server_command_types::T::STATUSSINGLE {
+                        file_names: file_inputs,
+                        max_errors: args.max_errors,
+                        error_filter,
+                        return_expanded_tast: *show_tast,
+                        preexisting_warnings: *preexisting_warnings,
+                    },
+                )?;
+            let status = server_command_types::server_status::T {
+                error_list,
+                dropped_count,
+                liveness: server_command_types::StatusLiveness::LiveStatus,
+                last_recheck_stats: None,
+                file_watcher_clock: None,
+            };
+            let exit_status = client_check_status::go(
+                status,
+                args.error_format,
+                args.is_interactive,
+                args.output_json,
+                args.output_jsonl,
+                args.max_errors,
+            );
+            Ok((exit_status, telemetry))
+        }
+        ClientMode::MODELOGERRORS(client_env::LogErrorsParams {
+            log_file,
+            preexisting_warnings,
+        }) => {
+            let files = filter_real_paths(false, &args.paths);
+            let error_filter = error_filter(config, local_config, args);
+            let ((), telemetry): ((), _) = rpc(
+                args,
+                server_command_types::T::LOGERRORS {
+                    files,
+                    log_file: log_file.clone(),
+                    error_filter,
+                    preexisting_warnings: *preexisting_warnings,
+                },
+            )?;
+            Ok((exit_status::T::NoError, telemetry))
+        }
         ClientMode::MODELISTFILES => {
             let (infol, telemetry): (Vec<String>, _) =
                 rpc(args, server_command_types::T::LISTFILESWITHERRORS)?;
@@ -263,43 +542,498 @@ pub fn main_internal(
             }
             Ok((exit_status::T::NoError, telemetry))
         }
-        mode @ ClientMode::MODEFINDCLASSREFS(_) => not_ported(mode),
-        mode @ ClientMode::MODEFINDREFS(_) => not_ported(mode),
-        mode @ ClientMode::MODEGOTOIMPLCLASS(_) => not_ported(mode),
-        mode @ ClientMode::MODEGOTOIMPLMETHOD(_) => not_ported(mode),
+        ClientMode::MODEFINDCLASSREFS(name) => {
+            use crate::search_types::find_refs::Action;
+            let results: Vec<_> = rpc_with_retry(args, server_command_types::T::FINDREFS(Action::Class(name.clone())))?;
+            print_refs(&results, args.output_json);
+            Ok((exit_status::T::NoError, telemetry::create()))
+        }
+        ClientMode::MODEFINDREFS(name) => {
+            use crate::search_types::find_refs::Action;
+            use crate::search_types::find_refs::Member;
+            let pieces = ocaml_str::split_literal("|", name);
+            let (kind, name) = match pieces.as_slice() {
+                [name] => (None, *name),
+                [kind, name] => (Some(*kind), *name),
+                _ => {
+                    eprint!("Invalid input\n");
+                    return input_error();
+                }
+            };
+            let action = parse_name_or_member_id(
+                |name| match kind {
+                    Some("Function") | None => Ok(Action::Function(name)),
+                    Some("Class") => Ok(Action::Class(name)),
+                    Some("ExplicitClass") => Ok(Action::ExplicitClass(name)),
+                    Some("GConst") => Ok(Action::GConst(name)),
+                    Some(_) => input_error(),
+                },
+                |class_name, member_name| {
+                    let member = match kind {
+                        Some("Method") | None => Member::Method(member_name),
+                        Some("Property") => Member::Property(member_name),
+                        Some("Class_const") => Member::ClassConst(member_name),
+                        Some("Typeconst") => Member::Typeconst(member_name),
+                        Some(_) => return input_error(),
+                    };
+                    Ok(Action::Member(class_name, member))
+                },
+                name,
+            )?;
+            let results: Vec<_> = rpc_with_retry(args, server_command_types::T::FINDREFS(action))?;
+            print_refs(&results, args.output_json);
+            Ok((exit_status::T::NoError, telemetry::create()))
+        }
+        ClientMode::MODEGOTOIMPLCLASS(class_name) => {
+            use crate::search_types::find_refs::Action;
+            let results: Vec<_> =
+                rpc_with_retry(args, server_command_types::T::GOTOIMPL(Action::Class(class_name.clone())))?;
+            print_refs(&results, args.output_json);
+            Ok((exit_status::T::NoError, telemetry::create()))
+        }
+        ClientMode::MODEGOTOIMPLMETHOD(name) => {
+            use crate::search_types::find_refs::Action;
+            use crate::search_types::find_refs::Member;
+            let action = parse_name_or_member_id(
+                |fun_name| Ok(Action::Function(fun_name)),
+                |class_name, method_name| Ok(Action::Member(class_name, Member::Method(method_name))),
+                name,
+            )?;
+            match action {
+                Action::Member(..) => {
+                    let results: Vec<_> = rpc_with_retry(args, server_command_types::T::GOTOIMPL(action))?;
+                    print_refs(&results, args.output_json);
+                    Ok((exit_status::T::NoError, telemetry::create()))
+                }
+                _ => {
+                    eprint!("Invalid input\n");
+                    Ok((exit_status::T::InputError, telemetry::create()))
+                }
+            }
+        }
         mode @ ClientMode::MODEHACKTONOTEBOOK => not_ported(mode),
-        mode @ ClientMode::MODEIDEFINDREFSBYSYMBOL(_) => not_ported(mode),
-        mode @ ClientMode::MODEIDEGOTOIMPLBYSYMBOL(_) => not_ported(mode),
-        mode @ ClientMode::MODEDUMPSYMBOLINFO(_) => not_ported(mode),
-        mode @ ClientMode::MODERENAME(..) => not_ported(mode),
-        mode @ ClientMode::MODEIDERENAMEBYSYMBOL(_) => not_ported(mode),
-        mode @ ClientMode::MODEIDENTIFYSYMBOL(_) => not_ported(mode),
-        mode @ (ClientMode::MODEIDENTIFYSYMBOL1(_)
-        | ClientMode::MODEIDENTIFYSYMBOL2(_)
-        | ClientMode::MODEIDENTIFYSYMBOL3(_)) => not_ported(mode),
-        mode @ ClientMode::MODETYPEATPOS(_) => not_ported(mode),
-        mode @ ClientMode::MODEINFERDYNAMIC(..) => not_ported(mode),
-        mode @ ClientMode::MODEENFORCEMENTATPOSBATCH(_) => not_ported(mode),
-        mode @ ClientMode::MODETYPEATPOSBATCH(_) => not_ported(mode),
-        mode @ ClientMode::MODEISSUBTYPE => not_ported(mode),
-        mode @ ClientMode::MODETYPEERRORATPOS(_) => not_ported(mode),
-        mode @ ClientMode::MODETASTHOLES(_) => not_ported(mode),
-        mode @ ClientMode::MODETASTHOLESBATCH(_) => not_ported(mode),
-        mode @ ClientMode::MODEFUNDEPSATPOSBATCH(_) => not_ported(mode),
-        mode @ ClientMode::MODEDEPSOUTATPOSBATCH(_) => not_ported(mode),
-        mode @ (ClientMode::MODEOUTLINE | ClientMode::MODEOUTLINE2) => not_ported(mode),
-        mode @ ClientMode::MODEOUTLINEFORAGENTS(_) => not_ported(mode),
-        mode @ ClientMode::MODEMETHODJUMPCHILDREN(_) => not_ported(mode),
-        mode @ ClientMode::MODEMETHODJUMPANCESTORS(..) => not_ported(mode),
-        mode @ ClientMode::MODEMETHODJUMPANCESTORSBATCH(..) => not_ported(mode),
+        ClientMode::MODEIDEFINDREFSBYSYMBOL(arg) => {
+            let results: Vec<_> = rpc_with_retry(args, server_command_types::T::IDEFINDREFSBYSYMBOL(arg.clone()))?;
+            println!("{}", crate::find_refs_wire_format::ide_shellout::to_string(&results));
+            Ok((exit_status::T::NoError, telemetry::create()))
+        }
+        ClientMode::MODEIDEGOTOIMPLBYSYMBOL(arg) => {
+            let results: Vec<_> = rpc_with_retry(args, server_command_types::T::IDEGOTOIMPLBYSYMBOL(arg.clone()))?;
+            println!("{}", crate::find_refs_wire_format::ide_shellout::to_string(&results));
+            Ok((exit_status::T::NoError, telemetry::create()))
+        }
+        ClientMode::MODEDUMPSYMBOLINFO(files) => {
+            let conn = connect(None, None, args)?;
+            crate::client_symbol_info::go(&conn, &args.desc, files, expand_path)?;
+            Ok((exit_status::T::NoError, telemetry::create()))
+        }
+        ClientMode::MODERENAME(ref_mode, before, after) => {
+            let conn = || connect_(None, None, args);
+            crate::client_rename::go(conn, &args.desc, args, ref_mode, before, after)?;
+            Ok((exit_status::T::NoError, telemetry::create()))
+        }
+        ClientMode::MODEIDERENAMEBYSYMBOL(arg) => {
+            let (new_name, action, symbol_definition) = server_command_types::rename::string_to_args(arg)?;
+            let results: server_command_types::rename::IdeResult = rpc_with_retry(
+                args,
+                server_command_types::T::IDERENAMEBYSYMBOL(action, new_name, symbol_definition),
+            )?;
+            match results {
+                Ok(patches) => {
+                    crate::client_rename::go_ide_from_patches(patches, args.output_json);
+                    Ok((exit_status::T::NoError, telemetry::create()))
+                }
+                Err(_msg) => input_error(),
+            }
+        }
+        ClientMode::MODEIDENTIFYSYMBOL(arg) => {
+            use crate::yojson::safe as yojson;
+            if !args.output_json {
+                eprint!("Must use --json\n");
+                return input_error();
+            }
+            let (result, telemetry): (Vec<crate::symbol_definition::T<crate::pos::Absolute>>, _) =
+                rpc(args, server_command_types::T::IDENTIFYSYMBOL(arg.clone()))?;
+            let definition_to_json = |d: &crate::symbol_definition::T<crate::pos::Absolute>| {
+                yojson::T::Assoc(vec![
+                    (
+                        "full_name".to_string(),
+                        yojson::T::String(crate::symbol_definition::full_name(d)),
+                    ),
+                    ("pos".to_string(), crate::pos::json(&d.pos)),
+                    (
+                        "kind".to_string(),
+                        yojson::T::String(crate::symbol_definition::string_of_kind(&d.kind).to_string()),
+                    ),
+                ])
+            };
+            let definitions = result.iter().map(definition_to_json).collect();
+            println!("{}", yojson::to_string(&yojson::T::List(definitions)));
+            Ok((exit_status::T::NoError, telemetry))
+        }
+        ClientMode::MODEIDENTIFYSYMBOL1(arg)
+        | ClientMode::MODEIDENTIFYSYMBOL2(arg)
+        | ClientMode::MODEIDENTIFYSYMBOL3(arg) => {
+            let (line, char) = parse_position_string(":", arg)?;
+            let pos = crate::file_content::position::from_one_based(line, char);
+            let file = match &args.stdin_name {
+                None => String::new(),
+                Some(f) => expand_path(f),
+            };
+            let content = server_command_types::FileInput::FileContent(read_stdin_to_string());
+            let (result, telemetry): (server_command_types::identify_symbol::Result, _) =
+                rpc(args, server_command_types::T::IDENTIFYFUNCTION(file, content, pos))?;
+            crate::client_get_definition::go(&result, args.output_json);
+            Ok((exit_status::T::NoError, telemetry))
+        }
+        ClientMode::MODETYPEATPOS(arg) => {
+            let (fn_, line, char) = match parse_file_position(arg) {
+                Some(x) => x,
+                None => {
+                    eprint!("Invalid position\n");
+                    return input_error();
+                }
+            };
+            let pos = crate::file_content::position::from_one_based(line, char);
+            let (ty, telemetry): (Option<(String, String)>, _) =
+                rpc(args, server_command_types::T::INFERTYPE(fn_, pos))?;
+            crate::client_type_at_pos::go(ty, args.output_json);
+            Ok((exit_status::T::NoError, telemetry))
+        }
+        ClientMode::MODEINFERDYNAMIC(arg, as_data) => {
+            let (json, telemetry): (crate::yojson::safe::T, _) =
+                rpc(args, server_command_types::T::INFERDYNAMIC(arg.clone(), *as_data))?;
+            print!("{}\n", crate::rt::yojson_ext::pretty_to_string(&json));
+            Ok((exit_status::T::NoError, telemetry))
+        }
+        ClientMode::MODEENFORCEMENTATPOSBATCH(positions) => {
+            let mut parsed = vec![];
+            for pos in positions {
+                let p = match ocaml_str::split_literal(":", pos).as_slice() {
+                    [filename, line, char] => match (int_of_string(line), int_of_string(char)) {
+                        (Some(line), Some(char)) => Some((
+                            expand_path(filename),
+                            crate::file_content::position::from_one_based(line, char),
+                        )),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                match p {
+                    Some(p) => parsed.push(p),
+                    None => {
+                        eprint!("Invalid position\n");
+                        return input_error();
+                    }
+                }
+            }
+            let (responses, telemetry): (Vec<String>, _) =
+                rpc(args, server_command_types::T::ENFORCEMENTATPOSBATCH(parsed))?;
+            for response in &responses {
+                println!("{}", response)
+            }
+            Ok((exit_status::T::NoError, telemetry))
+        }
+        ClientMode::MODETYPEATPOSBATCH(positions) => {
+            use crate::file_content::position::from_one_based;
+            let mut parsed = vec![];
+            for pos in positions {
+                let pieces = ocaml_str::split_literal(":", pos);
+                let ints: Option<Vec<isize>> = pieces.iter().skip(1).map(|s| int_of_string(s)).collect();
+                let p = match (pieces.as_slice(), ints.as_deref()) {
+                    ([filename, _, _], Some([line, char])) => {
+                        Some((expand_path(filename), from_one_based(*line, *char), None))
+                    }
+                    ([filename, _, _, _, _], Some([start_line, start_char, end_line, end_char])) => {
+                        let filename = expand_path(filename);
+                        let start_pos = from_one_based(*start_line, *start_char);
+                        let end_pos = from_one_based(*end_line, *end_char);
+                        Some((filename, start_pos, Some(end_pos)))
+                    }
+                    _ => None,
+                };
+                match p {
+                    Some(p) => parsed.push(p),
+                    None => {
+                        eprint!("Invalid position\n");
+                        return input_error();
+                    }
+                }
+            }
+            let (responses, telemetry): (Vec<String>, _) =
+                rpc(args, server_command_types::T::INFERTYPEBATCH(parsed))?;
+            for response in &responses {
+                println!("{}", response)
+            }
+            Ok((exit_status::T::NoError, telemetry))
+        }
+        ClientMode::MODEISSUBTYPE => {
+            let stdin = read_stdin_to_string();
+            let (response, telemetry): (Result<String, String>, _) =
+                rpc(args, server_command_types::T::ISSUBTYPE(stdin))?;
+            match response {
+                Ok(str) => {
+                    print!("{}", str);
+                    Ok((exit_status::T::NoError, telemetry))
+                }
+                Err(str) => {
+                    eprint!("{}", str);
+                    input_error()
+                }
+            }
+        }
+        ClientMode::MODETYPEERRORATPOS(arg) => {
+            let (fn_, line, char) = match parse_file_position(arg) {
+                Some(x) => x,
+                None => {
+                    eprint!(
+                        "Invalid position; expected an argument of the form [filename]:[line]:[column] or [line]:[column]\n"
+                    );
+                    return input_error();
+                }
+            };
+            let (ty, telemetry): (crate::infer_error_at_pos_service::Result, _) =
+                rpc(args, server_command_types::T::INFERTYPEERROR(fn_, line, char))?;
+            crate::client_type_error_at_pos::go(&ty, args.output_json);
+            Ok((exit_status::T::NoError, telemetry))
+        }
+        ClientMode::MODETASTHOLES(arg) => {
+            use server_command_types::FileInput;
+            use server_command_types::tast_hole::Filter;
+            let parse_hole_filter = |s: &str| match s {
+                "any" => Some(Filter::Any),
+                "typing" => Some(Filter::Typing),
+                "cast" => Some(Filter::Cast),
+                _ => None,
+            };
+            let parsed = match ocaml_str::split_literal(":", arg).as_slice() {
+                [filename, filter_str] => {
+                    let fn_ = expand_path(filename);
+                    parse_hole_filter(filter_str).map(|filter| (FileInput::FileName(fn_), filter))
+                }
+                [part] => match parse_hole_filter(part) {
+                    Some(src_opt) => {
+                        let content = read_stdin_to_string();
+                        Some((FileInput::FileContent(content), src_opt))
+                    }
+                    None => {
+                        let fn_ = expand_path(part);
+                        // No hole source specified; default to `Typing`
+                        Some((FileInput::FileName(fn_), Filter::Typing))
+                    }
+                },
+                _ => None,
+            };
+            let (filename, hole_src_opt) = match parsed {
+                Some(x) => x,
+                None => {
+                    eprint!(
+                        "Invalid argument; expected an argument of the form [filename](:[any|typing|cast])? or [any|typing|cast]\n"
+                    );
+                    return input_error();
+                }
+            };
+            let (ty, telemetry): (crate::tast_holes_service::Result, _) =
+                rpc(args, server_command_types::T::TASTHOLES(filename, hole_src_opt))?;
+            crate::client_tast_holes::go(&ty, false, args.output_json);
+            Ok((exit_status::T::NoError, telemetry))
+        }
+        ClientMode::MODETASTHOLESBATCH(file) => {
+            let contents = match crate::sys_utils::cat(&expand_path(file)) {
+                Ok(contents) => String::from_utf8_lossy(&contents).into_owned(),
+                Err(e) => panic!("{:?}", e),
+            };
+            // `String.strip |> String.split ~on:'\n'`
+            let files: Vec<String> = contents
+                .trim_matches(|c| matches!(c, ' ' | '\t' | '\n' | '\x0b' | '\x0c' | '\r'))
+                .split('\n')
+                .map(expand_path)
+                .collect();
+            let (holes, telemetry): (crate::tast_holes_service::Result, _) =
+                rpc(args, server_command_types::T::TASTHOLESBATCH(files))?;
+            crate::client_tast_holes::go(&holes, true, args.output_json);
+            Ok((exit_status::T::NoError, telemetry))
+        }
+        ClientMode::MODEFUNDEPSATPOSBATCH(positions) => {
+            let positions = parse_positions(positions)?;
+            let (responses, telemetry): (Vec<String>, _) =
+                rpc(args, server_command_types::T::FUNDEPSBATCH(positions))?;
+            for response in &responses {
+                println!("{}", response)
+            }
+            Ok((exit_status::T::NoError, telemetry))
+        }
+        ClientMode::MODEDEPSOUTATPOSBATCH(positions) => {
+            let positions = parse_positions(positions)?;
+            let (responses, telemetry): (Vec<String>, _) =
+                rpc(args, server_command_types::T::DEPSOUTBATCH(positions))?;
+            for response in &responses {
+                println!("{}", response)
+            }
+            Ok((exit_status::T::NoError, telemetry))
+        }
+        ClientMode::MODEOUTLINE | ClientMode::MODEOUTLINE2 => {
+            // (`Shared_mem.init`: nothing to set up here.)
+            let content = read_stdin_to_string();
+            // TODO: Don't use default parser options.
+            //
+            // Parser options enables certain features (such as namespace aliasing)
+            // Thus, for absolute correctness of outlining, we need to use the same
+            // parser options that the server uses. But this client request doesn't
+            // hit the server at all. So either change this to a server RPC, or
+            // ask the server what its parser options are, or parse the
+            // options from the .hhconfig file (needs to be the same hhconfig file the
+            // server used).
+            let results = crate::file_outline::outline(&Default::default(), content.as_bytes());
+            crate::client_outline::go(&results, args.output_json);
+            Ok((exit_status::T::NoError, telemetry::create()))
+        }
+        ClientMode::MODEOUTLINEFORAGENTS(path) => {
+            let content = match crate::sys_utils::cat(path) {
+                Ok(content) => content,
+                Err(e) => panic!("{:?}", e),
+            };
+            let result = crate::outline_for_agents::outline(&content);
+            {
+                use std::io::Write;
+                let _ = std::io::stdout().write_all(&result);
+            }
+            Ok((exit_status::T::NoError, telemetry::create()))
+        }
+        ClientMode::MODEMETHODJUMPCHILDREN(class_) => {
+            let filter = server_command_types::method_jumps::Filter::NoFilter;
+            let (results, telemetry): (Vec<server_command_types::method_jumps::Result>, _) =
+                rpc(args, server_command_types::T::METHODJUMP((class_.clone(), filter, true)))?;
+            crate::client_method_jumps::go(&results, true, args.output_json);
+            Ok((exit_status::T::NoError, telemetry))
+        }
+        ClientMode::MODEMETHODJUMPANCESTORS(class_, filter) => {
+            let filter = match crate::method_jumps::string_filter_to_method_jump_filter(filter) {
+                Some(filter) => filter,
+                None => {
+                    eprint!("Invalid method jump filter {}\n", filter);
+                    return input_error();
+                }
+            };
+            let (results, telemetry): (Vec<server_command_types::method_jumps::Result>, _) =
+                rpc(args, server_command_types::T::METHODJUMP((class_.clone(), filter, false)))?;
+            crate::client_method_jumps::go(&results, false, args.output_json);
+            Ok((exit_status::T::NoError, telemetry))
+        }
+        ClientMode::MODEMETHODJUMPANCESTORSBATCH(classes, filter) => {
+            let filter = match crate::method_jumps::string_filter_to_method_jump_filter(filter) {
+                Some(filter) => filter,
+                None => {
+                    eprint!("Invalid method jump filter {}\n", filter);
+                    return input_error();
+                }
+            };
+            let (results, telemetry): (Vec<server_command_types::method_jumps::Result>, _) =
+                rpc(args, server_command_types::T::METHODJUMPBATCH((classes.clone(), filter)))?;
+            crate::client_method_jumps::go(&results, false, args.output_json);
+            Ok((exit_status::T::NoError, telemetry))
+        }
         mode @ ClientMode::MODENOTEBOOKTOHACK { .. } => not_ported(mode),
-        mode @ ClientMode::MODEINMEMORYDEPTABLESIZE => not_ported(mode),
-        mode @ ClientMode::MODESAVENAMING(_) => not_ported(mode),
-        mode @ ClientMode::MODESEARCH(_) => not_ported(mode),
-        mode @ ClientMode::MODELINT => not_ported(mode),
-        mode @ ClientMode::MODESERVERRAGE => not_ported(mode),
-        mode @ ClientMode::MODELINTSTDIN(_) => not_ported(mode),
-        mode @ ClientMode::MODELINTALL(_) => not_ported(mode),
+        ClientMode::MODEINMEMORYDEPTABLESIZE => {
+            let (result, telemetry): (Result<isize, String>, _) =
+                rpc(args, server_command_types::T::INMEMORYDEPTABLESIZE)?;
+            crate::client_result_printer::int_printer_go(&result, args.output_json);
+            Ok((exit_status::T::NoError, telemetry))
+        }
+        ClientMode::MODESAVENAMING(path) => {
+            use crate::save_state_service_types::SaveNamingResult;
+            use crate::yojson::safe as yojson;
+            let dirname = crate::rt::ocaml_filename::dirname(path);
+            if let Err(e) = crate::sys_utils::mkdir_p(&dirname) {
+                panic!("Sys_error({:?})", e.to_string())
+            }
+            let path = crate::path::make(path);
+            let (result, telemetry): (Result<SaveNamingResult, String>, _) =
+                rpc(args, server_command_types::T::SAVENAMING(crate::path::to_string(&path)))?;
+            // `SaveNamingResultPrinter.go`
+            crate::client_result_printer::go(
+                &result,
+                args.output_json,
+                |t| format!("Files added: {}, symbols added: {}", t.nt_files_added, t.nt_symbols_added),
+                |t| {
+                    yojson::T::Assoc(vec![
+                        ("files_added".to_string(), yojson::T::Int(t.nt_files_added)),
+                        ("symbols_added".to_string(), yojson::T::Int(t.nt_symbols_added)),
+                    ])
+                },
+            );
+            Ok((exit_status::T::NoError, telemetry))
+        }
+        ClientMode::MODESEARCH(query) => {
+            if query != "this_is_just_to_check_liveness_of_hh_server" {
+                eprintln!("Usage: hh --search this_is_just_to_check_liveness_of_hh_server");
+                Ok((exit_status::T::InputError, telemetry::create()))
+            } else {
+                let ((), telemetry): ((), _) = rpc(args, server_command_types::T::CHECKLIVENESS)?;
+                if args.output_json {
+                    println!("[]")
+                }
+                Ok((exit_status::T::NoError, telemetry))
+            }
+        }
+        ClientMode::MODELINT => {
+            let fnl = filter_real_paths(false, &args.paths);
+            if args.paths.is_empty() {
+                eprintln!("No lint errors (0 files checked)!");
+                eprintln!("Note: --lint expects a list of filenames to check.");
+                Ok((exit_status::T::NoError, telemetry::create()))
+            } else {
+                let (results, telemetry): (crate::server_lint_types::Result, _) =
+                    rpc(args, server_command_types::T::LINT(fnl))?;
+                let error_format = crate::diagnostics_state::format_or_default(args.error_format);
+                crate::client_lint::go(&results, args.output_json, error_format);
+                Ok((exit_status::T::NoError, telemetry))
+            }
+        }
+        ClientMode::MODESERVERRAGE => {
+            use crate::yojson::safe as yojson;
+            if !args.output_json {
+                eprint!("Must use --json\n");
+                return input_error();
+            }
+            // Our json output format is read by clientRage.ml
+            let make_item = |item: &crate::server_rage_types::RageItem| {
+                yojson::T::Assoc(vec![
+                    ("name".to_string(), yojson::T::String(item.title.clone())),
+                    ("contents".to_string(), yojson::T::String(item.data.clone())),
+                ])
+            };
+            let (items, telemetry): (crate::server_rage_types::Result, _) =
+                rpc(args, server_command_types::T::RAGE)?;
+            println!(
+                "{}",
+                yojson::to_string(&yojson::T::List(items.iter().map(make_item).collect()))
+            );
+            Ok((exit_status::T::NoError, telemetry))
+        }
+        ClientMode::MODELINTSTDIN(filename) => match crate::sys_utils::realpath(filename) {
+            None => {
+                eprintln!("Could not find file '{}'", filename);
+                Ok((exit_status::T::InputError, telemetry::create()))
+            }
+            Some(filename) => {
+                let contents = read_stdin_to_string();
+                let (results, telemetry): (crate::server_lint_types::Result, _) = rpc(
+                    args,
+                    server_command_types::T::LINTSTDIN(server_command_types::LintStdinInput { filename, contents }),
+                )?;
+                let error_format = crate::diagnostics_state::format_or_default(args.error_format);
+                crate::client_lint::go(&results, args.output_json, error_format);
+                Ok((exit_status::T::NoError, telemetry))
+            }
+        },
+        ClientMode::MODELINTALL(code) => {
+            let (results, telemetry): (crate::server_lint_types::Result, _) =
+                rpc(args, server_command_types::T::LINTALL(*code))?;
+            let error_format = crate::diagnostics_state::format_or_default(args.error_format);
+            crate::client_lint::go(&results, args.output_json, error_format);
+            Ok((exit_status::T::NoError, telemetry))
+        }
         ClientMode::MODEPAUSE => {
             let ((), telemetry): ((), _) = rpc(args, server_command_types::T::PAUSE)?;
             println!("Paused automatic rechecks. The next client request resumes them.");
@@ -313,20 +1047,149 @@ pub fn main_internal(
             );
             Ok((exit_status::T::NoError, telemetry))
         }
-        mode @ ClientMode::MODEREMOVEDEADFIXMES(_) => not_ported(mode),
-        mode @ ClientMode::MODEREMOVEDEADUNSAFECASTS => not_ported(mode),
-        mode @ ClientMode::MODEREWRITEDECLARATIONS => not_ported(mode),
+        ClientMode::MODEREMOVEDEADFIXMES(codes) => {
+            let conn = connect(None, None, args)?;
+            let (response, telemetry): (server_command_types::PatchesOrError, _) = client_connect::rpc(
+                &conn,
+                &args.desc,
+                server_command_types::T::REMOVEDEADFIXMES(codes.clone()),
+            )?;
+            match response {
+                server_command_types::PatchesOrError::Error(msg) => {
+                    eprint!("{}\n", msg);
+                    Ok((exit_status::T::TypeError, telemetry))
+                }
+                server_command_types::PatchesOrError::Ok(patches) => {
+                    if args.output_json {
+                        crate::client_rename::print_patches_json(patches)
+                    } else {
+                        crate::client_rename::apply_patches(patches)
+                    }
+                    Ok((exit_status::T::NoError, telemetry))
+                }
+            }
+        }
+        ClientMode::MODEREMOVEDEADUNSAFECASTS => {
+            let error_filter = error_filter(config, local_config, args);
+            let status_cmd = || server_command_types::T::STATUS {
+                max_errors: args.max_errors,
+                error_filter: error_filter.clone(),
+            };
+            loop {
+                let (response, telemetry): (server_command_types::PatchesOrError, _) =
+                    rpc(args, server_command_types::T::REMOVEDEADUNSAFECASTS)?;
+                match response {
+                    server_command_types::PatchesOrError::Error(msg) => {
+                        eprint!("{}\n", msg);
+                        return Ok((exit_status::T::TypeError, telemetry));
+                    }
+                    server_command_types::PatchesOrError::Ok(patches) => {
+                        let is_empty = patches.is_empty();
+                        crate::client_rename::apply_patches(patches);
+                        if is_empty {
+                            return Ok((exit_status::T::NoError, telemetry));
+                        } else {
+                            let _: (server_command_types::server_status::T, _) = rpc(args, status_cmd())?;
+                        }
+                    }
+                }
+            }
+        }
+        ClientMode::MODEREWRITEDECLARATIONS => {
+            // `Declarations_rewriter.start`: the stub of the open-source build
+            // (`stubs/declarations_rewriter.ml`) does nothing.
+            Ok((exit_status::T::NoError, telemetry::create()))
+        }
+        // (The server's `REWRITE_LAMBDA_PARAMETERS` is not ported.)
         mode @ ClientMode::MODEREWRITELAMBDAPARAMETERS(_) => not_ported(mode),
-        mode @ ClientMode::MODEFULLFIDELITYPARSE(_) => not_ported(mode),
+        ClientMode::MODEFULLFIDELITYPARSE(file) => {
+            // We can cheaply do this on the client today, but we might want to
+            // do it on the server and cache the results in the future.
+            let do_it_on_server = false;
+            let (results, telemetry): (String, _) = if do_it_on_server {
+                rpc(args, server_command_types::T::DUMPFULLFIDELITYPARSE(file.clone()))?
+            } else {
+                (crate::full_fidelity_parse_service::go(file), telemetry::create())
+            };
+            crate::client_full_fidelity_parse::go(&results);
+            Ok((exit_status::T::NoError, telemetry))
+        }
         mode @ ClientMode::MODEFULLFIDELITYSCHEMA => not_ported(mode),
-        mode @ ClientMode::MODECSTSEARCH(_) => not_ported(mode),
-        mode @ ClientMode::MODEFILELEVELDEPENDENCIES => not_ported(mode),
+        ClientMode::MODECSTSEARCH(files_to_search) => {
+            use crate::yojson::safe as yojson;
+            let sort_results = args.sort_results;
+            let input = match yojson::from_string(&read_stdin_to_string()) {
+                Ok(input) => input,
+                Err(e) => panic!("Yojson.Json_error: {:?}", e),
+            };
+            let (result, telemetry): (Result<yojson::T, String>, _) = rpc(
+                args,
+                server_command_types::T::CSTSEARCH(server_command_types::CstSearchInput {
+                    sort_results,
+                    input,
+                    files_to_search: files_to_search.clone(),
+                }),
+            )?;
+            match result {
+                Ok(result) => {
+                    println!("{}", yojson::to_string(&result));
+                    Ok((exit_status::T::NoError, telemetry))
+                }
+                Err(error) => {
+                    println!("{}", error);
+                    input_error()
+                }
+            }
+        }
+        ClientMode::MODEFILELEVELDEPENDENCIES => {
+            use crate::yojson::safe as yojson;
+            let paths = filter_real_paths(true, &args.paths);
+            let (responses, telemetry): (Vec<String>, _) =
+                rpc(args, server_command_types::T::FILEDEPENDENTS(paths))?;
+            if args.output_json {
+                let json_path_list = responses.iter().map(|path| yojson::T::String(path.clone())).collect();
+                let output = yojson::T::Assoc(vec![("dependents".to_string(), yojson::T::List(json_path_list))]);
+                println!("{}", yojson::to_string(&output))
+            } else {
+                for response in &responses {
+                    print!("{}\n", response)
+                }
+            }
+            Ok((exit_status::T::NoError, telemetry))
+        }
         mode @ ClientMode::MODEFINDISOLATABLECLUSTERS => not_ported(mode),
-        mode @ ClientMode::MODEVERBOSE(_) => not_ported(mode),
-        mode @ ClientMode::MODEDEPSINATPOSBATCH(_) => not_ported(mode),
+        ClientMode::MODEVERBOSE(verbose) => {
+            let ((), telemetry): ((), _) = rpc(args, server_command_types::T::VERBOSE(*verbose))?;
+            Ok((exit_status::T::NoError, telemetry))
+        }
+        ClientMode::MODEDEPSINATPOSBATCH(positions) => {
+            let positions = parse_positions(positions)?;
+            let results: Vec<Vec<crate::search_types::find_refs::Absolute>> =
+                rpc_with_retry_list(args, server_command_types::T::DEPSINBATCH(positions))?;
+            for s in &results {
+                print_refs(s, true)
+            }
+            Ok((exit_status::T::NoError, telemetry::create()))
+        }
         mode @ ClientMode::MODEFINDMYTESTS(_) => not_ported(mode),
-        mode @ ClientMode::MODEPACKAGELINT(_) => not_ported(mode),
-        mode @ ClientMode::MODEPACKAGELINTFULL(_) => not_ported(mode),
+        ClientMode::MODEPACKAGELINT(file) => {
+            let file = expand_file_path(file)?;
+            let (results, telemetry): (server_command_types::package_lint::FastResult, _) =
+                rpc(args, server_command_types::T::PACKAGELINT(file))?;
+            print_package_lint_result(&results);
+            Ok((exit_status::T::NoError, telemetry))
+        }
+        ClientMode::MODEPACKAGELINTFULL((file, candidates)) => {
+            let file = expand_file_path(file)?;
+            let candidates = candidates
+                .iter()
+                .map(|c| expand_file_path(c))
+                .collect::<Result<Vec<_>, _>>()?;
+            let (results, telemetry): (server_command_types::package_lint::FastResult, _) =
+                rpc(args, server_command_types::T::PACKAGELINTFULL((file, candidates)))?;
+            print_package_lint_result(&results);
+            Ok((exit_status::T::NoError, telemetry))
+        }
     }
 }
 

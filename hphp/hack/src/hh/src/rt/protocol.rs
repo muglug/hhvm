@@ -746,24 +746,6 @@ pub mod wire {
         }
     }
 
-    /// A value of a type that needs the typing port (`Lints_core.t`), which
-    /// has no `serde`: it cannot cross the socket yet.
-    pub mod port_only {
-        use super::*;
-
-        pub fn serialize<S: Serializer, X>(_x: &X, _s: S) -> Result<S::Ok, S::Error> {
-            todo!(
-                "Server_lint_types.result over the socket: Lints_core.t (behind the feature port) has no serde"
-            )
-        }
-
-        pub fn deserialize<'de, D: Deserializer<'de>, X>(_d: D) -> Result<X, D::Error> {
-            todo!(
-                "Server_lint_types.result over the socket: Lints_core.t (behind the feature port) has no serde"
-            )
-        }
-    }
-
     /// The result of `STATUS_SINGLE`: the TASTs (behind the feature `port`,
     /// with no `serde`) cannot cross the socket yet; the diagnostics can.
     pub mod status_single_result {

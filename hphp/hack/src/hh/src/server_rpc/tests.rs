@@ -306,12 +306,12 @@ fn check_liveness_stats_no_prechecked_and_dep_table_size() {
 fn a_command_that_is_not_ported_panics() {
     set_prefixes();
     let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        handle(&genv(), env_with(vec![]), false, &metadata(), T::RAGE)
+        handle(&genv(), env_with(vec![]), false, &metadata(), T::FINDISOLATABLECLUSTERS)
     }));
-    let payload = res.err().expect("RAGE should not be ported");
+    let payload = res.err().expect("FIND_ISOLATABLE_CLUSTERS should not be ported");
     assert_eq!(
         payload.downcast_ref::<String>().map(|s| s.as_str()),
-        Some("Server_rpc.handle: RAGE is not ported")
+        Some("Server_rpc.handle: FIND_ISOLATABLE_CLUSTERS is not ported")
     );
 }
 

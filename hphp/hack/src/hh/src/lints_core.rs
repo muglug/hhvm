@@ -31,6 +31,7 @@ use crate::yojson::safe as yojson;
 /// - Disabled: Hidden from most UI, but it is useful for telemetry
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub enum Severity {
     Lint_error,
     Lint_warning,
@@ -49,7 +50,7 @@ pub fn string_of_severity(severity: Severity) -> String {
 }
 
 /// `'pos t`
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct T<P> {
     /// Determines ordering (1st priority)
     pub code: isize,

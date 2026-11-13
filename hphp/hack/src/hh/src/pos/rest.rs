@@ -560,6 +560,16 @@ pub fn multiline_json(t: &Absolute) -> yojson::T {
     ])
 }
 
+pub fn multiline_json_no_filename<P: APos>(t: &P) -> yojson::T {
+    let (line_start, char_start, line_end, char_end) = destruct_range_one_based(t);
+    yojson::T::Assoc(vec![
+        ("line_start".to_string(), yojson::T::Int(line_start)),
+        ("char_start".to_string(), yojson::T::Int(char_start)),
+        ("line_end".to_string(), yojson::T::Int(line_end)),
+        ("char_end".to_string(), yojson::T::Int(char_end - 1)),
+    ])
+}
+
 /// Return line number, beginning of line character number and character
 /// number of start position.
 pub fn line_beg_offset<P: APos>(p: &P) -> (isize, isize, isize) {

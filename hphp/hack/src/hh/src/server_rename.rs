@@ -67,6 +67,19 @@ pub fn get_fixme_patches(codes: &[isize], env: &Env) -> Vec<Patch> {
             .filter(|e| e.is_fixmed)
             .map(|e| (crate::user_diagnostic::get_pos(&e), crate::user_diagnostic::get_code(&e)))
             .collect();
+    // (The fixme tables are those of the thread that parsed a file, and the
+    // files are checked on other threads: each file that has no table here
+    // is parsed first. The OCaml tables are in shared memory.)
+    let ctx = crate::provider_utils::ctx_from_server_env(env);
+    crate::naming_table::fold_with(Some(true), &env.naming_table, (), |fn_, _, ()| {
+        use crate::diagnostics_state::fixme_provider;
+        if !relative_path::is_hhi(fn_.prefix())
+            && fixme_provider::get_fixmes_of_file(fn_).is_none()
+            && fixme_provider::get_ignores_of_file(fn_).is_none()
+        {
+            let _ = crate::diagnostics_state::ignore_(|| crate::ast_provider::get_ast(true, &ctx, fn_));
+        }
+    });
     let poslist = unused_fixmes::get(codes, &fixmelist, &env.naming_table);
     poslist
         .iter()
@@ -169,11 +182,24 @@ mod unused_fixmes {
 }
 
 pub fn get_dead_unsafe_cast_patches(env: &Env) -> Vec<Patch> {
-    let _ = env;
     // `Remove_dead_unsafe_casts.get_patches ~is_test:false
     //    ~fold:(Naming_table.fold ~warn_on_naming_costly_iter:true)
     //    ~files_info:env.naming_table`
-    todo!("Server_rename.get_dead_unsafe_cast_patches: Remove_dead_unsafe_casts (E3) is not ported yet")
+    let ctx = crate::provider_utils::ctx_from_server_env(env);
+    let files: Vec<relative_path::T> =
+        crate::naming_table::fold_with(Some(true), &env.naming_table, vec![], |fn_, _, mut acc| {
+            acc.push(fn_.clone());
+            acc
+        });
+    crate::remove_dead_unsafe_casts::get_patches(&ctx, Some(false), &files)
+        .into_iter()
+        .map(|(pos, text)| {
+            Patch::Replace(InsertPatch {
+                pos: pos::to_absolute(&pos),
+                text,
+            })
+        })
+        .collect()
 }
 
 pub fn get_lambda_parameter_rewrite_patches(

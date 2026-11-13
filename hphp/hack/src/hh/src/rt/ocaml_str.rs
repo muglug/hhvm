@@ -509,3 +509,43 @@ mod tests {
         assert!(serde_json::from_str::<Regexp>("\"[a\"").is_err());
     }
 }
+
+/// `Str.split (Str.regexp delim) s` for a `delim` that matches itself only
+/// (no special character): the substrings between the delimiters; a
+/// delimiter at the beginning of the string and one at its end are ignored.
+pub fn split_literal<'a>(delim: &str, s: &'a str) -> Vec<&'a str> {
+    let mut start = if !delim.is_empty() && s.starts_with(delim) { delim.len() } else { 0 };
+    let mut accu = vec![];
+    while start < s.len() {
+        match s[start..].find(delim) {
+            Some(i) => {
+                accu.push(&s[start..start + i]);
+                start += i + delim.len()
+            }
+            None => {
+                accu.push(&s[start..]);
+                break;
+            }
+        }
+    }
+    accu
+}
+
+#[cfg(test)]
+mod split_literal_tests {
+    use super::split_literal;
+
+    /// The results of `Str.split (Str.regexp ...)` in OCaml.
+    #[test]
+    fn it_splits_as_str_split_does() {
+        assert_eq!(split_literal("::", "A::b"), vec!["A", "b"]);
+        assert_eq!(split_literal("::", "A"), vec!["A"]);
+        assert_eq!(split_literal("::", ""), Vec::<&str>::new());
+        // A delimiter at the beginning, and one at the end, are ignored.
+        assert_eq!(split_literal("::", "::A::b::"), vec!["A", "b"]);
+        // Two delimiters in a row give an empty string.
+        assert_eq!(split_literal(":", "a::b"), vec!["a", "", "b"]);
+        assert_eq!(split_literal(":", "f.php:1:2"), vec!["f.php", "1", "2"]);
+        assert_eq!(split_literal("|", "Method|C::m"), vec!["Method", "C::m"]);
+    }
+}

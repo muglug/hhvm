@@ -81,9 +81,11 @@ use crate::sys_utils::SysError;
 use crate::wwwroot;
 
 /// Whether an option is shown in --help or only in --ultrahelp.
+/// Default new arguments to [`ArgNonUserFacing`]. Use [`ArgUserFacing`]
+/// only for established, commonly used user or agent workflows.
 /// See snapshot tests: $FBCODE/hphp/hack/test/help
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ArgKind {
+pub enum ArgVisibility {
     /// An argument that is for users and agents.
     /// Will be shown in both hh --help and hh --ultrahelp
     ArgUserFacing,
@@ -93,7 +95,21 @@ pub enum ArgKind {
     ArgNonUserFacing,
 }
 
-use ArgKind::*;
+/// Use [`HelpModes`] for arguments that select an operation, such as
+/// `--find-refs`, or a standalone action, such as `--version`.
+/// Use [`HelpOptions`] for arguments that supply inputs, such as `--single`,
+/// or configure an operation, such as `--json`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HelpSection {
+    HelpModes,
+    HelpOptions,
+}
+
+/// `arg_visibility * help_section`
+pub type ArgKind = (ArgVisibility, HelpSection);
+
+use ArgVisibility::*;
+use HelpSection::*;
 
 /// The exceptions of the functions of the spec lists: `Arg`'s, and
 /// `Exit_status.Exit_with` (`Exn::Raise`, from `Find_refs_wire_format`).
@@ -591,12 +607,34 @@ fn to_arg_specs(options: Vec<(String, Spec<'_>, String, ArgKind)>) -> Vec<Entry<
         .collect()
 }
 
-fn ultrahelp_entry<'a>() -> Entry<'a> {
-    (
-        "--ultrahelp".to_string(),
-        Spec::Unit(Box::new(|| Ok(()))),
-        " see full options (for language and release teams)".to_string(),
-    )
+fn print_agent_help() {
+    print!(
+        "{}",
+        r####"# Type-checking
+1. **Start with `hh --single`** for localized error signals (paths relative to
+   `www/`); iterate until it passes:
+   `cd "$(sl root)/www" && hh --single path/to/file.php`. For several files, repeat
+   the flag (`hh --single a.php --single b.php`) or use `hh --multi <listfile>`
+   (one path per line); extra bare paths are read as the www root, not as files.
+2. **Never stop there** — once edits are final, run full `hh` (no file args) to
+   catch cross-file breakage: `cd "$(sl root)/www" && hh`
+3. **Pass `--reason` with a concise explanation** for any non-trivial `hh`
+   command. It is unnecessary for plain `hh`, `hh --single`, and `hh --multi`.
+
+# Locating a symbol's definition
+
+Facts-based autoloading means file paths need not match symbol names, so don't
+guess or glob for `<SymbolName>.php`; ask the typechecker:
+
+```bash
+cd "$(sl root)/www" && hh --identify <SymbolName> --json --reason '<why>'
+```
+
+It prints each declaration's file, line, and kind; `--json` is mandatory. Qualify
+methods as `'<Class>::<method>'`; bare method names return `[]`. For unknown names,
+search `www` for `class <Name>`, `interface <Name>`, or `function <method>`.
+"####
+    );
 }
 
 // *** *** NB *** *** ***
@@ -788,7 +826,7 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
         // Please keep these sorted in the alphabetical order.
         tuple_3_append(
             common_argspecs::allow_non_opt_build(&allow_non_opt_build),
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         opt(
             "--autostart-server",
@@ -797,15 +835,15 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 Ok(())
             })),
             " automatically start hh_server if it's not running (default: true)",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
-        tuple_3_append(common_argspecs::config(&config), ArgUserFacing),
+        tuple_3_append(common_argspecs::config(&config), (ArgNonUserFacing, HelpOptions)),
         opt(
             "--cst-search",
             Spec::Unit(Box::new(move || set_mode(None, MODECSTSEARCH(None)))),
-            &(" (mode) Search the concrete syntax trees of files in the codebase".to_string()
+            &(" Search the concrete syntax trees of files in the codebase".to_string()
                 + " for a given pattern"),
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--cst-search-files",
@@ -819,15 +857,15 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
             })),
             &(" Run CST search on this set of files,".to_string()
                 + " rather than all the files in the codebase."),
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         tuple_3_append(
             common_argspecs::custom_hhi_path(&custom_hhi_path),
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         tuple_3_append(
             common_argspecs::custom_telemetry_data(&custom_telemetry_data),
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         opt(
             "--deps-out-at-pos-batch",
@@ -835,14 +873,14 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 let m = match &*mode_ref.borrow() {
                     None => MODEDEPSOUTATPOSBATCH(vec![position]),
                     Some(MODEDEPSOUTATPOSBATCH(positions)) => {
-                        MODEFUNDEPSATPOSBATCH(cons(position, positions))
+                        MODEDEPSOUTATPOSBATCH(cons(position, positions))
                     }
                     Some(_) => return Err(single_mode_error()),
                 };
                 set_mode(Some(false), m)
             })),
-            " (mode) for each entry in input list get list of what it depends on [file:line:character list]",
-            ArgUserFacing,
+            " for each entry in input list get list of what it depends on [file:line:character list]",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--deps-in-at-pos-batch",
@@ -856,20 +894,20 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 };
                 set_mode(Some(false), m)
             })),
-            " (mode) for each entry in input list get list of what depends on it [file:line:character list]",
-            ArgUserFacing,
+            " for each entry in input list get list of what depends on it [file:line:character list]",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--dump-config",
             Spec::Set(&dump_config),
             " Output configuration",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         opt(
             "--dump-full-fidelity-parse",
             Spec::String(Box::new(move |x| set_mode(None, MODEFULLFIDELITYPARSE(x)))),
             "",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--dump-symbol-info",
@@ -886,7 +924,7 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
             //    ]
             //  Note: results list can be in any order
             "",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--error-format",
@@ -905,7 +943,7 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 Ok(())
             })),
             "<format> Error formatting style (default: highlighted); valid formats: agent, extended, raw, context, highlighted, plain, plain_highlighted",
-            ArgUserFacing,
+            (ArgUserFacing, HelpOptions),
         ),
         opt(
             "--enforcement-at-pos-batch",
@@ -919,8 +957,8 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 };
                 set_mode(Some(false), m)
             })),
-            " (mode) show enforcement at multiple positions [file:line:character list]",
-            ArgUserFacing,
+            " show enforcement at multiple positions [file:line:character list]",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--file-dependents",
@@ -928,69 +966,69 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 prechecked_ref.set(Some(false));
                 set_mode(None, MODEFILELEVELDEPENDENCIES)
             })),
-            " (mode) Given a list of filepaths, shows list of (possibly) dependent files",
-            ArgUserFacing,
+            " Given a list of filepaths, shows list of (possibly) dependent files",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--find-class-refs",
             Spec::String(Box::new(move |x| set_mode(None, MODEFINDCLASSREFS(x)))),
-            " (mode) finds references of the provided class name",
-            ArgUserFacing,
+            " finds references of the provided class name",
+            (ArgUserFacing, HelpModes),
         ),
         opt(
             "--find-isolatable-clusters",
             Spec::Unit(Box::new(move || set_mode(None, MODEFINDISOLATABLECLUSTERS))),
-            " (mode) find clusters of files that can be isolated from the codebase",
-            ArgNonUserFacing,
+            " find clusters of files that can be isolated from the codebase",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--find-refs",
             Spec::String(Box::new(move |x| set_mode(None, MODEFINDREFS(x)))),
-            &(" (mode) finds references of the provided symbol; optionally specify the symbol kind like \"Kind|Symbol\" (looks for functions or methods if unspecified)".to_string()
+            &(" finds references of the provided symbol; optionally specify the symbol kind like \"Kind|Symbol\" (looks for functions or methods if unspecified)".to_string()
                 + "; valid kinds are Method, Property, Class_const, Typeconst, Function, Class, ExplicitClass, and GConst"
                 + "; use ExplicitClass instead of Class to exclude references via self/static/parent"),
-            ArgUserFacing,
+            (ArgUserFacing, HelpModes),
         ),
         opt(
             "--find-my-tests",
             Spec::String(Box::new(move |path| set_mode(Some(true), MODEFINDMYTESTS(path)))),
-            " (mode) return test files that reference the given symbols, using the version specified in the JSON config (default: staging)",
-            ArgNonUserFacing,
+            " return test files that reference the given symbols, using the version specified in the JSON config (default: staging)",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--find-my-tests-staging",
             Spec::String(Box::new(move |path| set_mode(Some(true), MODEFINDMYTESTS(path)))),
             " (deprecated, use --find-my-tests) alias for --find-my-tests",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         tuple_3_append(
             common_argspecs::force_dormant_start(&force_dormant_start),
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
-        tuple_3_append(common_argspecs::from(&from), ArgUserFacing),
+        tuple_3_append(common_argspecs::from(&from), (ArgUserFacing, HelpOptions)),
         opt(
             "--from-arc-diff",
             Spec::Unit(Box::new(set_from("arc_diff"))),
             " (deprecated) equivalent to --from arc_diff",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         opt(
             "--from-arc-land",
             Spec::Unit(Box::new(set_from("arc_land"))),
             " (deprecated) equivalent to --from arc_land",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         opt(
             "--from-check-trunk",
             Spec::Unit(Box::new(set_from("check_trunk"))),
             " (deprecated) equivalent to --from check_trunk",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         opt(
             "--from-emacs",
             Spec::Unit(Box::new(set_from("emacs"))),
             " (deprecated) equivalent to --from emacs",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         opt(
             "--from-vim",
@@ -999,13 +1037,13 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 Ok(())
             })),
             " (deprecated) equivalent to --from vim",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         opt(
             "--full-fidelity-schema",
             Spec::Unit(Box::new(move || set_mode(None, MODEFULLFIDELITYSCHEMA))),
             "",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--fun-deps-at-pos-batch",
@@ -1019,33 +1057,33 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 };
                 set_mode(Some(false), m)
             })),
-            " (mode) for each entry in input list get list of function dependencies [file:line:character list]",
-            ArgNonUserFacing,
+            " for each entry in input list get list of function dependencies [file:line:character list]",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--get-method-name",
             Spec::String(Box::new(move |x| set_mode(None, MODEIDENTIFYSYMBOL3(x)))),
             // alias for --identify-function
             "",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--go-to-impl-class",
             Spec::String(Box::new(move |x| set_mode(None, MODEGOTOIMPLCLASS(x)))),
-            " (mode) goes to implementation of the provided class/trait/interface/etc. with the given name",
-            ArgNonUserFacing,
+            " goes to implementation of the provided class/trait/interface/etc. with the given name",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--go-to-impl-method",
             Spec::String(Box::new(move |x| set_mode(None, MODEGOTOIMPLMETHOD(x)))),
-            " (mode) goes to implementation of the provided method name",
-            ArgNonUserFacing,
+            " goes to implementation of the provided method name",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--hack-to-notebook",
             Spec::Unit(Box::new(move || set_mode(None, MODEHACKTONOTEBOOK))),
             "Convert a Hack file generated by `hh --notebook-to-hack` into a notebook. Pass hack file contents via stdin",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--ide-find-refs-by-symbol",
@@ -1053,8 +1091,8 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 let args = find_refs_wire_format::cli_args::from_string_exn(&x).map_err(Exn::Raise)?;
                 set_mode(None, MODEIDEFINDREFSBYSYMBOL(args))
             })),
-            "(mode) similar to IDE_FIND_REFS, but takes a symbol name rather than position",
-            ArgNonUserFacing,
+            " similar to IDE_FIND_REFS, but takes a symbol name rather than position",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--ide-find-refs-by-symbol3",
@@ -1077,8 +1115,8 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                     set_mode(None, MODEIDEFINDREFSBYSYMBOL(args))
                 })),
             ]),
-            "(mode) similar to FIND_REFS, but takes [action stream_file hints]",
-            ArgNonUserFacing,
+            " similar to FIND_REFS, but takes [action stream_file hints]",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--ide-go-to-impl-by-symbol",
@@ -1086,60 +1124,60 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 let args = find_refs_wire_format::cli_args::from_string_exn(&x).map_err(Exn::Raise)?;
                 set_mode(None, MODEIDEGOTOIMPLBYSYMBOL(args))
             })),
-            "(mode) similar to IDE_GO_TO_IMPL, but takes a symbol name rather than position",
-            ArgNonUserFacing,
+            " similar to IDE_GO_TO_IMPL, but takes a symbol name rather than position",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--ide-get-definition",
             Spec::String(Box::new(move |x| set_mode(None, MODEIDENTIFYSYMBOL2(x)))),
             // alias for --identify-function
             "",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--ide-outline",
             Spec::Unit(Box::new(move || set_mode(None, MODEOUTLINE2))),
             "",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--ide-rename-by-symbol",
             Spec::String(Box::new(move |x| set_mode(None, MODEIDERENAMEBYSYMBOL(x)))),
-            &(" (mode) renames, but takes a Find_refs.action. Usage: ".to_string()
+            &(" renames, but takes a Find_refs.action. Usage: ".to_string()
                 + " <new name>|<comma_separated_action>"),
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--identify-function",
             Spec::String(Box::new(move |x| set_mode(None, MODEIDENTIFYSYMBOL1(x)))),
-            &(" (mode) print the full function name at the position ".to_string()
+            &(" print the full function name at the position ".to_string()
                 + "[line:character] of the text on stdin"),
-            ArgUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--identify",
             Spec::String(Box::new(move |x| set_mode(None, MODEIDENTIFYSYMBOL(x)))),
-            " (mode) identify the named symbol",
-            ArgUserFacing,
+            " identify the named symbol",
+            (ArgUserFacing, HelpModes),
         ),
         tuple_3_append(
             common_argspecs::ignore_hh_version(&ignore_hh_version),
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         opt(
             "--in-memory-dep-table-size",
             Spec::Unit(Box::new(move || set_mode(None, MODEINMEMORYDEPTABLESIZE))),
             " number of entries in the in-memory dependency table",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--inheritance-ancestor-classes",
             Spec::String(Box::new(move |x| {
                 set_mode(None, MODEMETHODJUMPANCESTORS(x, "Class".to_string()))
             })),
-            " (mode) prints a list of classes that this class extends",
+            " prints a list of classes that this class extends",
             // can use --inheritance-ancestor-classes-batch
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--inheritance-ancestor-classes-batch",
@@ -1153,17 +1191,17 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 };
                 set_mode(Some(false), m)
             })),
-            " (mode) prints a list of classes that these classes extend",
-            ArgUserFacing,
+            " prints a list of classes that these classes extend",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--inheritance-ancestor-interfaces",
             Spec::String(Box::new(move |x| {
                 set_mode(None, MODEMETHODJUMPANCESTORS(x, "Interface".to_string()))
             })),
-            " (mode) prints a list of interfaces that this class implements",
+            " prints a list of interfaces that this class implements",
             // can use --inheritance-ancestor-interfaces-batch
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--inheritance-ancestor-interfaces-batch",
@@ -1182,17 +1220,17 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 };
                 set_mode(Some(false), m)
             })),
-            " (mode) prints a list of interfaces that these classes implement",
-            ArgUserFacing,
+            " prints a list of interfaces that these classes implement",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--inheritance-ancestor-traits",
             Spec::String(Box::new(move |x| {
                 set_mode(None, MODEMETHODJUMPANCESTORS(x, "Trait".to_string()))
             })),
-            " (mode) prints a list of traits that this class uses",
+            " prints a list of traits that this class uses",
             // can use --inheritance-ancestor-traits-batch
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--inheritance-ancestor-traits-batch",
@@ -1206,69 +1244,69 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 };
                 set_mode(Some(false), m)
             })),
-            " (mode) prints a list of traits that these classes use",
-            ArgUserFacing,
+            " prints a list of traits that these classes use",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--inheritance-ancestors",
             Spec::String(Box::new(move |x| {
                 set_mode(None, MODEMETHODJUMPANCESTORS(x, "No_filter".to_string()))
             })),
-            &(" (mode) prints a list of all related classes or methods".to_string()
+            &(" prints a list of all related classes or methods".to_string()
                 + " to the given class"),
-            ArgUserFacing,
+            (ArgUserFacing, HelpModes),
         ),
         opt(
             "--inheritance-children",
             Spec::String(Box::new(move |x| set_mode(None, MODEMETHODJUMPCHILDREN(x)))),
-            &(" (mode) prints a list of all related classes or methods".to_string()
+            &(" prints a list of all related classes or methods".to_string()
                 + " to the given class"),
-            ArgUserFacing,
+            (ArgUserFacing, HelpModes),
         ),
         opt(
             "--json",
             Spec::Set(&output_json),
             " output json for machine consumption (default: false)",
-            ArgUserFacing,
+            (ArgUserFacing, HelpOptions),
         ),
         opt(
             "--jsonl",
             Spec::Set(&output_jsonl),
             " output streaming jsonl (JSON Lines) for machine consumption (default: false)",
-            ArgUserFacing,
+            (ArgUserFacing, HelpOptions),
         ),
         opt(
             "--lint",
             Spec::Unit(Box::new(move || set_mode(None, MODELINT))),
-            " (mode) lint the given list of files",
-            ArgUserFacing,
+            " lint the given list of files",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--lint-all",
             Spec::Int(Box::new(move |x| set_mode(None, MODELINTALL(x)))),
-            " (mode) find all occurrences of lint with the given error code",
-            ArgUserFacing,
+            " find all occurrences of lint with the given error code",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--lint-stdin",
             Spec::String(Box::new(move |filename| {
                 set_mode(None, MODELINTSTDIN(filename))
             })),
-            &(" (mode) lint a file given on stdin; the filename should be the".to_string()
+            &(" lint a file given on stdin; the filename should be the".to_string()
                 + " argument to this option"),
-            ArgUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--list-files",
             Spec::Unit(Box::new(move || set_mode(None, MODELISTFILES))),
-            " (mode) list files with errors",
-            ArgUserFacing,
+            " list files with errors",
+            (ArgUserFacing, HelpModes),
         ),
         opt(
             "--lock-file",
             Spec::Set(&lock_file),
-            " (mode) show lock file name and exit",
-            ArgNonUserFacing,
+            " show lock file name and exit",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--max-errors",
@@ -1277,47 +1315,47 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 Ok(())
             })),
             " Maximum number of errors to display",
-            ArgUserFacing,
+            (ArgUserFacing, HelpOptions),
         ),
         tuple_3_append(
             common_argspecs::preexisting_warnings(&preexisting_warnings),
-            ArgUserFacing,
+            (ArgUserFacing, HelpOptions),
         ),
         opt(
             "--logname",
             Spec::Set(&logname),
-            " (mode) show log filename and exit",
-            ArgUserFacing,
+            " show log filename and exit",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--monitor-logname",
             Spec::Set(&monitor_logname),
-            " (mode) show monitor log filename and exit",
-            ArgNonUserFacing,
+            " show monitor log filename and exit",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--client-logname",
             Spec::Set(&client_logname),
-            " (mode) show client log filename and exit",
-            ArgNonUserFacing,
+            " show client log filename and exit",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--ide-logname",
             Spec::Set(&ide_logname),
-            " (mode) show client ide log filename and exit",
-            ArgNonUserFacing,
+            " show client ide log filename and exit",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--lsp-logname",
             Spec::Set(&lsp_logname),
-            " (mode) show client lsp log filename and exit",
-            ArgNonUserFacing,
+            " show client lsp log filename and exit",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--no-load",
             Spec::Set(&no_load),
             " start from a fresh state",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         opt(
             "--notebook-to-hack",
@@ -1339,25 +1377,25 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
             ]),
             &("Convert notebook to a Hack file. Arg: notebook_number (example: \"N12345\"). ".to_string()
                 + "Pass notebook in .ipynb format to stdin and a header (such as a copyright notice comment)"),
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--outline",
             Spec::Unit(Box::new(move || set_mode(None, MODEOUTLINE))),
-            " (mode) prints an outline of the text on stdin",
-            ArgUserFacing,
+            " prints an outline of the text on stdin",
+            (ArgUserFacing, HelpModes),
         ),
         opt(
             "--outline-for-agents",
             Spec::String(Box::new(move |x| set_mode(None, MODEOUTLINEFORAGENTS(x)))),
-            " <file> (mode) outline the file, including line spans, to help agents efficiently navigate large files",
-            ArgUserFacing,
+            " <file> outline the file, including line spans, to help agents efficiently navigate large files",
+            (ArgUserFacing, HelpModes),
         ),
         opt(
             "--package-lint",
             Spec::String(Box::new(move |x| set_mode(None, MODEPACKAGELINT(x)))),
             "Support for linting of __PackageOverride annotations",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--package-lint-full",
@@ -1383,19 +1421,19 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 })),
             ]),
             " <target_file> <file1,file2,...> Package-aware find-refs lint",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--pause",
             Spec::Unit(Box::new(move || set_mode(None, MODEPAUSE))),
             " pause automatic rechecks after current work finishes; the next client request resumes them",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
-        tuple_3_append(common_argspecs::prechecked(&prechecked), ArgNonUserFacing),
-        tuple_3_append(common_argspecs::no_prechecked(&prechecked), ArgNonUserFacing),
+        tuple_3_append(common_argspecs::prechecked(&prechecked), (ArgNonUserFacing, HelpOptions)),
+        tuple_3_append(common_argspecs::no_prechecked(&prechecked), (ArgNonUserFacing, HelpOptions)),
         tuple_3_append(
             common_argspecs::with_mini_state(&mini_state),
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         opt(
             "--profile-log",
@@ -1406,7 +1444,7 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 Ok(())
             })),
             " enable profile logging",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         opt(
             "--refactor",
@@ -1431,9 +1469,9 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                     set_mode(None, MODERENAME(rename_mode_ref.get(), rename_before, x))
                 })),
             ]),
-            &(" (mode) rename a symbol, Usage: --refactor ".to_string()
+            &(" rename a symbol, Usage: --refactor ".to_string()
                 + "[\"Class\", \"Function\", \"Method\"] <Current Name> <New Name>"),
-            ArgUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--remove-dead-fixme",
@@ -1445,22 +1483,22 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 };
                 set_mode(Some(false), m)
             })),
-            &(" (mode) remove dead HH_FIXME for specified error code ".to_string()
+            &(" remove dead HH_FIXME for specified error code ".to_string()
                 + "(first do hh_client restart --no-load)"),
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--remove-dead-fixmes",
             Spec::Unit(Box::new(move || set_mode(None, MODEREMOVEDEADFIXMES(vec![])))),
-            &(" (mode) remove dead HH_FIXME for any error code < 5000 ".to_string()
+            &(" remove dead HH_FIXME for any error code < 5000 ".to_string()
                 + "(first do hh_client restart --no-load)"),
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--remove-dead-unsafe-casts",
             Spec::Unit(Box::new(move || set_mode(None, MODEREMOVEDEADUNSAFECASTS))),
-            " (mode) remove dead UNSAFE_CASTS (first do hh_client restart --no-load)",
-            ArgNonUserFacing,
+            " remove dead UNSAFE_CASTS (first do hh_client restart --no-load)",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--reason",
@@ -1469,7 +1507,7 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 Ok(())
             })),
             " reason for invoking hh, logged to telemetry",
-            ArgUserFacing,
+            (ArgUserFacing, HelpOptions),
         ),
         opt(
             "--retries",
@@ -1478,13 +1516,13 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 Ok(())
             })),
             " (deprecated) same as --timeout",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         opt(
             "--retry-if-init",
             Spec::Bool(Box::new(|_| Ok(()))),
             " (deprecated and ignored)",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         opt(
             "--rewrite-declarations",
@@ -1492,7 +1530,7 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
             "Rewrite Hack source code allowed in notebooks to valid Hack.\n\
              For example in `function foo(): void {} function foo(): void{}` we\n\
              rewrite to the function names to something like `foo_1` and `foo_2`.\n",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--rewrite-lambda-parameters",
@@ -1506,16 +1544,16 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 };
                 set_mode(Some(false), m)
             })),
-            &(" (mode) rewrite lambdas in the files from the given list".to_string()
+            &(" rewrite lambdas in the files from the given list".to_string()
                 + " with suggested parameter types"),
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--save-naming",
             Spec::String(Box::new(move |x| set_mode(None, MODESAVENAMING(x)))),
-            &(" (mode) Save the naming table to the given file.".to_string()
+            &(" Save the naming table to the given file.".to_string()
                 + " Returns the number of files and symbols written to disk."),
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--save-64bit",
@@ -1524,7 +1562,7 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 Ok(())
             })),
             " save discovered 64-bit to the given directory",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         opt(
             "--save-human-readable-64bit-dep-map",
@@ -1533,23 +1571,23 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 Ok(())
             })),
             " save map of 64bit hashes to names to files in the given directory",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         tuple_3_append(
             common_argspecs::saved_state_ignore_hhconfig(&saved_state_ignore_hhconfig),
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         opt(
             "--search",
             Spec::String(Box::new(move |x| set_mode(None, MODESEARCH(x)))),
-            " (mode) --search this_is_just_to_check_liveness_of_hh_server",
-            ArgNonUserFacing,
+            " --search this_is_just_to_check_liveness_of_hh_server",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--server-rage",
             Spec::Unit(Box::new(move || set_mode(None, MODESERVERRAGE))),
-            " (mode) dumps internal state of hh_server",
-            ArgNonUserFacing,
+            " dumps internal state of hh_server",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--show-spinner",
@@ -1558,19 +1596,19 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 Ok(())
             })),
             " shows a spinner while awaiting the typechecker",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         opt(
             "--single",
             Spec::String(Box::new(add_single)),
             "<path> Return errors in file with provided name (give '-' for stdin)",
-            ArgUserFacing,
+            (ArgUserFacing, HelpOptions),
         ),
         opt(
             "--multi",
             Spec::String(Box::new(add_multi)),
             "<path> Return errors for files read from the given file (one per line)",
-            ArgUserFacing,
+            (ArgUserFacing, HelpOptions),
         ),
         opt(
             "--log-errors",
@@ -1578,14 +1616,14 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 only_log_errors_ref.set(true);
                 Ok(())
             })),
-            " (mode) type check the given list of files and log their errors (use --log-to-file to specify output file)",
-            ArgNonUserFacing,
+            " type check the given list of files and log their errors (use --log-to-file to specify output file)",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--log-to-file",
             Spec::String(Box::new(set_log_to_file)),
             "<path> Write logged errors to specified file (use with --log-errors)",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         opt(
             "--show-tast",
@@ -1594,19 +1632,19 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 Ok(())
             })),
             " in combination with `--single`, output the TASTs of the file along with TAST hashes.",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         opt(
             "--sort-results",
             Spec::Set(&sort_results),
             " sort output for CST search.",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         opt(
             "--stats",
             Spec::Unit(Box::new(move || set_mode(None, MODESTATS))),
             " display some server statistics",
-            ArgUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--stdin-name",
@@ -1615,13 +1653,13 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 Ok(())
             })),
             " substitute stdin for contents of file with specified name",
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         opt(
             "--status",
             Spec::Unit(Box::new(move || set_mode(None, MODESTATUS))),
-            " (mode) show a human readable list of errors (default)",
-            ArgUserFacing,
+            " show a human readable list of errors (default)",
+            (ArgUserFacing, HelpModes),
         ),
         opt(
             "--timeout",
@@ -1630,26 +1668,26 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 Ok(())
             })),
             " set the timeout in seconds (default: no timeout)",
-            ArgUserFacing,
+            (ArgUserFacing, HelpOptions),
         ),
         opt(
             "--type-at-pos",
             Spec::String(Box::new(move |x| set_mode(None, MODETYPEATPOS(x)))),
-            " (mode) show type at a given position in file [file:line:character]",
+            " show type at a given position in file [file:line:character]",
             // can use --type-at-pos-batch
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--infer-dynamic",
             Spec::String(Box::new(move |x| set_mode(None, MODEINFERDYNAMIC(x, false)))),
-            " (mode) infer types for dynamic locals [function_name or ClassName::method_name]",
-            ArgUserFacing,
+            " infer types for dynamic locals [function_name or ClassName::method_name]",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--infer-dynamic-as-data",
             Spec::String(Box::new(move |x| set_mode(None, MODEINFERDYNAMIC(x, true)))),
-            " (mode) infer types for dynamic locals as data [function_name or ClassName::method_name]",
-            ArgUserFacing,
+            " infer types for dynamic locals as data [function_name or ClassName::method_name]",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--type-at-pos-batch",
@@ -1663,50 +1701,50 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 };
                 set_mode(Some(false), m)
             })),
-            " (mode) show types at multiple positions [file:line:character list]",
-            ArgUserFacing,
+            " show types at multiple positions [file:line:character list]",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--type-error-at-pos",
             Spec::String(Box::new(move |x| set_mode(None, MODETYPEERRORATPOS(x)))),
-            " (mode) show type error at a given position in file [line:character]",
-            ArgUserFacing,
+            " show type error at a given position in file [line:character]",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--is-subtype",
             Spec::Unit(Box::new(move || set_mode(None, MODEISSUBTYPE))),
-            " (mode) take a JSON list of subtype queries via stdin",
-            ArgUserFacing,
+            " take a JSON list of subtype queries via stdin",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--tast-holes",
             Spec::String(Box::new(move |x| set_mode(None, MODETASTHOLES(x)))),
-            " (mode) return all TAST Holes in a given file",
-            ArgNonUserFacing,
+            " return all TAST Holes in a given file",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--tast-holes-batch",
             Spec::String(Box::new(move |x| set_mode(None, MODETASTHOLESBATCH(x)))),
-            " (mode) return all TAST Holes for a set of files. Argument is a file containing a newline-separated list of files",
-            ArgNonUserFacing,
+            " return all TAST Holes for a set of files. Argument is a file containing a newline-separated list of files",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--verbose-on",
             Spec::Unit(Box::new(move || set_mode(None, MODEVERBOSE(true)))),
-            " (mode) turn on verbose server log",
-            ArgNonUserFacing,
+            " turn on verbose server log",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--verbose-off",
             Spec::Unit(Box::new(move || set_mode(None, MODEVERBOSE(false)))),
-            " (mode) turn off verbose server log",
-            ArgNonUserFacing,
+            " turn off verbose server log",
+            (ArgNonUserFacing, HelpModes),
         ),
         opt(
             "--version",
             Spec::Set(&version),
-            " (mode) show version and exit",
-            ArgUserFacing,
+            " show version and exit",
+            (ArgUserFacing, HelpModes),
         ),
         opt(
             "-Wall",
@@ -1715,7 +1753,7 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 Ok(())
             })),
             " show all warnings",
-            ArgUserFacing,
+            (ArgUserFacing, HelpOptions),
         ),
         opt(
             "-Wnone",
@@ -1724,7 +1762,7 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 Ok(())
             })),
             " hide all warnings",
-            ArgUserFacing,
+            (ArgUserFacing, HelpOptions),
         ),
         opt(
             "-W",
@@ -1736,7 +1774,7 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 Ok(())
             })),
             " show all warnings with a given code, e.g. -W 12001",
-            ArgUserFacing,
+            (ArgUserFacing, HelpOptions),
         ),
         opt(
             "-Wno",
@@ -1748,7 +1786,7 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 Ok(())
             })),
             " hide all warnings with a given code, e.g. -Wno 12001",
-            ArgUserFacing,
+            (ArgUserFacing, HelpOptions),
         ),
         opt(
             "-Wignore-files",
@@ -1767,7 +1805,7 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 Ok(())
             })),
             " hide warnings in files matching a regexp",
-            ArgUserFacing,
+            (ArgUserFacing, HelpOptions),
         ),
         opt(
             "-Wgenerated",
@@ -1776,11 +1814,11 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
                 Ok(())
             })),
             " show warnings in generated files",
-            ArgUserFacing,
+            (ArgUserFacing, HelpOptions),
         ),
         tuple_3_append(
             common_argspecs::watchman_debug_logging(&watchman_debug_logging),
-            ArgNonUserFacing,
+            (ArgNonUserFacing, HelpOptions),
         ),
         // Please keep these sorted in the alphabetical order
     ];
@@ -1804,39 +1842,98 @@ pub fn parse_check_args(cmd: CommandKeyword, from_default: &str) -> Result<Clien
         let arg_set: std::collections::BTreeSet<String> = ocaml_sys::argv().into_iter().collect();
         move |key: &str| arg_set.contains(key)
     };
-    // To keep `--help` readable for users and agents:
-    // --help shows only Arg_user_facing options
-    // --ultrahelp shows all options.
-    if argv_has("--ultrahelp") {
-        let mut display_options = to_arg_specs(options);
-        display_options.push(ultrahelp_entry());
-        print!(
-            "{}",
-            ocaml_arg::usage_string(&ocaml_arg::align(display_options, None), &usage)
-        );
-        stdlib_exit(0)
-    }
-    if argv_has("--help") || argv_has("-help") {
-        let main_options: Vec<_> = options
+    // (`help ~ultrahelp`: the keys, the docs and the kinds are all it reads.)
+    let display_table: Vec<(String, String, ArgKind)> = options
+        .iter()
+        .map(|(key, _spec, doc, kind)| (key.clone(), doc.clone(), *kind))
+        .collect();
+    let help = |ultrahelp: bool| -> String {
+        let unit = || -> Spec<'static> { Spec::Unit(Box::new(|| Ok(()))) };
+        let display_options = display_table.iter().filter(|(_key, _doc, (visibility, _section))| {
+            ultrahelp
+                || match visibility {
+                    ArgUserFacing => true,
+                    ArgNonUserFacing => false,
+                }
+        });
+        let (modes, options): (Vec<_>, Vec<_>) =
+            display_options.partition(|(_key, _doc, (_visibility, section))| match section {
+                HelpModes => true,
+                HelpOptions => false,
+            });
+        let mut modes: Vec<Entry<'static>> = modes
             .into_iter()
-            .filter(|(_key, _spec, _doc, kind)| match kind {
-                ArgUserFacing => true,
-                ArgNonUserFacing => false,
+            .map(|(key, doc, _)| {
+                let doc = if doc.is_empty() {
+                    doc.clone()
+                } else {
+                    // `" " ^ String.strip doc`
+                    format!(
+                        " {}",
+                        doc.trim_matches(|c| matches!(c, ' ' | '\t' | '\n' | '\x0b' | '\x0c' | '\r'))
+                    )
+                };
+                (key.clone(), unit(), doc)
             })
             .collect();
-        let mut display_options = to_arg_specs(main_options);
-        display_options.push(ultrahelp_entry());
-        print!(
-            "{}",
-            ocaml_arg::usage_string(&ocaml_arg::align(display_options, None), &usage)
-        );
+        modes.push(("-help".to_string(), unit(), String::new()));
+        modes.push(("--help".to_string(), unit(), String::new()));
+        let mut options: Vec<Entry<'static>> = options
+            .into_iter()
+            .map(|(key, doc, _)| (key.clone(), unit(), doc.clone()))
+            .collect();
+        options.push((
+            "--ultrahelp".to_string(),
+            unit(),
+            " see all modes and options, including less frequently used ones".to_string(),
+        ));
+        options.push(("-help".to_string(), unit(), " Display this list of options".to_string()));
+        options.push(("--help".to_string(), unit(), " Display this list of options".to_string()));
+        options.push((
+            "--agent-help".to_string(),
+            unit(),
+            " show guidance for coding agents for using hh".to_string(),
+        ));
+        format!(
+            "{}{}",
+            ocaml_arg::usage_string(
+                &ocaml_arg::align(modes, None),
+                &format!("{}\nModes (mutually exclusive; choose one; default: --status):\n", usage)
+            ),
+            ocaml_arg::usage_string(&ocaml_arg::align(options, None), "\nOptions:\n")
+        )
+    };
+    let ultrahelp = argv_has("--ultrahelp");
+    if ultrahelp || argv_has("--help") || argv_has("-help") {
+        print!("{}", help(ultrahelp));
+        // (`log_help`: `Hack_event_logger.help` is a no-op in the OSS build.)
         stdlib_exit(0)
     }
-    let args = parse_without_command(
+
+    if argv_has("--agent-help") {
+        print_agent_help();
+        stdlib_exit(0)
+    }
+
+    let args = match parse_without_command(
         to_arg_specs(options),
         &usage,
         client_command::command_name(cmd),
-    )?;
+    ) {
+        Ok(args) => args,
+        Err(Raised::ParseError(ArgError {
+            message,
+            usage: Some(_),
+        })) => {
+            let help = help(false);
+            let usage = help.strip_suffix('\n').unwrap_or(&help).to_string();
+            return Err(Raised::ParseError(ArgError {
+                message,
+                usage: Some(usage),
+            }));
+        }
+        Err(e) => return Err(e),
+    };
 
     validate_check_args(&invalid_warning_codes.borrow());
 
@@ -2688,12 +2785,10 @@ mod tests {
             MODETYPEATPOSBATCH(vec!["p2".to_string(), "p1".to_string()])
         );
         assert_eq!(env.desc, "--type-at-pos-batch");
-        // The OCaml turns a second position of --deps-out-at-pos-batch into
-        // MODE_FUN_DEPS_AT_POS_BATCH.
         let env = check(&[&root, "--deps-out-at-pos-batch", "p1", "p2"]).unwrap();
         assert_eq!(
             env.mode,
-            MODEFUNDEPSATPOSBATCH(vec!["p2".to_string(), "p1".to_string()])
+            MODEDEPSOUTATPOSBATCH(vec!["p2".to_string(), "p1".to_string()])
         );
         let env = check(&["--remove-dead-fixme", "1", "--remove-dead-fixme", "2", &root]).unwrap();
         assert_eq!(env.mode, MODEREMOVEDEADFIXMES(vec![2, 1]));
@@ -2725,7 +2820,9 @@ mod tests {
                     "{}",
                     usage
                 );
-                assert!(usage.ends_with("  --help                                   Display this list of options"));
+                // (The usage is `help ~ultrahelp:false`, without its last newline.)
+                assert!(usage.contains("\nModes (mutually exclusive; choose one; default: --status):\n"));
+                assert!(usage.ends_with("  --agent-help            show guidance for coding agents for using hh"));
             }
             r => panic!("{:?}", r),
         }

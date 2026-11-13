@@ -54,10 +54,10 @@ fn a_mode_that_is_not_ported_exits_10_before_connecting() {
     let local_config = crate::server_local_config_load::default();
     let partial: PartialTelemetryRef = Arc::new(Mutex::new(None));
     for mode in [
-        ClientMode::MODETYPEATPOS("a.php:1:1".to_string()),
-        ClientMode::MODELINT,
-        ClientMode::MODEFINDREFS("f".to_string()),
-        ClientMode::MODEOUTLINE,
+        ClientMode::MODEHACKTONOTEBOOK,
+        ClientMode::MODEFINDMYTESTS("x.json".to_string()),
+        ClientMode::MODEFULLFIDELITYSCHEMA,
+        ClientMode::MODEFINDISOLATABLECLUSTERS,
     ] {
         match main_internal(&args(mode), &config, &local_config, &partial) {
             Err(Exn::ExitWith(es)) => {

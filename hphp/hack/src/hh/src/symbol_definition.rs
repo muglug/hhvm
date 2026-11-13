@@ -90,6 +90,87 @@ pub struct T<P> {
     pub detail: Option<String>,
 }
 
+/// The derived `compare` of `'a kind` (`compare Relative_path.compare`).
+fn compare_kind(x: &Kind<Pos>, y: &Kind<Pos>) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    fn rank<P>(k: &Kind<P>) -> u8 {
+        match k {
+            Kind::Function => 0,
+            Kind::Classish { .. } => 1,
+            Kind::Member { .. } => 2,
+            Kind::GlobalConst => 3,
+            Kind::LocalVar => 4,
+            Kind::TypeVar => 5,
+            Kind::Param => 6,
+            Kind::Typedef => 7,
+            Kind::Module => 8,
+        }
+    }
+    match (x, y) {
+        (
+            Kind::Classish {
+                classish_kind: k1,
+                members: m1,
+            },
+            Kind::Classish {
+                classish_kind: k2,
+                members: m2,
+            },
+        ) => (*k1 as u8).cmp(&(*k2 as u8)).then_with(|| compare_list(m1, m2)),
+        (
+            Kind::Member {
+                member_kind: k1,
+                class_name: c1,
+            },
+            Kind::Member {
+                member_kind: k2,
+                class_name: c2,
+            },
+        ) => (*k1 as u8).cmp(&(*k2 as u8)).then_with(|| c1.as_bytes().cmp(c2.as_bytes())),
+        _ => match rank(x).cmp(&rank(y)) {
+            Ordering::Equal => Ordering::Equal,
+            o => o,
+        },
+    }
+}
+
+fn compare_list(a: &[T<Pos>], b: &[T<Pos>]) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    for (x, y) in a.iter().zip(b) {
+        match compare(x, y) {
+            Ordering::Equal => {}
+            o => return o,
+        }
+    }
+    a.len().cmp(&b.len())
+}
+
+fn compare_opt<A>(a: &Option<A>, b: &Option<A>, f: impl Fn(&A, &A) -> std::cmp::Ordering) -> std::cmp::Ordering {
+    use std::cmp::Ordering;
+    match (a, b) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Less,
+        (Some(_), None) => Ordering::Greater,
+        (Some(a), Some(b)) => f(a, b),
+    }
+}
+
+/// The derived `compare` of `'a t`, for `Relative_path.t` (`Symbol_definition.compare
+/// Relative_path.compare`): the fields in order.
+pub fn compare(x: &T<Pos>, y: &T<Pos>) -> std::cmp::Ordering {
+    let cmp_pos = |a: &Pos, b: &Pos| {
+        crate::pos::compare_pos(|f1, f2| crate::relative_path::compare(f1, f2), a, b)
+    };
+    compare_kind(&x.kind, &y.kind)
+        .then_with(|| x.name.as_bytes().cmp(y.name.as_bytes()))
+        .then_with(|| cmp_pos(&x.pos, &y.pos))
+        .then_with(|| cmp_pos(&x.span, &y.span))
+        .then_with(|| x.modifiers.cmp(&y.modifiers))
+        .then_with(|| compare_opt(&x.params, &y.params, |a, b| compare_list(a, b)))
+        .then_with(|| compare_opt(&x.docblock, &y.docblock, |a, b| a.as_bytes().cmp(b.as_bytes())))
+        .then_with(|| compare_opt(&x.detail, &y.detail, |a, b| a.as_bytes().cmp(b.as_bytes())))
+}
+
 pub fn to_absolute(x: &T<Pos>) -> T<Absolute> {
     let T {
         kind,

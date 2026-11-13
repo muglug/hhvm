@@ -41,6 +41,82 @@ pub fn string_opt(s: Option<String>) -> yojson::T {
     }
 }
 
+/// `Yojson.Safe.from_string` (it raises on a malformed text)
+fn from_string(s: &str) -> yojson::T {
+    match yojson::from_string(s) {
+        Ok(json) => json,
+        Err(e) => panic!("Yojson.Json_error: {:?}", e),
+    }
+}
+
+/// There are fields that Nuclide doesn't use anymore, but the RPC framework
+/// still requires them in responses. Stub them with some default values in the
+/// meantime
+fn deprecated_pos_field() -> yojson::T {
+    pos::json(&pos::to_absolute(&pos::Pos::NONE))
+}
+
+pub fn infer_type_response_to_json((type_string, type_json): (Option<String>, Option<String>)) -> yojson::T {
+    let mut fields = vec![
+        ("type".to_string(), string_opt(type_string)),
+        ("pos".to_string(), deprecated_pos_field()),
+    ];
+    if let Some(json) = type_json {
+        fields.push(("full_type".to_string(), from_string(&json)))
+    }
+    yojson::T::Assoc(fields)
+}
+
+pub fn infer_type_error_response_to_json(
+    (actual_type_string, actual_type_json, expected_type_string, expected_type_json): (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ),
+) -> yojson::T {
+    let mut fields = vec![("actual_type".to_string(), string_opt(actual_type_string))];
+    if let Some(ty) = actual_type_json {
+        fields.push(("full_actual_type".to_string(), from_string(&ty)))
+    }
+    fields.push(("expected_type".to_string(), string_opt(expected_type_string)));
+    if let Some(ty) = expected_type_json {
+        fields.push(("full_expected_type".to_string(), from_string(&ty)))
+    }
+    yojson::T::Assoc(fields)
+}
+
+/// The holes are `(actual_type_str, actual_type_json, expected_type_str,
+/// expected_type_json, pos)`.
+pub fn tast_holes_response_to_json(
+    print_file: bool,
+    holes: &[(String, String, String, String, pos::Pos)],
+) -> yojson::T {
+    let printer = |p: &pos::Pos| {
+        if print_file {
+            pos::multiline_json(&pos::to_absolute(p))
+        } else {
+            pos::multiline_json_no_filename(p)
+        }
+    };
+    yojson::T::List(
+        holes
+            .iter()
+            .map(
+                |(actual_type_str, actual_type_json, expected_type_str, expected_type_json, pos)| {
+                    yojson::T::Assoc(vec![
+                        ("actual_type".to_string(), yojson::T::String(actual_type_str.clone())),
+                        ("full_actual_type".to_string(), from_string(actual_type_json)),
+                        ("expected_type".to_string(), yojson::T::String(expected_type_str.clone())),
+                        ("full_expected_type".to_string(), from_string(expected_type_json)),
+                        ("pos".to_string(), printer(pos)),
+                    ])
+                },
+            )
+            .collect(),
+    )
+}
+
 pub fn identify_symbol_response_to_json(
     results: &[(
         crate::symbol_occurrence::T<Absolute>,

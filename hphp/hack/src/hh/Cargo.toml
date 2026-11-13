@@ -66,6 +66,7 @@ elab = { path = "../elab" }
 file_provider = { path = "../hackrs/file_provider/cargo/file_provider" }
 folded_decl_provider = { path = "../hackrs/folded_decl_provider/cargo/folded_decl_provider" }
 hash = { path = "../utils/hash" }
+bumpalo = { version = "3.20.3", features = ["allocator_api", "collections"] }
 hackfmt = { path = "../hackfmt/rust" }
 hh_hash = { path = "../utils/hh_hash" }
 hh_autoimport = { package = "hh_autoimport_rust", path = "../parser/cargo/hh_autoimport" }
@@ -82,6 +83,7 @@ notify = "8.2.2"
 oxidized = { path = "../oxidized" }
 parser_core_types = { path = "../parser/cargo/core_types" }
 pos = { path = "../hackrs/pos/cargo/pos" }
+positioned_full_trivia_parser = { path = "../parser/api/cargo/positioned_full_trivia_parser" }
 positioned_parser = { path = "../parser/api/cargo/positioned_parser" }
 rayon = "1.12.0"
 rusqlite = { version = "0.40.0", features = ["bundled"] }

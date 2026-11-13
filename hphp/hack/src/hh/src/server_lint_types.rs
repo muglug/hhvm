@@ -9,9 +9,6 @@
 //! results of `Server_command_types.LINT`, `LINT_STDIN` and `LINT_ALL`;
 //! `output_json` and `output_text` by **LINT** (plan §7.3).
 //!
-//! (The socket cannot carry a lint yet: see
-//! `crate::rt::protocol::wire::port_only`.)
-//!
 //! `oc` is a `std::io::Write`; write errors are ignored (in OCaml they raise
 //! `Sys_error`, which nothing catches on these paths).
 
