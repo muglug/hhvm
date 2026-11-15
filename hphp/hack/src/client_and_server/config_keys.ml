@@ -309,6 +309,10 @@ module Hhconfig = struct
 
   let shm_use_sharded_hashtbl = key "shm_use_sharded_hashtbl"
 
+  (* Read by the hh_client/hh_server wrapper that picks the OCaml or the Rust
+     typechecker (hh/src/typechecker_implementation.rs), not by either. *)
+  let typechecker_implementation = key "typechecker_implementation"
+
   let untrusted_mode = key "untrusted_mode"
 
   let version = key "version"

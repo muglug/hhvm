@@ -60,6 +60,17 @@ const MAX_BOL: usize = mask(BOL_BITS);
 const DUMMY: u64 = u64::MAX;
 
 impl FilePosSmall {
+    /// The packed representation (for `Pos`, which packs it in turn).
+    #[inline]
+    pub(crate) const fn to_bits(self) -> u64 {
+        self.0
+    }
+
+    #[inline]
+    pub(crate) const fn from_bits(bits: u64) -> Self {
+        FilePosSmall(bits)
+    }
+
     #[inline]
     pub const fn make_dummy() -> Self {
         FilePosSmall(DUMMY)

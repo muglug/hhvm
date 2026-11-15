@@ -9,6 +9,14 @@ endif()
 
 message(STATUS "Building hack")
 
+# What hhvm links (the parser and the bytecode compiler) and the Rust
+# typechecker (`hh`, `hh_client_rust`, `hh_server_rust`) are built by cargo
+# alone: they need no OCaml, opam or dune.
+#
+# The OCaml typechecker (`hh_client`, `hh_server`) is built by the hack_dune
+# targets, which exist when BUILD_HACK_OCAML is on. What that option guards in
+# this file is not re-indented, so that it stays as upstream has it.
+
 find_package(LZ4)
 find_package(LibElf)
 
@@ -48,6 +56,7 @@ else()
 endif()
 set(HACK_BUILD_ROOT "${DUNE_BUILD_DIR}/default")
 
+if (BUILD_HACK_OCAML)
 get_target_property(OPAM_EXECUTABLE opam IMPORTED_LOCATION)
 
 add_custom_command(
@@ -61,6 +70,11 @@ add_custom_command(
   USES_TERMINAL
 )
 add_custom_target(opam_setup DEPENDS "${OPAM_STAMP_FILE}" opam_setup.sh)
+else()
+  # dev_env_common.sh puts the directory of opam on the PATH: without opam,
+  # give it one that is there already.
+  set(OPAM_EXECUTABLE "${CARGO_EXE}")
+endif()
 
 if (SKIP_OPAM)
   set(OPAMROOT "~/.opam")
@@ -117,9 +131,11 @@ function(invoke_dune name target)
   endif()
 endfunction()
 
+if (BUILD_HACK_OCAML)
 invoke_dune(hack_dune_debug debug)
 invoke_dune(hack_dune_test test)
 invoke_dune(hack_dune all)
+endif()
 
 set(INVOKE_CARGO "${CMAKE_SOURCE_DIR}/hphp/hack/scripts/invoke_cargo.sh")
 
@@ -277,7 +293,7 @@ add_custom_command(
       --header "${HHBC_AST_HEADER}" --namespaces "HPHP,hackc,hhbc"
       --includes "${FFI_HEADER},${NAMING_SPECIAL_NAMES_HEADER},${TYPE_CONSTRAINT_HEADER},${ATTR_HEADER},${FCALL_HEADER},${HHBC_HEADER},${ITER_ARGS_FLAGS_HEADER}"
       ${HHBC_AST_SRCS}
-  DEPENDS opam_setup "${RUST_OPCODES}"
+  DEPENDS "${RUST_OPCODES}"
   COMMENT "Generating hhbc-unit.h"
 )
 
@@ -341,9 +357,6 @@ add_custom_command(
     "${HHVM_RUST_FFI_LIB_RS}"
 )
 add_custom_target(hack_rust_ffi_rust_build DEPENDS ${HHVM_RUST_FFI_STATICLIB})
-if (NOT SKIP_OPAM)
-  add_dependencies(hack_rust_ffi_rust_build opam_setup)
-endif()
 
 # Some consumers expect FFI headers to be in a different place, indulge them.
 set(FFI_PACKAGES_NEEDING_SYMLINKS compiler_ffi parser_ffi packages_ffi)
@@ -395,6 +408,85 @@ target_link_libraries(hack_rust_ffi_bridge PRIVATE Folly::folly hack_rust_ffi_br
 target_include_directories(hack_rust_ffi_bridge INTERFACE "${RUST_FFI_BUILD_ROOT}")
 target_include_directories(hack_rust_ffi_bridge PRIVATE "${RUST_FFI_CARGO_TARGET_DIR}/cxxbridge")
 
+# The Rust typechecker: `hh` (`hh check ROOT`, `hh single FILE`),
+# `hh_server_rust`, which takes the command line of the OCaml hh_server
+# (its batch mode, `hh_server --check [--json] ROOT`, as CI runs it, and the
+# daemon), and `hh_client_rust`, the client of that daemon.
+#
+# The client and the server carry the `_rust` suffix so that they can be
+# installed next to the OCaml `hh_client` and `hh_server`: each finds the
+# other, and `hackfmt_rust`, by its own suffix (src/hh/src/rt/exe_suffix.rs).
+#
+# `hh_dispatch` is installed as `hh_client` and `hh_server`, and the OCaml
+# client and server as `hh_client_ocaml` and `hh_server_ocaml`: it runs one
+# implementation or the other, as the `typechecker_implementation` key of the
+# root's .hhconfig, $HH_TYPECHECKER_IMPLEMENTATION or the
+# `--typechecker-implementation` option says (src/hh/src/
+# typechecker_implementation.rs). In the build directory, bin/hh_client and
+# bin/hh_server stay the OCaml ones.
+#
+# The typing core is behind the `port` feature and the hh_server command line
+# and its output behind `server`: without `port`, `hh` is only the placeholder
+# checker. The binaries come from one cargo invocation so the library is
+# compiled once.
+set(HH_CARGO_TARGET_DIR "${DUNE_BUILD_DIR}/hh")
+set(HH_EXECUTABLE "${HH_CARGO_TARGET_DIR}/${PROFILE}/hh")
+set(HH_SERVER_EXECUTABLE "${HH_CARGO_TARGET_DIR}/${PROFILE}/hh_server_rust")
+set(HH_CLIENT_EXECUTABLE "${HH_CARGO_TARGET_DIR}/${PROFILE}/hh_client_rust")
+set(HH_DISPATCH_EXECUTABLE "${HH_CARGO_TARGET_DIR}/${PROFILE}/hh_dispatch")
+add_custom_target(
+  hh
+  COMMAND
+    . "${CMAKE_CURRENT_BINARY_DIR}/dev_env_rust_only.sh" &&
+    cd "${CMAKE_CURRENT_SOURCE_DIR}/src" &&
+    "${CARGO_EXE}" build
+      --package hh
+      --features port,server
+      --bin hh
+      --bin hh_server_rust
+      --bin hh_client_rust
+      --bin hh_dispatch
+      --target-dir "${HH_CARGO_TARGET_DIR}"
+      ${HHVM_RUST_FFI_PROFILE_ARGS}
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/bin"
+  COMMAND
+    ${CMAKE_COMMAND} -E copy_if_different
+      "${HH_EXECUTABLE}" "${CMAKE_CURRENT_BINARY_DIR}/bin/hh"
+  COMMAND
+    ${CMAKE_COMMAND} -E copy_if_different
+      "${HH_SERVER_EXECUTABLE}" "${CMAKE_CURRENT_BINARY_DIR}/bin/hh_server_rust"
+  COMMAND
+    ${CMAKE_COMMAND} -E copy_if_different
+      "${HH_CLIENT_EXECUTABLE}" "${CMAKE_CURRENT_BINARY_DIR}/bin/hh_client_rust"
+  COMMAND
+    ${CMAKE_COMMAND} -E copy_if_different
+      "${HH_DISPATCH_EXECUTABLE}" "${CMAKE_CURRENT_BINARY_DIR}/bin/hh_dispatch"
+  COMMENT "Building the Hack typechecker (hh, hh_server_rust, hh_client_rust, hh_dispatch)"
+  USES_TERMINAL
+)
+
+# The formatter (src/hackfmt/rust), installed as `hackfmt_rust`: the name
+# `hh_server_rust` looks for (the OCaml formatter is `hackfmt`).
+set(HACKFMT_CARGO_TARGET_DIR "${DUNE_BUILD_DIR}/hackfmt")
+set(HACKFMT_EXECUTABLE "${HACKFMT_CARGO_TARGET_DIR}/${PROFILE}/hackfmt")
+add_custom_target(
+  hackfmt
+  COMMAND
+    . "${CMAKE_CURRENT_BINARY_DIR}/dev_env_rust_only.sh" &&
+    cd "${CMAKE_CURRENT_SOURCE_DIR}/src" &&
+    "${CARGO_EXE}" build
+      --package hackfmt
+      --target-dir "${HACKFMT_CARGO_TARGET_DIR}"
+      ${HHVM_RUST_FFI_PROFILE_ARGS}
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/bin"
+  COMMAND
+    ${CMAKE_COMMAND} -E copy_if_different
+      "${HACKFMT_EXECUTABLE}" "${CMAKE_CURRENT_BINARY_DIR}/bin/hackfmt_rust"
+  COMMENT "Building the Hack formatter (hackfmt_rust)"
+  USES_TERMINAL
+)
+
+if (BUILD_HACK_OCAML)
 if (NOT LZ4_FOUND)
   add_dependencies(hack_dune lz4)
   add_dependencies(hack_dune_debug lz4)
@@ -414,18 +506,26 @@ add_custom_target(
   DEPENDS hack_dune hack_rust_ffi_bridge "${OPCODE_DATA}"
 )
 add_custom_target(hack_test DEPENDS hack_dune_test "${OPCODE_DATA}")
+else()
+  add_custom_target(hack DEPENDS hack_rust_ffi_bridge "${OPCODE_DATA}")
+endif()
+# `hack` builds the Rust typechecker and formatter as well.
+add_dependencies(hack hh hackfmt)
 
 set(NON_DUNE_CARGO_DIRECTORY ${DUNE_BUILD_DIR})
 configure_file(dev_env.sh.in dev_env.sh ESCAPE_QUOTES @ONLY)
 configure_file(dev_env_common.sh.in dev_env_common.sh ESCAPE_QUOTES @ONLY)
 configure_file(dev_env_rust_only.sh.in dev_env_rust_only.sh ESCAPE_QUOTES @ONLY)
 
+if (BUILD_HACK_OCAML)
 install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hh_client
   DESTINATION bin
+  RENAME hh_client_ocaml
   COMPONENT dev)
 
 install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hh_server
   DESTINATION bin
+  RENAME hh_server_ocaml
   COMPONENT dev)
 
 install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hackfmt
@@ -435,3 +535,34 @@ install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hackfmt
 install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hh_parse
   DESTINATION bin
   COMPONENT dev)
+endif()
+
+# The Rust typechecker and formatter: present only when their targets were
+# built.
+install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hh
+  DESTINATION bin
+  COMPONENT dev
+  OPTIONAL)
+install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hh_server_rust
+  DESTINATION bin
+  COMPONENT dev
+  OPTIONAL)
+install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hh_client_rust
+  DESTINATION bin
+  COMPONENT dev
+  OPTIONAL)
+install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hackfmt_rust
+  DESTINATION bin
+  COMPONENT dev
+  OPTIONAL)
+# `hh_client` and `hh_server`: either typechecker (see `hh_dispatch` above).
+install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hh_dispatch
+  DESTINATION bin
+  RENAME hh_client
+  COMPONENT dev
+  OPTIONAL)
+install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/bin/hh_dispatch
+  DESTINATION bin
+  RENAME hh_server
+  COMPONENT dev
+  OPTIONAL)

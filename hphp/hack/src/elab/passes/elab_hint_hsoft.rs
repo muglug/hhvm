@@ -12,20 +12,23 @@ use crate::prelude::*;
 pub struct ElabHintHsoftPass;
 
 impl Pass for ElabHintHsoftPass {
-    fn on_ty_hint_top_down(&mut self, env: &Env, elem: &mut Hint) -> std::ops::ControlFlow<()> {
+    // `Naming_elab_soft` is a bottom-up pass: nested soft hints are all
+    // stripped, and the top-down handlers of the other passes still see the
+    // `Hsoft`.
+    fn on_ty_hint_bottom_up(&mut self, env: &Env, elem: &mut Hint) -> ControlFlow<()> {
         let Hint(_, hint_) = elem;
-        if let Hint_::Hsoft(inner) = hint_ as &mut Hint_ {
+        if let Hint_::Hsoft(inner) = &mut **hint_ {
             if env.soft_as_like() {
                 // Replace `Hsoft` with `Hlike` retaining the original position
                 // (pos, Hsoft(hint)) ==> (pos, Hlike(hint))
-                **hint_ = Hint_::Hlike(inner.clone())
+                let inner = std::mem::replace(inner, elab_utils::hint::null());
+                **hint_ = Hint_::Hlike(inner)
             } else {
                 // Drop the surrounding `Hsoft` and use the inner Hint_
                 // whilst maintaining positions
                 // (pos, Hsoft(_, hint_)) ==> (pos, hint_)
                 let Hint(_, inner_hint_) = inner;
-                let herr_ = Hint_::Hmixed;
-                let inner_hint_ = std::mem::replace(inner_hint_ as &mut Hint_, herr_);
+                let inner_hint_ = std::mem::replace(&mut **inner_hint_, Hint_::Hmixed);
                 **hint_ = inner_hint_
             }
         }
@@ -63,7 +66,7 @@ mod tests {
         let pso = ProgramSpecificOptions {
             ..Default::default()
         };
-        let env = Env::new(&tco, &pso);
+        let env = Env::new(&tco, &pso, Default::default());
         elem1.transform(&env, &mut pass);
         assert!(matches!(*elem1.1, Hint_::Hdynamic));
 
@@ -80,7 +83,7 @@ mod tests {
         let pso = ProgramSpecificOptions {
             ..Default::default()
         };
-        let env = Env::new(&tco, &pso);
+        let env = Env::new(&tco, &pso, Default::default());
         elem2.transform(&env, &mut pass);
         assert!(matches!(&*elem2.1, Hint_::Hlike(_)));
         assert!(match &*elem2.1 {

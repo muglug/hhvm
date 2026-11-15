@@ -4,8 +4,6 @@
 // LICENSE file in the "hack" directory of this source tree.
 
 use bitflags::bitflags;
-use nast::Binop;
-use nast::Bop;
 use nast::CallExpr;
 use nast::Class_;
 use nast::ClassConstKind;
@@ -20,12 +18,15 @@ use nast::Hint;
 use nast::Hint_;
 use nast::KvcKind;
 use nast::ModuleDef;
+use nast::Pos;
 use nast::Typedef;
 use nast::Uop;
 use nast::VcKind;
+use oxidized::file_info;
 
 use crate::prelude::*;
 
+/// Port of `Naming_elab_const_expr` (both its top-down and bottom-up pass).
 #[derive(Copy, Clone)]
 pub struct ElabConstExprPass {
     mode: file_info::Mode,
@@ -67,6 +68,15 @@ impl Default for ElabConstExprPass {
     }
 }
 
+/// Report an illegal constant at `pos` and replace the expression with the
+/// invalid expression marker.
+fn illegal(env: &Env, pos: Pos, elem: &mut Expr) -> ControlFlow<()> {
+    env.emit_error(NamingError::IllegalConstant(pos));
+    let inner_expr = std::mem::replace(elem, elab_utils::expr::null());
+    *elem = elab_utils::expr::invalid(inner_expr);
+    Break(())
+}
+
 impl Pass for ElabConstExprPass {
     // We can determine that certain expressions are invalid based on one-level
     // pattern matching. We prefer to do this since we can stop the transformation
@@ -74,145 +84,117 @@ impl Pass for ElabConstExprPass {
     // expression more deeply, we use the bottom-up pass
     fn on_ty_expr_top_down(&mut self, env: &Env, elem: &mut Expr) -> ControlFlow<()> {
         if !self.enforce_const_expr() {
-            Continue(())
-        } else {
-            let Expr(_, pos, expr_) = elem;
-            let invalid = |expr_: &mut Expr_| {
-                let inner_expr_ = std::mem::replace(expr_, Expr_::Null);
-                let inner_expr = Expr(Default::default(), pos.clone(), inner_expr_);
-                *expr_ = Expr_::Invalid(Box::new(Some(inner_expr)));
-                Break(())
-            };
+            return Continue(());
+        }
+        let Expr(_, pos, expr_) = elem;
+        // `None` for a valid expression, or the position of the error.
+        let illegal_at: Option<Pos> = match &expr_ {
+            // -- always valid ---------------------------------------------
+            Expr_::Id(..)
+            | Expr_::Null
+            | Expr_::True
+            | Expr_::False
+            | Expr_::Int(_)
+            | Expr_::Float(_)
+            | Expr_::String(_)
+            | Expr_::FunctionPointer(..)
+            | Expr_::Eif(..)
+            | Expr_::Tuple(..)
+            | Expr_::Shape(..)
+            | Expr_::Upcast(..)
+            | Expr_::Package(..)
+            | Expr_::PrefixedString(..) => None,
 
-            match &expr_ {
-                // -- always valid ---------------------------------------------
-                Expr_::Id(..)
-                | Expr_::Null
-                | Expr_::True
-                | Expr_::False
-                | Expr_::Int(_)
-                | Expr_::Float(_)
-                | Expr_::String(_)
-                | Expr_::FunctionPointer(..)
-                | Expr_::Eif(..)
-                | Expr_::Tuple(..)
-                | Expr_::Shape(..)
-                | Expr_::Upcast(..) => Continue(()),
+            // -- markers --------------------------------------------------
+            Expr_::Invalid(..) | Expr_::Hole(..) => None,
 
-                // -- markers --------------------------------------------------
-                Expr_::Invalid(..) | Expr_::Hole(..) => Continue(()),
+            // -- handled bottom-up ----------------------------------------
+            Expr_::Nameof(_) | Expr_::ClassConst(_) => None,
 
-                // -- handled bottom-up ----------------------------------------
-                Expr_::Nameof(_) => Continue(()),
-                Expr_::ClassConst(_) => Continue(()),
-
-                // -- conditionally valid --------------------------------------
-                Expr_::As(box nast::As_ {
-                    hint: Hint(_, box hint_),
-                    ..
-                }) => match hint_ {
-                    // NB we can perform this top-down since the all valid hints
-                    // are already in canonical
-                    // TODO[mjt] another example of inconsistency around error positions
-                    Hint_::Happly(id, _) => {
-                        env.emit_error(NamingError::IllegalConstant(id.0.clone()));
-                        invalid(expr_)
-                    }
-                    _ => {
-                        env.emit_error(NamingError::IllegalConstant(pos.clone()));
-                        invalid(expr_)
-                    }
-                },
-                Expr_::Unop(box (uop, _)) => match uop {
-                    Uop::Uplus | Uop::Uminus | Uop::Utild | Uop::Unot => Continue(()),
-                    _ => {
-                        env.emit_error(NamingError::IllegalConstant(pos.clone()));
-                        invalid(expr_)
-                    }
-                },
-                Expr_::Binop(box Binop { bop, .. }) => match bop {
-                    Bop::Eq(_) => {
-                        env.emit_error(NamingError::IllegalConstant(pos.clone()));
-                        invalid(expr_)
-                    }
-                    _ => Continue(()),
-                },
-                Expr_::ValCollection(box ((_, vc_kind), _, _)) => match vc_kind {
-                    VcKind::Vec | VcKind::Keyset => Continue(()),
-                    _ => {
-                        env.emit_error(NamingError::IllegalConstant(pos.clone()));
-                        invalid(expr_)
-                    }
-                },
-                Expr_::KeyValCollection(box ((_, kvc_kind), _, _)) => match kvc_kind {
-                    KvcKind::Dict => Continue(()),
-                    _ => {
-                        env.emit_error(NamingError::IllegalConstant(pos.clone()));
-                        invalid(expr_)
-                    }
-                },
-                Expr_::Call(box CallExpr {
-                    func: Expr(_, _, call_expr_),
-                    ..
-                }) => match call_expr_ {
-                    Expr_::Id(box id)
-                        if id.name() == sn::std_lib_functions::ARRAY_MARK_LEGACY
-                            || id.name() == sn::pseudo_functions::UNSAFE_CAST
-                            || id.name() == sn::pseudo_functions::UNSAFE_NONNULL_CAST =>
-                    {
-                        Continue(())
-                    }
-                    _ => {
-                        env.emit_error(NamingError::IllegalConstant(pos.clone()));
-                        invalid(expr_)
-                    }
-                },
-
-                Expr_::Omitted => {
-                    if matches!(self.mode, file_info::Mode::Mhhi) {
-                        Continue(())
-                    } else {
-                        env.emit_error(NamingError::IllegalConstant(pos.clone()));
-                        invalid(expr_)
-                    }
+            // -- conditionally valid --------------------------------------
+            // NB we can perform this top-down since the all valid hints
+            // are already in canonical
+            Expr_::As(box nast::As_ {
+                hint: Hint(_, box hint_),
+                ..
+            }) => match hint_ {
+                Hint_::Happly(id, _) => Some(id.0.clone()),
+                _ => Some(pos.clone()),
+            },
+            Expr_::Unop(box (uop, _)) => match uop {
+                Uop::Uplus | Uop::Uminus | Uop::Utild | Uop::Unot => None,
+                _ => Some(pos.clone()),
+            },
+            Expr_::Binop(..) => None,
+            Expr_::Assign(..) => Some(pos.clone()),
+            Expr_::ValCollection(box ((_, vc_kind), _, _)) => match vc_kind {
+                VcKind::Vec | VcKind::Keyset => None,
+                _ => Some(pos.clone()),
+            },
+            Expr_::KeyValCollection(box ((_, kvc_kind), _, _)) => match kvc_kind {
+                KvcKind::Dict => None,
+                _ => Some(pos.clone()),
+            },
+            Expr_::Call(box CallExpr {
+                func: Expr(_, _, call_expr_),
+                ..
+            }) => match call_expr_ {
+                Expr_::Id(box id)
+                    if id.name() == sn::std_lib_functions::ARRAY_MARK_LEGACY
+                        || id.name() == sn::pseudo_functions::UNSAFE_CAST
+                        || id.name() == sn::pseudo_functions::UNSAFE_NONNULL_CAST =>
+                {
+                    None
                 }
-
-                // -- always invalid -------------------------------------------
-                Expr_::This
-                | Expr_::Lvar(..)
-                | Expr_::Lplaceholder(..)
-                | Expr_::ArrayGet(..)
-                | Expr_::Await(..)
-                | Expr_::Delay(..)
-                | Expr_::Cast(..)
-                | Expr_::ClassGet(..)
-                | Expr_::Clone(..)
-                | Expr_::Dollardollar(..)
-                | Expr_::ETSplice(..)
-                | Expr_::Efun(..)
-                | Expr_::EnumClassLabel(..)
-                | Expr_::ExpressionTree(..)
-                | Expr_::Is(..)
-                | Expr_::Lfun(..)
-                | Expr_::List(..)
-                | Expr_::MethodCaller(..)
-                | Expr_::New(..)
-                | Expr_::ObjGet(..)
-                | Expr_::Pair(..)
-                | Expr_::Pipe(..)
-                | Expr_::PrefixedString(..)
-                | Expr_::ReadonlyExpr(..)
-                | Expr_::String2(..)
-                | Expr_::Yield(..)
-                | Expr_::Xml(..)
-                | Expr_::Package(..) => {
-                    env.emit_error(NamingError::IllegalConstant(pos.clone()));
-                    invalid(expr_)
+                _ => Some(pos.clone()),
+            },
+            Expr_::Omitted => {
+                if matches!(self.mode, file_info::Mode::Mhhi) {
+                    None
+                } else {
+                    Some(pos.clone())
                 }
-
-                // -- unexpected expressions -----------------------------------
-                Expr_::Import(..) | Expr_::Collection(..) => panic!("Unexpected Expr"),
             }
+
+            // -- always invalid -------------------------------------------
+            Expr_::This
+            | Expr_::Lvar(..)
+            | Expr_::Lplaceholder(..)
+            | Expr_::ArrayGet(..)
+            | Expr_::Await(..)
+            | Expr_::Delay(..)
+            | Expr_::Cast(..)
+            | Expr_::ClassGet(..)
+            | Expr_::Clone(..)
+            | Expr_::Dollardollar(..)
+            | Expr_::ETSplice(..)
+            | Expr_::Efun(..)
+            | Expr_::EnumClassLabel(..)
+            | Expr_::ExpressionTree(..)
+            | Expr_::Is(..)
+            | Expr_::Lfun(..)
+            | Expr_::List(..)
+            | Expr_::MethodCaller(..)
+            | Expr_::New(..)
+            | Expr_::ObjGet(..)
+            | Expr_::Pair(..)
+            | Expr_::Pipe(..)
+            | Expr_::ReadonlyExpr(..)
+            | Expr_::String2(..)
+            | Expr_::Yield(..)
+            | Expr_::Xml(..)
+            | Expr_::DestructureShape(..)
+            | Expr_::DestructureTuple(..) => Some(pos.clone()),
+
+            // -- unexpected expressions -----------------------------------
+            // OCaml raises `UnexpectedExpr` here: `Import` and `Collection`
+            // are elaborated away (or replaced by the invalid expression
+            // marker, which stops the traversal) by passes that run first.
+            Expr_::Import(..) | Expr_::Collection(..) => None,
+        };
+        match illegal_at {
+            None => Continue(()),
+            Some(pos) => illegal(env, pos, elem),
         }
     }
 
@@ -220,39 +202,33 @@ impl Pass for ElabConstExprPass {
     // element of the expression which is not yet transformed in the top-down pass
     fn on_ty_expr_bottom_up(&mut self, env: &Env, elem: &mut Expr) -> ControlFlow<()> {
         if !self.enforce_const_expr() {
-            Continue(())
+            return Continue(());
+        }
+        let Expr(_, pos, expr_) = elem;
+        let is_illegal = match expr_ {
+            // We have to handle this case bottom-up since the class identifier
+            // will not have been rewritten in the top-down pass
+            Expr_::Nameof(box ClassId(_, _, class_id_))
+            | Expr_::ClassConst(box (ClassId(_, _, class_id_), _)) => match class_id_ {
+                ClassId_::CIstatic => true,
+                ClassId_::CIparent
+                | ClassId_::CIself
+                | ClassId_::CI(..)
+                | ClassId_::CIreified(..) => false,
+                // NB this relies on `class_id` elaboration having been applied, if
+                // it hasn't we would still have `CIstatic` represented as
+                // `CIexpr (_,_,Id(_,'static'))`
+                ClassId_::CIexpr(Expr(_, _, ci_expr_)) => {
+                    !matches!(ci_expr_, Expr_::This | Expr_::Id(..))
+                }
+            },
+            _ => false,
+        };
+        if is_illegal {
+            let pos = pos.clone();
+            illegal(env, pos, elem)
         } else {
-            let Expr(_, pos, expr_) = elem;
-            let invalid = |expr_: &mut Expr_| {
-                let inner_expr_ = std::mem::replace(expr_, Expr_::Null);
-                let inner_expr = Expr(Default::default(), pos.clone(), inner_expr_);
-                *expr_ = Expr_::Invalid(Box::new(Some(inner_expr)));
-                Break(())
-            };
-
-            match expr_ {
-                Expr_::Nameof(box ClassId(_, _, class_id_))
-                | Expr_::ClassConst(box (ClassId(_, _, class_id_), _)) => match class_id_ {
-                    ClassId_::CIstatic => {
-                        env.emit_error(NamingError::IllegalConstant(pos.clone()));
-                        invalid(expr_)
-                    }
-
-                    ClassId_::CIparent | ClassId_::CIself | ClassId_::CI(..) => Continue(()),
-                    ClassId_::CIreified(..) => {
-                        // TODO(T259578698) this is a bug (from the CIexpr(Id) case), allows class-bound reified in constexpr
-                        Continue(())
-                    }
-                    ClassId_::CIexpr(Expr(_, _, expr_)) => match expr_ {
-                        Expr_::This | Expr_::Id(..) => Continue(()),
-                        _ => {
-                            env.emit_error(NamingError::IllegalConstant(pos.clone()));
-                            invalid(expr_)
-                        }
-                    },
-                },
-                _ => Continue(()),
-            }
+            Continue(())
         }
     }
 

@@ -111,7 +111,16 @@ impl Env {
     }
 }
 
+/// The environment is a constant: made once per thread (`Env::empty` copies
+/// the maps of the auto-imported names).
 fn contexts_ns() -> Arc<namespace_env::Env> {
+    thread_local! {
+        static NS: Arc<namespace_env::Env> = make_contexts_ns();
+    }
+    NS.with(Arc::clone)
+}
+
+fn make_contexts_ns() -> Arc<namespace_env::Env> {
     Arc::new(namespace_env::Env {
         name: Some(sn::coeffects::CONTEXTS.to_owned()),
         ..namespace_env::Env::empty(
@@ -130,7 +139,15 @@ fn contexts_ns() -> Arc<namespace_env::Env> {
     })
 }
 
+/// A constant, as [`contexts_ns`].
 fn unsafe_contexts_ns() -> Arc<namespace_env::Env> {
+    thread_local! {
+        static NS: Arc<namespace_env::Env> = make_unsafe_contexts_ns();
+    }
+    NS.with(Arc::clone)
+}
+
+fn make_unsafe_contexts_ns() -> Arc<namespace_env::Env> {
     Arc::new(namespace_env::Env {
         name: Some(sn::coeffects::UNSAFE_CONTEXTS.to_owned()),
         ..namespace_env::Env::empty(

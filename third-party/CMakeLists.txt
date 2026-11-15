@@ -93,7 +93,10 @@ if(NOT PCRE_LIBRARY)
   set(PCRE_BUILD_TESTS OFF CACHE BOOL "Build the tests")
 endif()
 
+# opam, for the OCaml Hack typechecker (hphp/hack: the hack_dune targets).
+if(BUILD_HACK_OCAML)
 list(APPEND THIRD_PARTY_MODULES opam)
+endif()
 
 # Add bundled XED library if XED is enabled and the specified XED library
 # is either not found or incompatible.

@@ -6,12 +6,9 @@
 use nast::Abstraction;
 use nast::Class_;
 use nast::ClassishKind;
-use nast::Expr_;
 use nast::Hint;
 use nast::Hint_;
 use nast::Id;
-use nast::Pos;
-use nast::UserAttributes;
 
 use crate::prelude::*;
 
@@ -46,7 +43,7 @@ impl Pass for ElabEnumClassPass {
                 pos.clone(),
                 Box::new(Hint_::Happly(Id(pos.clone(), cls_name.to_string()), bounds)),
             );
-            elem.extends.push(extend_hint)
+            elem.extends.insert(0, extend_hint)
         }
         Continue(())
     }
@@ -61,46 +58,12 @@ impl Pass for ElabEnumClassPass {
                 {
                     env.emit_error(NamingError::UsingInternalClass {
                         pos: pos.clone(),
-                        class_name: core_utils_rust::strip_ns(ty_name).to_string(),
+                        class_name: elab_utils::strip_ns(ty_name).to_string(),
                     })
                 }
                 _ => (),
             }
         }
-        Continue(())
-    }
-
-    fn on_ty_user_attributes_bottom_up(
-        &mut self,
-        env: &Env,
-        elem: &mut UserAttributes,
-    ) -> ControlFlow<()> {
-        elem.iter_mut().for_each(|ua| {
-            let attr_name = ua.name.name();
-            if sn::user_attributes::MEMOIZE == attr_name
-                || sn::user_attributes::MEMOIZE_LSB == attr_name
-            {
-                ua.params.iter_mut().for_each(|expr| {
-                    if let Expr_::EnumClassLabel(box (cnm_opt, _)) = &mut expr.2 {
-                        match &cnm_opt {
-                            Some(id) => {
-                                if id.name() != sn::hh::MEMOIZE_OPTION {
-                                    env.emit_error(NamingError::InvalidMemoizeLabel {
-                                        pos: id.pos().clone(),
-                                        attr_name: attr_name.to_string(),
-                                    })
-                                }
-                            }
-                            None => {
-                                // Elaborate.
-                                *cnm_opt =
-                                    Some(Id(Pos::default(), sn::hh::MEMOIZE_OPTION.to_string()))
-                            }
-                        }
-                    }
-                })
-            }
-        });
         Continue(())
     }
 }
@@ -111,9 +74,9 @@ mod tests {
     use std::sync::Arc;
 
     use nast::Enum_;
-    use nast::Pos;
     use nast::UserAttributes;
-    use oxidized::namespace_env;
+    use nast::Pos;
+        use oxidized::namespace_env;
     use oxidized::namespace_env::Mode;
     use oxidized::s_map::SMap;
 
@@ -123,7 +86,7 @@ mod tests {
         Class_ {
             span: Pos::NONE,
             annotation: (),
-            mode: file_info::Mode::Mstrict,
+            mode: oxidized::file_info::Mode::Mstrict,
             final_: false,
             is_xhp: false,
             has_xhp_keyword: false,
@@ -159,6 +122,7 @@ mod tests {
             emit_id: None,
             internal: false,
             module: None,
+            package: None,
         }
     }
 

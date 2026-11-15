@@ -1601,6 +1601,7 @@ pub fn elaborate_program(env: &mut Env, program: &mut nast::Program, for_codegen
     la.visit_program(env, program).unwrap();
 }
 
+#[allow(dead_code)]
 pub fn elaborate_fun_def(env: &mut Env, f: &mut nast::FunDef, for_codegen: bool) {
     let mut la = LiftAwait {
         for_codegen,
@@ -1609,6 +1610,7 @@ pub fn elaborate_fun_def(env: &mut Env, f: &mut nast::FunDef, for_codegen: bool)
     la.visit_fun_def(env, f).unwrap();
 }
 
+#[allow(dead_code)]
 pub fn elaborate_class_(env: &mut Env, c: &mut nast::Class_, for_codegen: bool) {
     let mut la = LiftAwait {
         for_codegen,
@@ -1617,6 +1619,7 @@ pub fn elaborate_class_(env: &mut Env, c: &mut nast::Class_, for_codegen: bool) 
     la.visit_class_(env, c).unwrap();
 }
 
+#[allow(dead_code)]
 pub fn elaborate_stmt(env: &mut Env, t: &mut nast::Stmt, for_codegen: bool) {
     let mut la = LiftAwait {
         for_codegen,

@@ -1,0 +1,9 @@
+ERROR: /private/tmp/hh-incr/err/r1/a.php:2:28,30: Invalid return type (Typing[4110])
+  /private/tmp/hh-incr/err/r1/a.php:2:15,17: Expected `int`
+  /private/tmp/hh-incr/err/r1/a.php:2:28,30: But got `string`
+ERROR: /private/tmp/hh-incr/err/r1/a.php:3:31,33: Typing error (Typing[4429])
+  /private/tmp/hh-incr/err/r1/a.php:3:27,33: Expected `num` because this is used in an arithmetic operation
+  /private/tmp/hh-incr/err/r1/a.php:3:31,33: But got `string`
+ERROR: /private/tmp/hh-incr/err/r1/b.php:2:10,15: Invalid return type (Typing[4336])
+  /private/tmp/hh-incr/err/r1/b.php:2:20,22: Expected `int`
+  /private/tmp/hh-incr/err/r1/b.php:2:10,15: But got `void` because this function does not always return a value

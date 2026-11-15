@@ -284,6 +284,8 @@ module Hhconfig : sig
 
   val shm_use_sharded_hashtbl : string
 
+  val typechecker_implementation : string
+
   val untrusted_mode : string
 
   val version : string

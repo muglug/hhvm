@@ -87,7 +87,8 @@ impl ToOxidized for Symbol {
     type Output = String;
 
     fn to_oxidized(self) -> String {
-        self.to_string()
+        // (The same string as `to_string`, without the formatting machinery.)
+        self.as_str().to_owned()
     }
 }
 
@@ -298,7 +299,9 @@ macro_rules! common_impls {
             type Output = String;
 
             fn to_oxidized(self) -> String {
-                self.to_string()
+                // (The same string as `to_string`, without the formatting
+                // machinery.)
+                self.as_str().to_owned()
             }
         }
 

@@ -27,7 +27,6 @@ use nast::Expr_;
 use nast::Lid;
 use nast::LocalId;
 use nast::Pos;
-use nast::ShapeExprField;
 use oxidized::aast_visitor::AstParams;
 use oxidized::aast_visitor::NodeMut;
 use oxidized::aast_visitor::VisitorMut;
@@ -63,17 +62,42 @@ impl Visitor {
         }
     }
 
+    fn add_local_defs_from_target(&mut self, target: &nast::DestructureTarget) {
+        match &target.2 {
+            nast::DestructureTarget_::DtLvar(lid) => self.add_local_def(lid.clone()),
+            nast::DestructureTarget_::DtWildcard(_) => {}
+            nast::DestructureTarget_::DtShape(ds) => ds
+                .fields
+                .iter()
+                .for_each(|field| self.add_local_defs_from_target(&field.target)),
+            nast::DestructureTarget_::DtTuple(dt) => dt
+                .entries
+                .iter()
+                .for_each(|entry| self.add_local_defs_from_target(&entry.target)),
+        }
+    }
+
     fn add_local_defs_from_lvalue(&mut self, Expr(_, _, e): &Expr) {
         match e {
-            Expr_::List(lv) | Expr_::Tuple(lv) => {
-                lv.iter().for_each(|e| self.add_local_defs_from_lvalue(e))
-            }
-            Expr_::Shape(lv) => lv.iter().for_each(|f| match f {
-                ShapeExprField::SFField(_, e) => self.add_local_defs_from_lvalue(e),
-                ShapeExprField::SFSplat(_) => {}
-            }),
+            Expr_::List(lv) => lv.iter().for_each(|e| self.add_local_defs_from_lvalue(e)),
             Expr_::Lvar(box lid) => self.add_local_def(lid.clone()),
+            Expr_::DestructureShape(ds) => ds
+                .fields
+                .iter()
+                .for_each(|field| self.add_local_defs_from_target(&field.target)),
+            Expr_::DestructureTuple(dt) => dt
+                .entries
+                .iter()
+                .for_each(|entry| self.add_local_defs_from_target(&entry.target)),
             _ => {}
+        }
+    }
+
+    /// `Local_id.Map.union outer.free inner.free`: where both have a
+    /// variable, the position in the outer map is kept.
+    fn union_free(&mut self, inner_free: BTreeMap<LocalId, Pos>) {
+        for (lid, pos) in inner_free {
+            self.free.entry(lid).or_insert(pos);
         }
     }
 
@@ -119,7 +143,7 @@ impl<'ast> VisitorMut<'ast> for Visitor {
                     .map(|(lid, pos)| CaptureLid((), Lid(pos.clone(), lid.clone())))
                     .collect();
                 *self = outer_vars;
-                self.free.extend(inner_free);
+                self.union_free(inner_free);
                 Ok(())
             }
             _ => e.recurse(env, self.object()),
@@ -178,7 +202,7 @@ impl<'ast> VisitorMut<'ast> for Visitor {
         efun.recurse(env, self.object())?;
         let inner_free = std::mem::take(&mut self.free);
         *self = outer_vars;
-        self.free.extend(inner_free);
+        self.union_free(inner_free);
 
         // Efun syntax requires that the user specifies the captures.
         //
@@ -200,6 +224,7 @@ impl<'ast> VisitorMut<'ast> for Visitor {
     }
 }
 
+#[allow(dead_code)]
 pub fn elaborate_program(env: &mut Env, program: &mut nast::Program) {
     Visitor::default().visit_program(env, program).unwrap();
 }

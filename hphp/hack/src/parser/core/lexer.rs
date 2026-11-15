@@ -5,7 +5,6 @@
 // LICENSE file in the "hack" directory of this source tree.
 
 use std::cell::RefCell;
-use std::ops::DerefMut;
 use std::rc::Rc;
 
 use parser_core_types::lexable_token::LexableToken;
@@ -73,7 +72,27 @@ prove no new error added. Actually it is observed that new errors are added betw
 #[derive(Debug)]
 struct LexerCache<Token>(LexerPreSnapshot, Token, LexerPostSnapshot);
 
-#[derive(Debug, Clone)]
+/// The tokens lexed last, by the state they were lexed from: a few, because
+/// the parser looks ahead more than one token (with clones of the lexer, that
+/// share this) and comes back. An entry is the token and the state after it,
+/// which only depend on the state before it, as for one entry.
+#[derive(Debug)]
+struct LexerCaches<Token>([Option<LexerCache<Token>>; LEXER_CACHES]);
+
+const LEXER_CACHES: usize = 32;
+
+impl<Token> LexerCaches<Token> {
+    fn new() -> Self {
+        Self(std::array::from_fn(|_| None))
+    }
+
+    #[inline]
+    fn slot(offset: usize) -> usize {
+        offset % LEXER_CACHES
+    }
+}
+
+#[derive(Debug)]
 pub struct Lexer<'a, TF>
 where
     TF: TokenFactory,
@@ -84,7 +103,7 @@ where
     errors: Vec<SyntaxError>,
     in_type: bool,
     token_factory: TF,
-    cache: Rc<RefCell<Option<LexerCache<TF::Token>>>>,
+    cache: Rc<RefCell<LexerCaches<TF::Token>>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -135,10 +154,48 @@ macro_rules! as_case_insensitive_keyword {
     }
 }
 
+/// A copy of `errors`. Lexers and parsers are cloned for every lookahead and
+/// errors are rare: the empty case does not go through `Vec::clone`.
+#[inline]
+pub(crate) fn clone_errors(errors: &Vec<SyntaxError>) -> Vec<SyntaxError> {
+    if errors.is_empty() {
+        Vec::new()
+    } else {
+        errors.clone()
+    }
+}
+
+impl<'a, TF> Clone for Lexer<'a, TF>
+where
+    TF: TokenFactory,
+{
+    #[inline]
+    fn clone(&self) -> Self {
+        Self {
+            errors: clone_errors(&self.errors),
+            ..self.clone_without_errors()
+        }
+    }
+}
+
 impl<'a, TF> Lexer<'a, TF>
 where
     TF: TokenFactory,
 {
+    /// A clone without the errors (the field `errors` is empty).
+    #[inline]
+    fn clone_without_errors(&self) -> Self {
+        Self {
+            source: self.source.clone(),
+            start: self.start,
+            offset: self.offset,
+            errors: Vec::new(),
+            in_type: self.in_type,
+            token_factory: self.token_factory.clone(),
+            cache: Rc::clone(&self.cache),
+        }
+    }
+
     fn to_lexer_pre_snapshot(&self) -> LexerPreSnapshot {
         LexerPreSnapshot {
             start: self.start,
@@ -163,7 +220,7 @@ where
             offset,
             errors: vec![],
             in_type: false,
-            cache: Rc::new(RefCell::new(None)),
+            cache: Rc::new(RefCell::new(LexerCaches::new())),
             token_factory,
         }
     }
@@ -2158,29 +2215,29 @@ where
 
     // Entrypoints
     pub fn peek_next_token(&self) -> TF::Token {
+        let slot = LexerCaches::<TF::Token>::slot(self.offset);
         {
             let cache = self.cache.borrow();
-            if let Some(cache) = cache.as_ref() {
+            if let Some(cache) = &cache.0[slot] {
                 if cache.0 == *self {
                     return cache.1.clone();
                 }
             }
         }
 
-        let mut lexer = self.clone();
-        lexer.errors = vec![];
+        let mut lexer = self.clone_without_errors();
         let before = lexer.to_lexer_pre_snapshot();
         let token = lexer.next_token_impl();
         let after = lexer.into_lexer_post_snapshot();
-        self.cache
-            .replace(Some(LexerCache(before, token.clone(), after)));
+        self.cache.borrow_mut().0[slot] = Some(LexerCache(before, token.clone(), after));
         token
     }
 
     pub fn next_token(&mut self) -> TF::Token {
+        let slot = LexerCaches::<TF::Token>::slot(self.offset);
         {
             let mut cache = self.cache.borrow_mut();
-            if let Some(cache) = cache.deref_mut() {
+            if let Some(cache) = &mut cache.0[slot] {
                 if cache.0 == *self {
                     self.start = (cache.2).start;
                     self.offset = (cache.2).offset;
@@ -2192,7 +2249,19 @@ where
                 }
             }
         }
-        self.next_token_impl()
+        // Remember the token, as `peek_next_token` does: the parser comes back
+        // to it after looking ahead.
+        let before = self.to_lexer_pre_snapshot();
+        let errors = self.errors.len();
+        let token = self.next_token_impl();
+        let after = LexerPostSnapshot {
+            start: self.start,
+            offset: self.offset,
+            in_type: self.in_type,
+            errors: self.errors[errors..].to_vec(),
+        };
+        self.cache.borrow_mut().0[slot] = Some(LexerCache(before, token.clone(), after));
+        token
     }
 
     pub fn next_token_no_trailing(&mut self) -> TF::Token {

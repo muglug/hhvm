@@ -162,8 +162,29 @@ impl<T: Consable> Conser<T> {
         self.table.clear()
     }
 
+    /// The entries of the table (live or dead, see [`Self::gc`]) and the
+    /// entries it has room for.
+    pub fn len_and_capacity(&self) -> (usize, usize) {
+        (self.table.len(), self.table.capacity())
+    }
+
+    /// Gives the table's spare room back (after [`Self::gc`]: the table
+    /// keeps the size of its largest population otherwise), one shard
+    /// locked at a time.
+    pub fn shrink_to_fit(&self) {
+        self.table.shrink_to_fit()
+    }
+
     fn mk(&self, x: T) -> Hc<T> {
         let hash = fnv_hash(&x);
+        // Most values are already in the table: look them up under the shard's
+        // read lock first, which the threads can hold together (the `entry`
+        // below takes the write lock).
+        if let Some(rc) = self.table.get(&hash).and_then(|w| w.upgrade()) {
+            // TODO: handle collisions
+            debug_assert!(x == *rc);
+            return Hc(rc);
+        }
         let rc = match self.table.entry(hash) {
             Entry::Occupied(mut o) => match o.get().upgrade() {
                 Some(rc) => {

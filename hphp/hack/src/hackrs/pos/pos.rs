@@ -100,6 +100,14 @@ impl Pos for BPos {
         BPos::none()
     }
 
+    fn from_ast(pos: &oxidized::pos::Pos) -> Self {
+        bpos_of_oxidized(pos)
+    }
+
+    fn from_decl(pos: oxidized::pos::Pos) -> Self {
+        bpos_of_oxidized(&pos)
+    }
+
     fn is_hhi(&self) -> bool {
         let BPos(pos_impl) = self;
         let prefix = match *pos_impl {
@@ -225,10 +233,102 @@ impl EqModuloPos for BPos {
     }
 }
 
+/// The interned path of the `oxidized` positions converted from positions in
+/// `file`. Interning looks the path up in a global table (after building an
+/// `oxidized` path to look up), and the positions of declarations are
+/// converted at each use: each thread remembers the interned paths of the
+/// files it converted last (in a direct-mapped table).
+fn oxidized_file(file: RelativePath) -> oxidized::pos::InternedPath {
+    use std::cell::RefCell;
+    use std::hash::Hash;
+    use std::hash::Hasher;
+    const SLOTS: usize = 1024;
+    type Slot = Option<(RelativePath, oxidized::pos::InternedPath)>;
+    thread_local! {
+        static FILES: RefCell<[Slot; SLOTS]> = const { RefCell::new([None; SLOTS]) };
+    }
+    struct SlotHasher(u64);
+    impl Hasher for SlotHasher {
+        fn finish(&self) -> u64 {
+            self.0
+        }
+        fn write(&mut self, bytes: &[u8]) {
+            for b in bytes {
+                self.0 = (self.0.rotate_left(5) ^ *b as u64).wrapping_mul(0x517cc1b727220a95);
+            }
+        }
+        fn write_u32(&mut self, i: u32) {
+            self.0 = (self.0.rotate_left(5) ^ i as u64).wrapping_mul(0x517cc1b727220a95);
+        }
+        fn write_u64(&mut self, i: u64) {
+            self.0 = (self.0.rotate_left(5) ^ i).wrapping_mul(0x517cc1b727220a95);
+        }
+        fn write_usize(&mut self, i: usize) {
+            self.write_u64(i as u64)
+        }
+        fn write_isize(&mut self, i: isize) {
+            self.write_u64(i as u64)
+        }
+    }
+    let mut hasher = SlotHasher(0);
+    file.hash(&mut hasher);
+    let slot = (hasher.finish() >> 32) as usize % SLOTS;
+    FILES.with_borrow_mut(|files| match files[slot] {
+        Some((f, interned)) if f == file => interned,
+        _ => {
+            let interned = oxidized::pos::InternedPath::new(&file.into());
+            files[slot] = Some((file, interned));
+            interned
+        }
+    })
+}
+
+/// `Pos::from_ast` for `BPos`: `BPos::new` of the file and the raw span, with
+/// the file taken from a per-thread table by the address of the interned path
+/// (interning the path's bytes again looks them up in a global table), and a
+/// tiny span kept as it is (the raw span of a tiny span makes it again).
+fn bpos_of_oxidized(pos: &oxidized::pos::Pos) -> BPos {
+    use std::cell::RefCell;
+    const SLOTS: usize = 256;
+    thread_local! {
+        static FILES: RefCell<[(usize, RelativePath); SLOTS]> =
+            const { RefCell::new([(0, RelativePath::empty()); SLOTS]) };
+    }
+    let interned = pos.interned_filename();
+    // (Interned paths are never freed: the address identifies the path.)
+    let addr = interned.get() as *const ::relative_path::RelativePath as usize;
+    let slot = (addr >> 4 ^ addr >> 12) % SLOTS;
+    let file = FILES
+        .try_with(|files| {
+            let mut files = files.borrow_mut();
+            match files[slot] {
+                (a, f) if a == addr => f,
+                _ => {
+                    let f = RelativePath::from(interned.get());
+                    files[slot] = (addr, f);
+                    f
+                }
+            }
+        })
+        .unwrap_or_else(|_| RelativePath::from(interned.get()));
+    if let Some(span) = pos.as_tiny_span() {
+        return BPos(PosImpl::Tiny {
+            prefix: file.prefix(),
+            suffix: file.suffix(),
+            span,
+        });
+    }
+    let PosSpanRaw { start, end } = pos.to_raw_span();
+    BPos::new(file, start, end)
+}
+
 impl From<BPos> for oxidized::pos::Pos {
     fn from(pos: BPos) -> Self {
-        let file = std::sync::Arc::new(pos.file().into());
-        Self::from_raw_span(
+        let file = oxidized_file(pos.file());
+        if let PosImpl::Tiny { span, .. } = pos.0 {
+            return Self::from_tiny_span_interned(file, span);
+        }
+        Self::from_raw_span_interned(
             file,
             match &pos.0 {
                 PosImpl::Small { span, .. } => {
@@ -264,12 +364,12 @@ impl ToOxidized for BPos {
     type Output = oxidized::pos::Pos;
 
     fn to_oxidized(self) -> Self::Output {
-        let file = self.file().to_oxidized();
+        let file = oxidized_file(self.file());
         match self.0 {
             PosImpl::Small { box span, .. } => {
                 let (start, end) = span;
-                oxidized::pos::Pos::from_raw_span(
-                    file.into(),
+                oxidized::pos::Pos::from_raw_span_interned(
+                    file,
                     PosSpanRaw {
                         start: start.into(),
                         end: end.into(),
@@ -278,12 +378,9 @@ impl ToOxidized for BPos {
             }
             PosImpl::Large { box span, .. } => {
                 let (start, end) = span;
-                oxidized::pos::Pos::from_raw_span(file.into(), PosSpanRaw { start, end })
+                oxidized::pos::Pos::from_raw_span_interned(file, PosSpanRaw { start, end })
             }
-            PosImpl::Tiny { span, .. } => {
-                let span = span.to_raw_span();
-                oxidized::pos::Pos::from_raw_span(file.into(), span)
-            }
+            PosImpl::Tiny { span, .. } => oxidized::pos::Pos::from_tiny_span_interned(file, span),
         }
     }
 }

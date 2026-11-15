@@ -31,12 +31,9 @@ impl LineBreakMap {
         let mut result = Vec::with_capacity((len / 80) + 1);
         result.push(0);
 
-        let iter = text
-            .iter()
-            .zip(text.iter().skip(1).map(Some).chain(std::iter::once(None)));
-
-        for (i, (byte, next)) in iter.enumerate() {
-            if *byte == b'\n' || *byte == b'\r' && next != Some(&b'\n') {
+        // A line ends at a `\n`, and at a `\r` not followed by a `\n`.
+        for i in memchr::memchr2_iter(b'\n', b'\r', text) {
+            if text[i] == b'\n' || text.get(i + 1) != Some(&b'\n') {
                 result.push(i + 1);
             }
         }
@@ -68,30 +65,25 @@ impl LineBreakMap {
         (Self::to_isize(i), Self::to_isize(s), Self::to_isize(o))
     }
 
+    #[inline]
     pub fn offset_to_file_pos_triple(&self, offset: usize) -> (usize, usize, usize) {
         let curr_index = self.curr_idnex.get();
         let last_offset = self.last_offset.get();
-        let mut index = 0;
-        if last_offset == offset {
-            index = curr_index;
-        } else {
-            if offset > self.lines[curr_index] {
-                index = self.lines.len() - 1;
-                for i in curr_index..self.lines.len() {
-                    if offset < self.lines[i] {
-                        index = i - 1;
-                        break;
-                    }
-                }
-            } else {
-                let mut i = curr_index;
-                while i > 0 {
-                    if self.lines[i] <= offset {
-                        index = i;
-                        break;
-                    }
-                    i -= 1;
-                }
+        let mut index = curr_index;
+        if last_offset != offset {
+            // The line of `offset`: the last line that starts at or before it
+            // (the line starts are increasing, and `lines[0]` is 0). Look
+            // near the line of the previous offset first.
+            let lines = &self.lines;
+            let near = |i: usize| {
+                lines[i] <= offset && lines.get(i + 1).is_none_or(|&next| offset < next)
+            };
+            if !near(curr_index) {
+                index = if curr_index + 1 < lines.len() && near(curr_index + 1) {
+                    curr_index + 1
+                } else {
+                    lines.partition_point(|&start| start <= offset) - 1
+                };
             }
             self.curr_idnex.set(index);
             self.last_offset.set(offset);

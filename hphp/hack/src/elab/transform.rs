@@ -24,29 +24,171 @@ pub trait Transform {
     }
     #[inline(always)]
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+    #[inline(always)]
+    fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+        self.transform(env, &mut pass.clone())
+    }
 }
-impl Transform for () {}
-impl Transform for bool {}
-impl Transform for isize {}
-impl Transform for String {}
-impl Transform for bstr::BString {}
-impl Transform for oxidized::pos::Pos {}
-impl Transform for oxidized::file_info::Mode {}
-impl Transform for oxidized::namespace_env::Env {}
+impl Transform for () {
+    #[inline(always)]
+    fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+    #[inline(always)]
+    fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+}
+impl Transform for bool {
+    #[inline(always)]
+    fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+    #[inline(always)]
+    fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+}
+impl Transform for isize {
+    #[inline(always)]
+    fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+    #[inline(always)]
+    fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+}
+impl Transform for String {
+    #[inline(always)]
+    fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+    #[inline(always)]
+    fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+}
+impl Transform for bstr::BString {
+    #[inline(always)]
+    fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+    #[inline(always)]
+    fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+}
+impl Transform for oxidized::pos::Pos {
+    #[inline(always)]
+    fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+    #[inline(always)]
+    fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+}
+impl Transform for oxidized::file_info::Mode {
+    #[inline(always)]
+    fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+    #[inline(always)]
+    fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+}
+impl Transform for oxidized::namespace_env::Env {
+    #[inline(always)]
+    fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+    #[inline(always)]
+    fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {}
+}
 impl<T> Transform for &mut T
 where
     T: Transform,
 {
+    #[inline(always)]
+    fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+        (**self).transform(env, pass)
+    }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
-        (**self).transform(env, &mut pass.clone())
+        (**self).transform(env, pass)
+    }
+    #[inline(always)]
+    fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+        (**self).transform_copy(env, pass)
     }
 }
 impl<T> Transform for Box<T>
 where
     T: Transform,
 {
+    #[inline(always)]
+    fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+        (**self).transform(env, pass)
+    }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
-        (**self).transform(env, &mut pass.clone())
+        (**self).transform(env, pass)
+    }
+    #[inline(always)]
+    fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+        (**self).transform_copy(env, pass)
+    }
+}
+impl<T> Transform for oxidized::lazy::Lazy<T>
+where
+    T: Transform,
+{
+    #[inline(always)]
+    fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+        self.0.transform(env, pass)
+    }
+    fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+        self.0.transform(env, pass)
+    }
+    #[inline(always)]
+    fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+        self.0.transform_copy(env, pass)
+    }
+}
+impl<T> Transform for Option<T>
+where
+    T: Transform,
+{
+    #[inline(always)]
+    fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+        if let Some(x) = self {
+            x.transform(env, pass)
+        }
+    }
+    fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+        if let Some(x) = self {
+            x.transform(env, pass)
+        }
+    }
+    #[inline(always)]
+    fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+        if let Some(x) = self {
+            x.transform_copy(env, pass)
+        }
+    }
+}
+impl<T> Transform for std::sync::Arc<T>
+where
+    T: Transform,
+{
+    #[inline(always)]
+    fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+        if let Some(x) = std::sync::Arc::get_mut(self) {
+            x.transform(env, pass)
+        }
+    }
+    fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+        if let Some(x) = std::sync::Arc::get_mut(self) {
+            x.transform(env, pass)
+        }
+    }
+    #[inline(always)]
+    fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+        if let Some(x) = std::sync::Arc::get_mut(self) {
+            x.transform_copy(env, pass)
+        }
+    }
+}
+impl<T> Transform for std::rc::Rc<T>
+where
+    T: Transform,
+{
+    #[inline(always)]
+    fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+        if let Some(x) = std::rc::Rc::get_mut(self) {
+            x.transform(env, pass)
+        }
+    }
+    fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+        if let Some(x) = std::rc::Rc::get_mut(self) {
+            x.transform(env, pass)
+        }
+    }
+    #[inline(always)]
+    fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+        if let Some(x) = std::rc::Rc::get_mut(self) {
+            x.transform_copy(env, pass)
+        }
     }
 }
 impl<L, R> Transform for itertools::Either<L, R>
@@ -54,10 +196,21 @@ where
     L: Transform,
     R: Transform,
 {
+    #[inline(always)]
+    fn transform(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+        self.traverse(env, pass)
+    }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match self {
-            Self::Left(x) => x.transform(env, &mut pass.clone()),
-            Self::Right(x) => x.transform(env, &mut pass.clone()),
+            Self::Left(x) => x.transform(env, pass),
+            Self::Right(x) => x.transform(env, pass),
+        }
+    }
+    #[inline(always)]
+    fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+        match self {
+            Self::Left(x) => x.transform_copy(env, pass),
+            Self::Right(x) => x.transform_copy(env, pass),
         }
     }
 }
@@ -66,28 +219,18 @@ where
     T: Transform,
 {
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
-        for x in self.iter_mut() {
-            x.transform(env, &mut pass.clone());
+        if let Some((last, init)) = self.split_last_mut() {
+            for x in init {
+                x.transform_copy(env, pass);
+            }
+            last.transform(env, pass);
         }
     }
-}
-impl<T> Transform for Option<T>
-where
-    T: Transform,
-{
-    fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
-        match self {
-            Some(x) => x.transform(env, &mut pass.clone()),
-            None => {}
+    #[inline(always)]
+    fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+        if !self.is_empty() {
+            self.transform(env, &mut pass.clone())
         }
-    }
-}
-impl<T> Transform for oxidized::lazy::Lazy<T>
-where
-    T: Transform,
-{
-    fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
-        self.0.transform(env, &mut pass.clone())
     }
 }
 impl<K, V> Transform for std::collections::BTreeMap<K, V>
@@ -96,28 +239,19 @@ where
     V: Transform,
 {
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
-        for x in self.values_mut() {
-            x.transform(env, &mut pass.clone());
+        let mut values = self.values_mut().peekable();
+        while let Some(x) = values.next() {
+            if values.peek().is_some() {
+                x.transform_copy(env, pass);
+            } else {
+                x.transform(env, pass);
+            }
         }
     }
-}
-impl<T> Transform for std::sync::Arc<T>
-where
-    T: Transform,
-{
-    fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
-        if let Some(x) = std::sync::Arc::get_mut(self) {
-            x.transform(env, &mut pass.clone());
-        }
-    }
-}
-impl<T> Transform for std::rc::Rc<T>
-where
-    T: Transform,
-{
-    fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
-        if let Some(x) = std::rc::Rc::get_mut(self) {
-            x.transform(env, &mut pass.clone());
+    #[inline(always)]
+    fn transform_copy(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
+        if !self.is_empty() {
+            self.transform(env, &mut pass.clone())
         }
     }
 }
@@ -127,8 +261,8 @@ where
     T2: Transform,
 {
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
-        self.0.transform(env, &mut pass.clone());
-        self.1.transform(env, &mut pass.clone());
+        self.0.transform_copy(env, pass);
+        self.1.transform(env, pass);
     }
 }
 impl<T1, T2, T3> Transform for (T1, T2, T3)
@@ -138,9 +272,9 @@ where
     T3: Transform,
 {
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
-        self.0.transform(env, &mut pass.clone());
-        self.1.transform(env, &mut pass.clone());
-        self.2.transform(env, &mut pass.clone());
+        self.0.transform_copy(env, pass);
+        self.1.transform_copy(env, pass);
+        self.2.transform(env, pass);
     }
 }
 impl<T1, T2, T3, T4> Transform for (T1, T2, T3, T4)
@@ -151,10 +285,10 @@ where
     T4: Transform,
 {
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
-        self.0.transform(env, &mut pass.clone());
-        self.1.transform(env, &mut pass.clone());
-        self.2.transform(env, &mut pass.clone());
-        self.3.transform(env, &mut pass.clone());
+        self.0.transform_copy(env, pass);
+        self.1.transform_copy(env, pass);
+        self.2.transform_copy(env, pass);
+        self.3.transform(env, pass);
     }
 }
 impl<T1, T2, T3, T4, T5> Transform for (T1, T2, T3, T4, T5)
@@ -166,11 +300,11 @@ where
     T5: Transform,
 {
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
-        self.0.transform(env, &mut pass.clone());
-        self.1.transform(env, &mut pass.clone());
-        self.2.transform(env, &mut pass.clone());
-        self.3.transform(env, &mut pass.clone());
-        self.4.transform(env, &mut pass.clone());
+        self.0.transform_copy(env, pass);
+        self.1.transform_copy(env, pass);
+        self.2.transform_copy(env, pass);
+        self.3.transform_copy(env, pass);
+        self.4.transform(env, pass);
     }
 }
 const _: () = {
@@ -189,12 +323,12 @@ impl Transform for LoopCond {
         match *self {
             LoopCond(ref mut __binding_0, ref mut __binding_1, ref mut __binding_2) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
-                { __binding_2.transform(env, &mut pass.clone()) }
+                { __binding_2.transform(env, pass) }
             }
         }
     }
@@ -212,12 +346,12 @@ impl Transform for LoopIter {
         match *self {
             LoopIter(ref mut __binding_0, ref mut __binding_1, ref mut __binding_2) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
-                { __binding_2.transform(env, &mut pass.clone()) }
+                { __binding_2.transform(env, pass) }
             }
         }
     }
@@ -233,7 +367,7 @@ impl Transform for Program {
     }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
-            Program(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
+            Program(ref mut __binding_0) => __binding_0.transform(env, pass),
         }
     }
 }
@@ -250,9 +384,9 @@ impl Transform for Stmt {
         match *self {
             Stmt(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -270,24 +404,24 @@ impl Transform for Stmt_ {
         match *self {
             Stmt_::Noop => {}
             Stmt_::Fallthrough => {}
-            Stmt_::Expr(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
+            Stmt_::Expr(ref mut __binding_0) => __binding_0.transform(env, pass),
             Stmt_::Break => {}
             Stmt_::Continue => {}
-            Stmt_::Throw(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Stmt_::Return(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
+            Stmt_::Throw(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Stmt_::Return(ref mut __binding_0) => __binding_0.transform(env, pass),
             Stmt_::YieldBreak => {}
-            Stmt_::Awaitall(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Stmt_::Concurrent(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Stmt_::If(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Stmt_::Do(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Stmt_::While(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Stmt_::Using(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Stmt_::For(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Stmt_::Switch(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Stmt_::Match(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Stmt_::Foreach(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Stmt_::Try(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Stmt_::Block(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
+            Stmt_::Awaitall(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Stmt_::Concurrent(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Stmt_::If(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Stmt_::Do(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Stmt_::While(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Stmt_::Using(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Stmt_::For(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Stmt_::Switch(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Stmt_::Match(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Stmt_::Foreach(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Stmt_::Try(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Stmt_::Block(ref mut __binding_0) => __binding_0.transform(env, pass),
             _ => {}
         }
     }
@@ -310,15 +444,15 @@ impl Transform for UsingStmt {
                 block: ref mut __binding_3,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
                 {
-                    __binding_2.transform(env, &mut pass.clone())
+                    __binding_2.transform_copy(env, pass)
                 }
-                { __binding_3.transform(env, &mut pass.clone()) }
+                { __binding_3.transform(env, pass) }
             }
         }
     }
@@ -334,27 +468,27 @@ impl Transform for AsExpr {
     }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
-            AsExpr::AsV(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
+            AsExpr::AsV(ref mut __binding_0) => __binding_0.transform(env, pass),
             AsExpr::AsKv(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
             AsExpr::AwaitAsV(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
             AsExpr::AwaitAsKv(ref mut __binding_0, ref mut __binding_1, ref mut __binding_2) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
-                { __binding_2.transform(env, &mut pass.clone()) }
+                { __binding_2.transform(env, pass) }
             }
         }
     }
@@ -370,7 +504,7 @@ impl Transform for Block {
     }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
-            Block(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
+            Block(ref mut __binding_0) => __binding_0.transform(env, pass),
         }
     }
 }
@@ -385,7 +519,7 @@ impl Transform for FinallyBlock {
     }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
-            FinallyBlock(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
+            FinallyBlock(ref mut __binding_0) => __binding_0.transform(env, pass),
         }
     }
 }
@@ -405,9 +539,9 @@ impl Transform for StmtMatch {
                 arms: ref mut __binding_1,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -428,9 +562,9 @@ impl Transform for StmtMatchArm {
                 body: ref mut __binding_1,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -446,10 +580,8 @@ impl Transform for Pattern {
     }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
-            Pattern::PVar(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Pattern::PRefinement(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
+            Pattern::PVar(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Pattern::PRefinement(ref mut __binding_0) => __binding_0.transform(env, pass),
         }
     }
 }
@@ -467,7 +599,7 @@ impl Transform for PatVar {
             PatVar {
                 id: ref mut __binding_1,
                 ..
-            } => __binding_1.transform(env, &mut pass.clone()),
+            } => __binding_1.transform(env, pass),
         }
     }
 }
@@ -488,9 +620,9 @@ impl Transform for PatRefinement {
                 ..
             } => {
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
-                { __binding_2.transform(env, &mut pass.clone()) }
+                { __binding_2.transform(env, pass) }
             }
         }
     }
@@ -512,9 +644,9 @@ impl Transform for DestructureShape {
                 ..
             } => {
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
-                { __binding_2.transform(env, &mut pass.clone()) }
+                { __binding_2.transform(env, pass) }
             }
         }
     }
@@ -536,12 +668,12 @@ impl Transform for DestructureShapeField {
                 target: ref mut __binding_2,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
-                { __binding_2.transform(env, &mut pass.clone()) }
+                { __binding_2.transform(env, pass) }
             }
         }
     }
@@ -563,9 +695,9 @@ impl Transform for DestructureTuple {
                 ..
             } => {
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
-                { __binding_2.transform(env, &mut pass.clone()) }
+                { __binding_2.transform(env, pass) }
             }
         }
     }
@@ -586,9 +718,9 @@ impl Transform for DestructureTupleEntry {
                 target: ref mut __binding_1,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -606,12 +738,12 @@ impl Transform for DestructureTarget {
         match *self {
             DestructureTarget(ref mut __binding_0, ref mut __binding_1, ref mut __binding_2) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
-                { __binding_2.transform(env, &mut pass.clone()) }
+                { __binding_2.transform(env, pass) }
             }
         }
     }
@@ -627,18 +759,10 @@ impl Transform for DestructureTarget_ {
     }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
-            DestructureTarget_::DtLvar(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            DestructureTarget_::DtWildcard(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            DestructureTarget_::DtShape(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            DestructureTarget_::DtTuple(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
+            DestructureTarget_::DtLvar(ref mut __binding_0) => __binding_0.transform(env, pass),
+            DestructureTarget_::DtWildcard(ref mut __binding_0) => __binding_0.transform(env, pass),
+            DestructureTarget_::DtShape(ref mut __binding_0) => __binding_0.transform(env, pass),
+            DestructureTarget_::DtTuple(ref mut __binding_0) => __binding_0.transform(env, pass),
         }
     }
 }
@@ -655,12 +779,12 @@ impl Transform for ClassId {
         match *self {
             ClassId(ref mut __binding_0, ref mut __binding_1, ref mut __binding_2) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
-                { __binding_2.transform(env, &mut pass.clone()) }
+                { __binding_2.transform(env, pass) }
             }
         }
     }
@@ -679,11 +803,9 @@ impl Transform for ClassId_ {
             ClassId_::CIparent => {}
             ClassId_::CIself => {}
             ClassId_::CIstatic => {}
-            ClassId_::CIexpr(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            ClassId_::CIreified(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            ClassId_::CI(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
+            ClassId_::CIexpr(ref mut __binding_0) => __binding_0.transform(env, pass),
+            ClassId_::CIreified(ref mut __binding_0) => __binding_0.transform(env, pass),
+            ClassId_::CI(ref mut __binding_0) => __binding_0.transform(env, pass),
         }
     }
 }
@@ -700,12 +822,12 @@ impl Transform for Expr {
         match *self {
             Expr(ref mut __binding_0, ref mut __binding_1, ref mut __binding_2) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
-                { __binding_2.transform(env, &mut pass.clone()) }
+                { __binding_2.transform(env, pass) }
             }
         }
     }
@@ -721,14 +843,12 @@ impl Transform for CollectionTarg {
     }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
-            CollectionTarg::CollectionTV(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
+            CollectionTarg::CollectionTV(ref mut __binding_0) => __binding_0.transform(env, pass),
             CollectionTarg::CollectionTKV(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -744,14 +864,12 @@ impl Transform for FunctionPtrId {
     }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
-            FunctionPtrId::FPId(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
+            FunctionPtrId::FPId(ref mut __binding_0) => __binding_0.transform(env, pass),
             FunctionPtrId::FPClassConst(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -773,12 +891,12 @@ impl Transform for ExpressionTree {
                 free_vars: ref mut __binding_2,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
-                { __binding_2.transform(env, &mut pass.clone()) }
+                { __binding_2.transform(env, pass) }
             }
         }
     }
@@ -801,15 +919,15 @@ impl Transform for As_ {
                 enforce_deep: ref mut __binding_3,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
                 {
-                    __binding_2.transform(env, &mut pass.clone())
+                    __binding_2.transform_copy(env, pass)
                 }
-                { __binding_3.transform(env, &mut pass.clone()) }
+                { __binding_3.transform(env, pass) }
             }
         }
     }
@@ -833,18 +951,18 @@ impl Transform for EtSplice {
                 spliced_expr: ref mut __binding_4,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
                 {
-                    __binding_2.transform(env, &mut pass.clone())
+                    __binding_2.transform_copy(env, pass)
                 }
                 {
-                    __binding_3.transform(env, &mut pass.clone())
+                    __binding_3.transform_copy(env, pass)
                 }
-                { __binding_4.transform(env, &mut pass.clone()) }
+                { __binding_4.transform(env, pass) }
             }
         }
     }
@@ -886,79 +1004,57 @@ impl Transform for Expr_ {
             Expr_::Null => {}
             Expr_::True => {}
             Expr_::False => {}
-            Expr_::Shape(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::ValCollection(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            Expr_::KeyValCollection(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
+            Expr_::Shape(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::ValCollection(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::KeyValCollection(ref mut __binding_0) => __binding_0.transform(env, pass),
             Expr_::This => {}
             Expr_::Omitted => {}
-            Expr_::Invalid(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::Id(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::Lvar(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::Dollardollar(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            Expr_::Clone(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::ArrayGet(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::ObjGet(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::ClassGet(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::ClassConst(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::Call(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::FunctionPointer(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            Expr_::Int(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::Float(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::String2(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::PrefixedString(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            Expr_::Yield(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::Await(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::Delay(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::ReadonlyExpr(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            Expr_::Tuple(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::List(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::DestructureShape(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            Expr_::DestructureTuple(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            Expr_::Cast(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::Unop(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::Binop(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::Assign(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::Pipe(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::Eif(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::Is(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::As(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::Upcast(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::New(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::Efun(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::Lfun(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::Xml(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::Import(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::Collection(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::ExpressionTree(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            Expr_::MethodCaller(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            Expr_::Pair(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::ETSplice(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::EnumClassLabel(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            Expr_::Hole(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::Package(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Expr_::Nameof(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
+            Expr_::Invalid(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Id(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Lvar(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Dollardollar(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Clone(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::ArrayGet(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::ObjGet(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::ClassGet(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::ClassConst(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Call(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::FunctionPointer(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Int(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Float(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::String2(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::PrefixedString(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Yield(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Await(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Delay(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::ReadonlyExpr(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Tuple(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::List(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::DestructureShape(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::DestructureTuple(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Cast(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Unop(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Binop(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Assign(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Pipe(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Eif(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Is(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::As(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Upcast(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::New(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Efun(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Lfun(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Xml(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Import(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Collection(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::ExpressionTree(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::MethodCaller(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Pair(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::ETSplice(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::EnumClassLabel(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Hole(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Package(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Expr_::Nameof(ref mut __binding_0) => __binding_0.transform(env, pass),
             _ => {}
         }
     }
@@ -975,13 +1071,9 @@ impl Transform for HoleSource {
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
             HoleSource::Typing => {}
-            HoleSource::UnsafeCast(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
+            HoleSource::UnsafeCast(ref mut __binding_0) => __binding_0.transform(env, pass),
             HoleSource::UnsafeNonnullCast => {}
-            HoleSource::EnforcedCast(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
+            HoleSource::EnforcedCast(ref mut __binding_0) => __binding_0.transform(env, pass),
         }
     }
 }
@@ -1024,7 +1116,7 @@ impl Transform for Binop {
                         if let Break(..) = pass.on_fld_binop_lhs_top_down(env, __binding_1) {
                             return;
                         }
-                        __binding_1.transform(env, &mut pass.clone());
+                        __binding_1.transform(env, pass);
                         let _ = in_pass.on_fld_binop_lhs_bottom_up(env, __binding_1);
                     }
                 }
@@ -1035,7 +1127,7 @@ impl Transform for Binop {
                         if let Break(..) = pass.on_fld_binop_rhs_top_down(env, __binding_2) {
                             return;
                         }
-                        __binding_2.transform(env, &mut pass.clone());
+                        __binding_2.transform(env, pass);
                         let _ = in_pass.on_fld_binop_rhs_bottom_up(env, __binding_2);
                     }
                 }
@@ -1056,9 +1148,9 @@ impl Transform for Case {
         match *self {
             Case(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -1076,9 +1168,9 @@ impl Transform for DefaultCase {
         match *self {
             DefaultCase(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -1096,12 +1188,12 @@ impl Transform for Catch {
         match *self {
             Catch(ref mut __binding_0, ref mut __binding_1, ref mut __binding_2) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
-                { __binding_2.transform(env, &mut pass.clone()) }
+                { __binding_2.transform(env, pass) }
             }
         }
     }
@@ -1119,9 +1211,9 @@ impl Transform for Field {
         match *self {
             Field(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -1137,12 +1229,12 @@ impl Transform for Afield {
     }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
-            Afield::AFvalue(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
+            Afield::AFvalue(ref mut __binding_0) => __binding_0.transform(env, pass),
             Afield::AFkvalue(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -1164,9 +1256,9 @@ impl Transform for XhpSimple {
                 ..
             } => {
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
-                { __binding_2.transform(env, &mut pass.clone()) }
+                { __binding_2.transform(env, pass) }
             }
         }
     }
@@ -1182,12 +1274,8 @@ impl Transform for XhpAttribute {
     }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
-            XhpAttribute::XhpSimple(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            XhpAttribute::XhpSpread(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
+            XhpAttribute::XhpSimple(ref mut __binding_0) => __binding_0.transform(env, pass),
+            XhpAttribute::XhpSpread(ref mut __binding_0) => __binding_0.transform(env, pass),
         }
     }
 }
@@ -1202,9 +1290,7 @@ impl Transform for FunParamInfo {
     }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
-            FunParamInfo::ParamOptional(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
+            FunParamInfo::ParamOptional(ref mut __binding_0) => __binding_0.transform(env, pass),
             FunParamInfo::ParamRequired => {}
             FunParamInfo::ParamVariadic => {}
         }
@@ -1230,18 +1316,18 @@ impl Transform for FunParam {
                 ..
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
                 {
-                    __binding_3.transform(env, &mut pass.clone())
+                    __binding_3.transform_copy(env, pass)
                 }
                 {
-                    __binding_4.transform(env, &mut pass.clone())
+                    __binding_4.transform_copy(env, pass)
                 }
-                { __binding_9.transform(env, &mut pass.clone()) }
+                { __binding_9.transform(env, pass) }
             }
         }
     }
@@ -1272,10 +1358,10 @@ impl Transform for Fun_ {
                 ..
             } => {
                 {
-                    __binding_2.transform(env, &mut pass.clone())
+                    __binding_2.transform_copy(env, pass)
                 }
                 {
-                    __binding_4.transform(env, &mut pass.clone())
+                    __binding_4.transform_copy(env, pass)
                 }
                 {
                     {
@@ -1284,32 +1370,32 @@ impl Transform for Fun_ {
                         if let Break(..) = pass.on_fld_fun__ret_top_down(env, __binding_5) {
                             return;
                         }
-                        __binding_5.transform(env, &mut pass.clone());
+                        __binding_5.transform(env, pass);
                         let _ = in_pass.on_fld_fun__ret_bottom_up(env, __binding_5);
                     }
                 }
                 {
-                    __binding_6.transform(env, &mut pass.clone())
+                    __binding_6.transform_copy(env, pass)
                 }
                 {
-                    __binding_7.transform(env, &mut pass.clone())
+                    __binding_7.transform_copy(env, pass)
                 }
                 {
-                    __binding_8.transform(env, &mut pass.clone())
+                    __binding_8.transform_copy(env, pass)
                 }
                 {
-                    __binding_9.transform(env, &mut pass.clone())
+                    __binding_9.transform_copy(env, pass)
                 }
                 {
-                    __binding_11.transform(env, &mut pass.clone())
+                    __binding_11.transform_copy(env, pass)
                 }
                 {
-                    __binding_12.transform(env, &mut pass.clone())
+                    __binding_12.transform_copy(env, pass)
                 }
                 {
-                    __binding_13.transform(env, &mut pass.clone())
+                    __binding_13.transform_copy(env, pass)
                 }
-                { __binding_14.transform(env, &mut pass.clone()) }
+                { __binding_14.transform(env, pass) }
             }
         }
     }
@@ -1327,9 +1413,9 @@ impl Transform for CaptureLid {
         match *self {
             CaptureLid(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -1352,15 +1438,15 @@ impl Transform for Efun {
                 is_expr_tree_virtual_expr: ref mut __binding_3,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
                 {
-                    __binding_2.transform(env, &mut pass.clone())
+                    __binding_2.transform_copy(env, pass)
                 }
-                { __binding_3.transform(env, &mut pass.clone()) }
+                { __binding_3.transform(env, pass) }
             }
         }
     }
@@ -1378,7 +1464,7 @@ impl Transform for FuncBody {
         match *self {
             FuncBody {
                 fb_ast: ref mut __binding_0,
-            } => __binding_0.transform(env, &mut pass.clone()),
+            } => __binding_0.transform(env, pass),
         }
     }
 }
@@ -1395,9 +1481,9 @@ impl Transform for TypeHint {
         match *self {
             TypeHint(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -1415,9 +1501,9 @@ impl Transform for Targ {
         match *self {
             Targ(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -1440,15 +1526,15 @@ impl Transform for CallExpr {
                 unpacked_arg: ref mut __binding_3,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
                 {
-                    __binding_2.transform(env, &mut pass.clone())
+                    __binding_2.transform_copy(env, pass)
                 }
-                { __binding_3.transform(env, &mut pass.clone()) }
+                { __binding_3.transform(env, pass) }
             }
         }
     }
@@ -1466,16 +1552,16 @@ impl Transform for Argument {
         match *self {
             Argument::Ainout(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
-            Argument::Anormal(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
+            Argument::Anormal(ref mut __binding_0) => __binding_0.transform(env, pass),
             Argument::Anamed(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -1496,9 +1582,9 @@ impl Transform for UserAttribute {
                 params: ref mut __binding_1,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -1519,9 +1605,9 @@ impl Transform for FileAttribute {
                 namespace: ref mut __binding_1,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -1544,12 +1630,12 @@ impl Transform for Tparam {
                 ..
             } => {
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
                 {
-                    __binding_2.transform(env, &mut pass.clone())
+                    __binding_2.transform_copy(env, pass)
                 }
-                { __binding_4.transform(env, &mut pass.clone()) }
+                { __binding_4.transform(env, pass) }
             }
         }
     }
@@ -1606,22 +1692,22 @@ impl Transform for Class_ {
                 ..
             } => {
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
                 {
-                    __binding_2.transform(env, &mut pass.clone())
+                    __binding_2.transform_copy(env, pass)
                 }
                 {
-                    __binding_3.transform(env, &mut pass.clone())
+                    __binding_3.transform_copy(env, pass)
                 }
                 {
-                    __binding_4.transform(env, &mut pass.clone())
+                    __binding_4.transform_copy(env, pass)
                 }
                 {
-                    __binding_5.transform(env, &mut pass.clone())
+                    __binding_5.transform_copy(env, pass)
                 }
                 {
-                    __binding_7.transform(env, &mut pass.clone())
+                    __binding_7.transform_copy(env, pass)
                 }
                 {
                     {
@@ -1630,7 +1716,7 @@ impl Transform for Class_ {
                         if let Break(..) = pass.on_fld_class__tparams_top_down(env, __binding_8) {
                             return;
                         }
-                        __binding_8.transform(env, &mut pass.clone());
+                        __binding_8.transform(env, pass);
                         let _ = in_pass.on_fld_class__tparams_bottom_up(env, __binding_8);
                     }
                 }
@@ -1641,7 +1727,7 @@ impl Transform for Class_ {
                         if let Break(..) = pass.on_fld_class__extends_top_down(env, __binding_9) {
                             return;
                         }
-                        __binding_9.transform(env, &mut pass.clone());
+                        __binding_9.transform(env, pass);
                         let _ = in_pass.on_fld_class__extends_bottom_up(env, __binding_9);
                     }
                 }
@@ -1652,7 +1738,7 @@ impl Transform for Class_ {
                         if let Break(..) = pass.on_fld_class__uses_top_down(env, __binding_10) {
                             return;
                         }
-                        __binding_10.transform(env, &mut pass.clone());
+                        __binding_10.transform(env, pass);
                         let _ = in_pass.on_fld_class__uses_bottom_up(env, __binding_10);
                     }
                 }
@@ -1665,7 +1751,7 @@ impl Transform for Class_ {
                         {
                             return;
                         }
-                        __binding_11.transform(env, &mut pass.clone());
+                        __binding_11.transform(env, pass);
                         let _ = in_pass.on_fld_class__xhp_attr_uses_bottom_up(env, __binding_11);
                     }
                 }
@@ -1676,7 +1762,7 @@ impl Transform for Class_ {
                         if let Break(..) = pass.on_fld_class__reqs_top_down(env, __binding_13) {
                             return;
                         }
-                        __binding_13.transform(env, &mut pass.clone());
+                        __binding_13.transform(env, pass);
                         let _ = in_pass.on_fld_class__reqs_bottom_up(env, __binding_13);
                     }
                 }
@@ -1688,7 +1774,7 @@ impl Transform for Class_ {
                         {
                             return;
                         }
-                        __binding_14.transform(env, &mut pass.clone());
+                        __binding_14.transform(env, pass);
                         let _ = in_pass.on_fld_class__implements_bottom_up(env, __binding_14);
                     }
                 }
@@ -1699,21 +1785,21 @@ impl Transform for Class_ {
                         if let Break(..) = pass.on_fld_class__consts_top_down(env, __binding_15) {
                             return;
                         }
-                        __binding_15.transform(env, &mut pass.clone());
+                        __binding_15.transform(env, pass);
                         let _ = in_pass.on_fld_class__consts_bottom_up(env, __binding_15);
                     }
                 }
                 {
-                    __binding_16.transform(env, &mut pass.clone())
+                    __binding_16.transform_copy(env, pass)
                 }
                 {
-                    __binding_17.transform(env, &mut pass.clone())
+                    __binding_17.transform_copy(env, pass)
                 }
                 {
-                    __binding_18.transform(env, &mut pass.clone())
+                    __binding_18.transform_copy(env, pass)
                 }
                 {
-                    __binding_19.transform(env, &mut pass.clone())
+                    __binding_19.transform_copy(env, pass)
                 }
                 {
                     {
@@ -1723,12 +1809,12 @@ impl Transform for Class_ {
                         {
                             return;
                         }
-                        __binding_20.transform(env, &mut pass.clone());
+                        __binding_20.transform(env, pass);
                         let _ = in_pass.on_fld_class__xhp_attrs_bottom_up(env, __binding_20);
                     }
                 }
                 {
-                    __binding_21.transform(env, &mut pass.clone())
+                    __binding_21.transform_copy(env, pass)
                 }
                 {
                     {
@@ -1739,32 +1825,32 @@ impl Transform for Class_ {
                         {
                             return;
                         }
-                        __binding_22.transform(env, &mut pass.clone());
+                        __binding_22.transform(env, pass);
                         let _ = in_pass.on_fld_class__user_attributes_bottom_up(env, __binding_22);
                     }
                 }
                 {
-                    __binding_23.transform(env, &mut pass.clone())
+                    __binding_23.transform_copy(env, pass)
                 }
                 {
-                    __binding_24.transform(env, &mut pass.clone())
+                    __binding_24.transform_copy(env, pass)
                 }
                 {
-                    __binding_25.transform(env, &mut pass.clone())
+                    __binding_25.transform_copy(env, pass)
                 }
                 {
-                    __binding_26.transform(env, &mut pass.clone())
+                    __binding_26.transform_copy(env, pass)
                 }
                 {
-                    __binding_27.transform(env, &mut pass.clone())
+                    __binding_27.transform_copy(env, pass)
                 }
                 {
-                    __binding_28.transform(env, &mut pass.clone())
+                    __binding_28.transform_copy(env, pass)
                 }
                 {
-                    __binding_29.transform(env, &mut pass.clone())
+                    __binding_29.transform_copy(env, pass)
                 }
-                { __binding_30.transform(env, &mut pass.clone()) }
+                { __binding_30.transform(env, pass) }
             }
         }
     }
@@ -1782,9 +1868,9 @@ impl Transform for ClassReq {
         match *self {
             ClassReq(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -1810,15 +1896,15 @@ impl Transform for XhpAttr {
                 ref mut __binding_3,
             ) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
                 {
-                    __binding_2.transform(env, &mut pass.clone())
+                    __binding_2.transform_copy(env, pass)
                 }
-                { __binding_3.transform(env, &mut pass.clone()) }
+                { __binding_3.transform(env, pass) }
             }
         }
     }
@@ -1834,12 +1920,8 @@ impl Transform for ClassConstKind {
     }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
-            ClassConstKind::CCAbstract(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            ClassConstKind::CCConcrete(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
+            ClassConstKind::CCAbstract(ref mut __binding_0) => __binding_0.transform(env, pass),
+            ClassConstKind::CCConcrete(ref mut __binding_0) => __binding_0.transform(env, pass),
         }
     }
 }
@@ -1863,18 +1945,18 @@ impl Transform for ClassConst {
                 ..
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
                 {
-                    __binding_2.transform(env, &mut pass.clone())
+                    __binding_2.transform_copy(env, pass)
                 }
                 {
-                    __binding_3.transform(env, &mut pass.clone())
+                    __binding_3.transform_copy(env, pass)
                 }
-                { __binding_5.transform(env, &mut pass.clone()) }
+                { __binding_5.transform(env, pass) }
             }
         }
     }
@@ -1896,10 +1978,10 @@ impl Transform for ClassAbstractTypeconst {
                 default: ref mut __binding_2,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
                 {
                     {
@@ -1910,7 +1992,7 @@ impl Transform for ClassAbstractTypeconst {
                         {
                             return;
                         }
-                        __binding_2.transform(env, &mut pass.clone());
+                        __binding_2.transform(env, pass);
                         let _ = in_pass
                             .on_fld_class_abstract_typeconst_default_bottom_up(env, __binding_2);
                     }
@@ -1932,7 +2014,7 @@ impl Transform for ClassConcreteTypeconst {
         match *self {
             ClassConcreteTypeconst {
                 c_tc_type: ref mut __binding_0,
-            } => __binding_0.transform(env, &mut pass.clone()),
+            } => __binding_0.transform(env, pass),
         }
     }
 }
@@ -1947,12 +2029,8 @@ impl Transform for ClassTypeconst {
     }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
-            ClassTypeconst::TCAbstract(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            ClassTypeconst::TCConcrete(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
+            ClassTypeconst::TCAbstract(ref mut __binding_0) => __binding_0.transform(env, pass),
+            ClassTypeconst::TCConcrete(ref mut __binding_0) => __binding_0.transform(env, pass),
         }
     }
 }
@@ -1976,18 +2054,18 @@ impl Transform for ClassTypeconstDef {
                 ..
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
                 {
-                    __binding_2.transform(env, &mut pass.clone())
+                    __binding_2.transform_copy(env, pass)
                 }
                 {
-                    __binding_4.transform(env, &mut pass.clone())
+                    __binding_4.transform_copy(env, pass)
                 }
-                { __binding_5.transform(env, &mut pass.clone()) }
+                { __binding_5.transform(env, pass) }
             }
         }
     }
@@ -2006,7 +2084,7 @@ impl Transform for XhpAttrInfo {
             XhpAttrInfo {
                 tag: ref mut __binding_1,
                 ..
-            } => __binding_1.transform(env, &mut pass.clone()),
+            } => __binding_1.transform(env, pass),
         }
     }
 }
@@ -2035,16 +2113,16 @@ impl Transform for ClassVar {
                 ..
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
                 {
-                    __binding_2.transform(env, &mut pass.clone())
+                    __binding_2.transform_copy(env, pass)
                 }
                 {
-                    __binding_3.transform(env, &mut pass.clone())
+                    __binding_3.transform_copy(env, pass)
                 }
                 {
                     {
@@ -2053,23 +2131,23 @@ impl Transform for ClassVar {
                         if let Break(..) = pass.on_fld_class_var_type__top_down(env, __binding_5) {
                             return;
                         }
-                        __binding_5.transform(env, &mut pass.clone());
+                        __binding_5.transform(env, pass);
                         let _ = in_pass.on_fld_class_var_type__bottom_up(env, __binding_5);
                     }
                 }
                 {
-                    __binding_6.transform(env, &mut pass.clone())
+                    __binding_6.transform_copy(env, pass)
                 }
                 {
-                    __binding_7.transform(env, &mut pass.clone())
+                    __binding_7.transform_copy(env, pass)
                 }
                 {
-                    __binding_8.transform(env, &mut pass.clone())
+                    __binding_8.transform_copy(env, pass)
                 }
                 {
-                    __binding_9.transform(env, &mut pass.clone())
+                    __binding_9.transform_copy(env, pass)
                 }
-                { __binding_10.transform(env, &mut pass.clone()) }
+                { __binding_10.transform(env, pass) }
             }
         }
     }
@@ -2106,43 +2184,43 @@ impl Transform for Method_ {
                 ..
             } => {
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
                 {
-                    __binding_2.transform(env, &mut pass.clone())
+                    __binding_2.transform_copy(env, pass)
                 }
                 {
-                    __binding_3.transform(env, &mut pass.clone())
+                    __binding_3.transform_copy(env, pass)
                 }
                 {
-                    __binding_4.transform(env, &mut pass.clone())
+                    __binding_4.transform_copy(env, pass)
                 }
                 {
-                    __binding_5.transform(env, &mut pass.clone())
+                    __binding_5.transform_copy(env, pass)
                 }
                 {
-                    __binding_7.transform(env, &mut pass.clone())
+                    __binding_7.transform_copy(env, pass)
                 }
                 {
-                    __binding_8.transform(env, &mut pass.clone())
+                    __binding_8.transform_copy(env, pass)
                 }
                 {
-                    __binding_9.transform(env, &mut pass.clone())
+                    __binding_9.transform_copy(env, pass)
                 }
                 {
-                    __binding_10.transform(env, &mut pass.clone())
+                    __binding_10.transform_copy(env, pass)
                 }
                 {
-                    __binding_11.transform(env, &mut pass.clone())
+                    __binding_11.transform_copy(env, pass)
                 }
                 {
-                    __binding_12.transform(env, &mut pass.clone())
+                    __binding_12.transform_copy(env, pass)
                 }
                 {
-                    __binding_13.transform(env, &mut pass.clone())
+                    __binding_13.transform_copy(env, pass)
                 }
                 {
-                    __binding_15.transform(env, &mut pass.clone())
+                    __binding_15.transform_copy(env, pass)
                 }
                 {
                     {
@@ -2151,17 +2229,17 @@ impl Transform for Method_ {
                         if let Break(..) = pass.on_fld_method__ret_top_down(env, __binding_17) {
                             return;
                         }
-                        __binding_17.transform(env, &mut pass.clone());
+                        __binding_17.transform(env, pass);
                         let _ = in_pass.on_fld_method__ret_bottom_up(env, __binding_17);
                     }
                 }
                 {
-                    __binding_18.transform(env, &mut pass.clone())
+                    __binding_18.transform_copy(env, pass)
                 }
                 {
-                    __binding_19.transform(env, &mut pass.clone())
+                    __binding_19.transform_copy(env, pass)
                 }
-                { __binding_20.transform(env, &mut pass.clone()) }
+                { __binding_20.transform(env, pass) }
             }
         }
     }
@@ -2188,7 +2266,7 @@ impl Transform for TypedefVisibilityAndHint {
                 {
                     return;
                 }
-                __binding_1.transform(env, &mut pass.clone());
+                __binding_1.transform(env, pass);
                 let _ = in_pass.on_fld_typedef_visibility_and_hint_hint_bottom_up(env, __binding_1);
             }
         }
@@ -2210,9 +2288,9 @@ impl Transform for TypedefCaseTypeVariant {
                 where_constraints: ref mut __binding_1,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -2229,13 +2307,13 @@ impl Transform for TypedefAssignment {
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
             TypedefAssignment::SimpleTypeDef(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
+                __binding_0.transform(env, pass)
             }
             TypedefAssignment::CaseType(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -2273,57 +2351,57 @@ impl Transform for Typedef {
                 ..
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
                 {
-                    __binding_2.transform(env, &mut pass.clone())
+                    __binding_2.transform_copy(env, pass)
                 }
                 {
-                    __binding_3.transform(env, &mut pass.clone())
+                    __binding_3.transform_copy(env, pass)
                 }
                 {
-                    __binding_4.transform(env, &mut pass.clone())
+                    __binding_4.transform_copy(env, pass)
                 }
                 {
-                    __binding_5.transform(env, &mut pass.clone())
+                    __binding_5.transform_copy(env, pass)
                 }
                 {
-                    __binding_6.transform(env, &mut pass.clone())
+                    __binding_6.transform_copy(env, pass)
                 }
                 {
-                    __binding_7.transform(env, &mut pass.clone())
+                    __binding_7.transform_copy(env, pass)
                 }
                 {
-                    __binding_8.transform(env, &mut pass.clone())
+                    __binding_8.transform_copy(env, pass)
                 }
                 {
-                    __binding_9.transform(env, &mut pass.clone())
+                    __binding_9.transform_copy(env, pass)
                 }
                 {
-                    __binding_10.transform(env, &mut pass.clone())
+                    __binding_10.transform_copy(env, pass)
                 }
                 {
-                    __binding_12.transform(env, &mut pass.clone())
+                    __binding_12.transform_copy(env, pass)
                 }
                 {
-                    __binding_13.transform(env, &mut pass.clone())
+                    __binding_13.transform_copy(env, pass)
                 }
                 {
-                    __binding_14.transform(env, &mut pass.clone())
+                    __binding_14.transform_copy(env, pass)
                 }
                 {
-                    __binding_15.transform(env, &mut pass.clone())
+                    __binding_15.transform_copy(env, pass)
                 }
                 {
-                    __binding_16.transform(env, &mut pass.clone())
+                    __binding_16.transform_copy(env, pass)
                 }
                 {
-                    __binding_17.transform(env, &mut pass.clone())
+                    __binding_17.transform_copy(env, pass)
                 }
-                { __binding_18.transform(env, &mut pass.clone()) }
+                { __binding_18.transform(env, pass) }
             }
         }
     }
@@ -2352,16 +2430,16 @@ impl Transform for Gconst {
                 ..
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
                 {
-                    __binding_2.transform(env, &mut pass.clone())
+                    __binding_2.transform_copy(env, pass)
                 }
                 {
-                    __binding_3.transform(env, &mut pass.clone())
+                    __binding_3.transform_copy(env, pass)
                 }
                 {
                     {
@@ -2370,20 +2448,20 @@ impl Transform for Gconst {
                         if let Break(..) = pass.on_fld_gconst_value_top_down(env, __binding_4) {
                             return;
                         }
-                        __binding_4.transform(env, &mut pass.clone());
+                        __binding_4.transform(env, pass);
                         let _ = in_pass.on_fld_gconst_value_bottom_up(env, __binding_4);
                     }
                 }
                 {
-                    __binding_5.transform(env, &mut pass.clone())
+                    __binding_5.transform_copy(env, pass)
                 }
                 {
-                    __binding_7.transform(env, &mut pass.clone())
+                    __binding_7.transform_copy(env, pass)
                 }
                 {
-                    __binding_8.transform(env, &mut pass.clone())
+                    __binding_8.transform_copy(env, pass)
                 }
-                { __binding_9.transform(env, &mut pass.clone()) }
+                { __binding_9.transform(env, pass) }
             }
         }
     }
@@ -2412,33 +2490,33 @@ impl Transform for FunDef {
                 package: ref mut __binding_9,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
                 {
-                    __binding_2.transform(env, &mut pass.clone())
+                    __binding_2.transform_copy(env, pass)
                 }
                 {
-                    __binding_3.transform(env, &mut pass.clone())
+                    __binding_3.transform_copy(env, pass)
                 }
                 {
-                    __binding_4.transform(env, &mut pass.clone())
+                    __binding_4.transform_copy(env, pass)
                 }
                 {
-                    __binding_5.transform(env, &mut pass.clone())
+                    __binding_5.transform_copy(env, pass)
                 }
                 {
-                    __binding_6.transform(env, &mut pass.clone())
+                    __binding_6.transform_copy(env, pass)
                 }
                 {
-                    __binding_7.transform(env, &mut pass.clone())
+                    __binding_7.transform_copy(env, pass)
                 }
                 {
-                    __binding_8.transform(env, &mut pass.clone())
+                    __binding_8.transform_copy(env, pass)
                 }
-                { __binding_9.transform(env, &mut pass.clone()) }
+                { __binding_9.transform(env, pass) }
             }
         }
     }
@@ -2463,18 +2541,18 @@ impl Transform for ModuleDef {
                 ..
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_2.transform(env, &mut pass.clone())
+                    __binding_2.transform_copy(env, pass)
                 }
                 {
-                    __binding_3.transform(env, &mut pass.clone())
+                    __binding_3.transform_copy(env, pass)
                 }
                 {
-                    __binding_5.transform(env, &mut pass.clone())
+                    __binding_5.transform_copy(env, pass)
                 }
-                { __binding_6.transform(env, &mut pass.clone()) }
+                { __binding_6.transform(env, pass) }
             }
         }
     }
@@ -2497,15 +2575,15 @@ impl Transform for ClassAlias {
                 original_tparams: ref mut __binding_3,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
                 {
-                    __binding_2.transform(env, &mut pass.clone())
+                    __binding_2.transform_copy(env, pass)
                 }
-                { __binding_3.transform(env, &mut pass.clone()) }
+                { __binding_3.transform(env, pass) }
             }
         }
     }
@@ -2521,22 +2599,18 @@ impl Transform for Def {
     }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
-            Def::Fun(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Def::Class(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Def::ClassAlias(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Def::Stmt(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Def::Typedef(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Def::Constant(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Def::Namespace(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Def::NamespaceUse(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Def::SetNamespaceEnv(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            Def::FileAttributes(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            Def::Module(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Def::SetModule(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
+            Def::Fun(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Def::Class(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Def::ClassAlias(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Def::Stmt(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Def::Typedef(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Def::Constant(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Def::Namespace(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Def::NamespaceUse(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Def::SetNamespaceEnv(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Def::FileAttributes(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Def::Module(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Def::SetModule(ref mut __binding_0) => __binding_0.transform(env, pass),
         }
     }
 }
@@ -2557,23 +2631,19 @@ impl Transform for XhpChild {
     }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
-            XhpChild::ChildName(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            XhpChild::ChildList(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
+            XhpChild::ChildName(ref mut __binding_0) => __binding_0.transform(env, pass),
+            XhpChild::ChildList(ref mut __binding_0) => __binding_0.transform(env, pass),
             XhpChild::ChildUnary(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
             XhpChild::ChildBinary(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -2594,9 +2664,9 @@ impl Transform for Hint {
         match *self {
             Hint(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -2612,7 +2682,7 @@ impl Transform for UserAttributes {
     }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
-            UserAttributes(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
+            UserAttributes(ref mut __binding_0) => __binding_0.transform(env, pass),
         }
     }
 }
@@ -2629,9 +2699,9 @@ impl Transform for Contexts {
         match *self {
             Contexts(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -2661,22 +2731,22 @@ impl Transform for HintFun {
                 ..
             } => {
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
                 {
-                    __binding_2.transform(env, &mut pass.clone())
+                    __binding_2.transform_copy(env, pass)
                 }
                 {
-                    __binding_3.transform(env, &mut pass.clone())
+                    __binding_3.transform_copy(env, pass)
                 }
                 {
-                    __binding_4.transform(env, &mut pass.clone())
+                    __binding_4.transform_copy(env, pass)
                 }
                 {
-                    __binding_5.transform(env, &mut pass.clone())
+                    __binding_5.transform_copy(env, pass)
                 }
                 {
-                    __binding_6.transform(env, &mut pass.clone())
+                    __binding_6.transform_copy(env, pass)
                 }
                 {
                     {
@@ -2686,7 +2756,7 @@ impl Transform for HintFun {
                         {
                             return;
                         }
-                        __binding_7.transform(env, &mut pass.clone());
+                        __binding_7.transform(env, pass);
                         let _ = in_pass.on_fld_hint_fun_return_ty_bottom_up(env, __binding_7);
                     }
                 }
@@ -2711,12 +2781,12 @@ impl Transform for HintTparam {
                 constraints: ref mut __binding_2,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
-                { __binding_2.transform(env, &mut pass.clone()) }
+                { __binding_2.transform(env, pass) }
             }
         }
     }
@@ -2748,58 +2818,54 @@ impl Transform for Hint_ {
     }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
-            Hint_::Hprim(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
+            Hint_::Hprim(ref mut __binding_0) => __binding_0.transform(env, pass),
             Hint_::Happly(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
-            Hint_::Hoption(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Hint_::Hlike(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Hint_::Hfun(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Hint_::Htuple(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
+            Hint_::Hoption(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Hint_::Hlike(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Hint_::Hfun(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Hint_::Htuple(ref mut __binding_0) => __binding_0.transform(env, pass),
             Hint_::HclassPtr(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
-            Hint_::Hshape(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
+            Hint_::Hshape(ref mut __binding_0) => __binding_0.transform(env, pass),
             Hint_::Haccess(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
-            Hint_::Hsoft(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
+            Hint_::Hsoft(ref mut __binding_0) => __binding_0.transform(env, pass),
             Hint_::Hrefinement(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
             Hint_::Hmixed => {}
             Hint_::Hwildcard => {}
             Hint_::Hnonnull => {}
-            Hint_::Habstr(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
+            Hint_::Habstr(ref mut __binding_0) => __binding_0.transform(env, pass),
             Hint_::HvecOrDict(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
             Hint_::Hthis => {}
             Hint_::Hdynamic => {}
             Hint_::Hnothing => {}
-            Hint_::Hunion(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
-            Hint_::Hintersection(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            Hint_::HfunContext(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            Hint_::Hvar(ref mut __binding_0) => __binding_0.transform(env, &mut pass.clone()),
+            Hint_::Hunion(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Hint_::Hintersection(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Hint_::HfunContext(ref mut __binding_0) => __binding_0.transform(env, pass),
+            Hint_::Hvar(ref mut __binding_0) => __binding_0.transform(env, pass),
         }
     }
 }
@@ -2816,15 +2882,15 @@ impl Transform for Refinement {
         match *self {
             Refinement::Rctx(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
             Refinement::Rtype(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -2840,12 +2906,8 @@ impl Transform for TypeRefinement {
     }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
-            TypeRefinement::TRexact(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            TypeRefinement::TRloose(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
+            TypeRefinement::TRexact(ref mut __binding_0) => __binding_0.transform(env, pass),
+            TypeRefinement::TRloose(ref mut __binding_0) => __binding_0.transform(env, pass),
         }
     }
 }
@@ -2865,9 +2927,9 @@ impl Transform for TypeRefinementBounds {
                 upper: ref mut __binding_1,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -2883,12 +2945,8 @@ impl Transform for CtxRefinement {
     }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
-            CtxRefinement::CRexact(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            CtxRefinement::CRloose(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
+            CtxRefinement::CRexact(ref mut __binding_0) => __binding_0.transform(env, pass),
+            CtxRefinement::CRloose(ref mut __binding_0) => __binding_0.transform(env, pass),
         }
     }
 }
@@ -2908,9 +2966,9 @@ impl Transform for CtxRefinementBounds {
                 upper: ref mut __binding_1,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -2932,9 +2990,9 @@ impl Transform for ShapeFieldInfo {
                 ..
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -2950,12 +3008,8 @@ impl Transform for ShapeElement {
     }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
-            ShapeElement::SEField(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            ShapeElement::SESplat(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
+            ShapeElement::SEField(ref mut __binding_0) => __binding_0.transform(env, pass),
+            ShapeElement::SESplat(ref mut __binding_0) => __binding_0.transform(env, pass),
         }
     }
 }
@@ -2976,12 +3030,12 @@ impl Transform for NastShapeInfo {
                 unknown_fields_type: ref mut __binding_2,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
-                { __binding_2.transform(env, &mut pass.clone()) }
+                { __binding_2.transform(env, pass) }
             }
         }
     }
@@ -3002,9 +3056,9 @@ impl Transform for TupleInfo {
                 extra: ref mut __binding_1,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -3025,9 +3079,9 @@ impl Transform for TupleExtraInfo {
                 variadic: ref mut __binding_1,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }
@@ -3043,12 +3097,8 @@ impl Transform for TupleExtra {
     }
     fn traverse(&mut self, env: &Env, pass: &mut (impl Pass + Clone)) {
         match *self {
-            TupleExtra::Hextra(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
-            TupleExtra::Hsplat(ref mut __binding_0) => {
-                __binding_0.transform(env, &mut pass.clone())
-            }
+            TupleExtra::Hextra(ref mut __binding_0) => __binding_0.transform(env, pass),
+            TupleExtra::Hsplat(ref mut __binding_0) => __binding_0.transform(env, pass),
         }
     }
 }
@@ -3106,12 +3156,12 @@ impl Transform for Enum_ {
                 includes: ref mut __binding_2,
             } => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
-                { __binding_2.transform(env, &mut pass.clone()) }
+                { __binding_2.transform(env, pass) }
             }
         }
     }
@@ -3129,12 +3179,12 @@ impl Transform for WhereConstraintHint {
         match *self {
             WhereConstraintHint(ref mut __binding_0, ref mut __binding_1, ref mut __binding_2) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
                 {
-                    __binding_1.transform(env, &mut pass.clone())
+                    __binding_1.transform_copy(env, pass)
                 }
-                { __binding_2.transform(env, &mut pass.clone()) }
+                { __binding_2.transform(env, pass) }
             }
         }
     }
@@ -3152,9 +3202,9 @@ impl Transform for Id {
         match *self {
             Id(ref mut __binding_0, ref mut __binding_1) => {
                 {
-                    __binding_0.transform(env, &mut pass.clone())
+                    __binding_0.transform_copy(env, pass)
                 }
-                { __binding_1.transform(env, &mut pass.clone()) }
+                { __binding_1.transform(env, pass) }
             }
         }
     }

@@ -15,7 +15,7 @@ use hashbrown::HashTable;
 use parking_lot::RwLock;
 use parking_lot::RwLockWriteGuard;
 
-const SHARD_SHIFT: usize = 6;
+const SHARD_SHIFT: usize = 8;
 const SHARDS: usize = 1 << SHARD_SHIFT;
 
 pub struct ShardedSet<T, S = RandomState> {
@@ -39,72 +39,7 @@ impl<T, S: BuildHasher> ShardedSet<T, S> {
     pub fn with_hasher(h: S) -> Self {
         Self {
             build_hasher: h,
-            shards: [
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                Default::default(),
-            ],
+            shards: std::array::from_fn(|_| Default::default()),
         }
     }
 }
@@ -146,23 +81,18 @@ impl<T: Eq + Hash, S: BuildHasher> ShardedSet<T, S> {
         Q: ?Sized + Hash + Eq,
     {
         let (hash, shard) = self.hash_and_shard(q);
-        // Assume load is low and try to take lock for writing.
-        // We don't faff around with upgradability right now.
-        let shard = if let Some(write_lock) = shard.try_write() {
-            write_lock
-        } else {
-            // Write contention.  Try reading first to see if the entry already exists.
-            if let Some(t) = shard.read().find(hash, |other| q == other.borrow()) {
-                // Already exists.
-                return Ok(t.clone());
-            }
-            // Unconditionally write lock.
-            shard.write()
-        };
-        // Now check for the data.  We need to do this even if we already
-        // checked in the write contention case above.  We don't use an
-        // upgradable read lock because those are exclusive from one another
-        // just like write locks.
+        // Most lookups find an entry that is already there, and the same
+        // entries (common names, the path of the file being parsed) are
+        // looked up by every thread at once: look under a shared lock first,
+        // so that those lookups do not exclude one another, and take the
+        // write lock only to insert.
+        if let Some(t) = shard.read().find(hash, |other| q == other.borrow()) {
+            return Ok(t.clone());
+        }
+        let shard = shard.write();
+        // Check again: another thread may have inserted it between the two
+        // locks. We don't use an upgradable read lock because those are
+        // exclusive from one another just like write locks.
         if let Some(t) = shard.find(hash, |other| q == other.borrow()) {
             return Ok(t.clone());
         }

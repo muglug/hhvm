@@ -19,6 +19,10 @@ pub fn r#gen(ctx: &Context) -> TokenStream {
         .type_structures()
         .flat_map(|s| gen_pass_methods(s, Body::Passes))
         .collect();
+    let pair_methods: Vec<_> = ctx
+        .type_structures()
+        .flat_map(|s| gen_pass_methods(s, Body::Pair))
+        .collect();
 
     quote! {
         #![allow(unused_variables, non_snake_case)]
@@ -66,6 +70,22 @@ pub fn r#gen(ctx: &Context) -> TokenStream {
         impl Pass for Passes {
             #(#passes_methods)*
         }
+
+        /// Two passes run as one: at each node the first, then the second
+        /// (unless the first breaks), as `Passes` runs its list. Nest pairs
+        /// (`Pair(a, Pair(b, c))`) to run more. Unlike `Passes`, a pair calls
+        /// its passes statically, so the methods a pass does not override
+        /// cost nothing, and cloning it (which the traversal does at every
+        /// node) does not allocate.
+        #[derive(Clone, Copy, Default)]
+        pub struct Pair<A, B>(pub A, pub B);
+        impl<A, B> Pass for Pair<A, B>
+        where
+            A: 'static + Pass + Clone,
+            B: 'static + Pass + Clone,
+        {
+            #(#pair_methods)*
+        }
     }
 }
 
@@ -108,6 +128,7 @@ fn gen_pass_methods(s: synstructure::Structure<'_>, body_type: Body) -> TokenStr
 enum Body {
     Default,
     Passes,
+    Pair,
 }
 
 impl Body {
@@ -119,6 +140,10 @@ impl Body {
                     pass.#name(env, elem)?;
                 }
                 Continue(())
+            },
+            Body::Pair => quote! {
+                self.0.#name(env, elem)?;
+                self.1.#name(env, elem)
             },
         }
     }

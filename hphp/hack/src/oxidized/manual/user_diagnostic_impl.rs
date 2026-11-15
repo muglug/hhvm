@@ -8,7 +8,6 @@ use std::hash::Hash;
 
 use ansi_term::Color;
 use hh_hash::Hasher;
-use ocamlrep::OCamlInt;
 use rc_pos::with_erased_lines::WithErasedLines;
 
 use crate::explanation::Explanation;
@@ -39,7 +38,7 @@ impl<PrimPos: Hash + WithErasedLines + Clone, Pos: Hash + WithErasedLines + Clon
         let mut hasher = DefaultHasher::new();
         self.clone().with_erased_lines().hash(&mut hasher);
         let hash = hasher.finish();
-        OCamlInt::new_erase_msb(hash as isize)
+        ((hash as isize) << 1) >> 1
     }
 }
 

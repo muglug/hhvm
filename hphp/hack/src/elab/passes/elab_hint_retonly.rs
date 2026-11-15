@@ -87,6 +87,7 @@ mod tests {
 
         let mut pass = ElabHintRetonlyPass::default();
         let mut elem = Fun_ {
+            tparams: vec![],
             span: Default::default(),
             readonly_this: Default::default(),
             annotation: Default::default(),
@@ -104,6 +105,7 @@ mod tests {
             fun_kind: nast::FunKind::FSync,
             user_attributes: Default::default(),
             external: Default::default(),
+            hidden: false,
             doc_comment: Default::default(),
         };
         elem.transform(&env, &mut pass);
@@ -202,6 +204,7 @@ mod tests {
 
         let mut pass = ElabHintRetonlyPass::default();
         let mut elem = Fun_ {
+            tparams: vec![],
             span: Default::default(),
             readonly_this: Default::default(),
             annotation: Default::default(),
@@ -219,6 +222,7 @@ mod tests {
                 readonly: Default::default(),
                 splat: Default::default(),
                 callconv: ParamKind::Pnormal,
+                named: None,
                 user_attributes: Default::default(),
                 visibility: Default::default(),
             }],
@@ -230,6 +234,7 @@ mod tests {
             fun_kind: nast::FunKind::FSync,
             user_attributes: Default::default(),
             external: Default::default(),
+            hidden: false,
             doc_comment: Default::default(),
         };
         elem.transform(&env, &mut pass);

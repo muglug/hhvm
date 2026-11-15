@@ -1,0 +1,18 @@
+ERROR: File "/private/tmp/hh-incr/err/r1/a.php", line 2, characters 28-30:
+Invalid return type (Typing[4110])
+  File "/private/tmp/hh-incr/err/r1/a.php", line 2, characters 15-17:
+  Expected `int`
+  File "/private/tmp/hh-incr/err/r1/a.php", line 2, characters 28-30:
+  But got `string`
+ERROR: File "/private/tmp/hh-incr/err/r1/a.php", line 3, characters 31-33:
+Typing error (Typing[4429])
+  File "/private/tmp/hh-incr/err/r1/a.php", line 3, characters 27-33:
+  Expected `num` because this is used in an arithmetic operation
+  File "/private/tmp/hh-incr/err/r1/a.php", line 3, characters 31-33:
+  But got `string`
+ERROR: File "/private/tmp/hh-incr/err/r1/b.php", line 2, characters 10-15:
+Invalid return type (Typing[4336])
+  File "/private/tmp/hh-incr/err/r1/b.php", line 2, characters 20-22:
+  Expected `int`
+  File "/private/tmp/hh-incr/err/r1/b.php", line 2, characters 10-15:
+  But got `void` because this function does not always return a value

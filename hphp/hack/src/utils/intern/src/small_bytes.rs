@@ -84,6 +84,7 @@ fn make_small(b: &[u8]) -> Option<SmallBytes> {
 
 impl Deref for SmallBytes {
     type Target = [u8];
+    #[inline]
     fn deref(&self) -> &[u8] {
         match self {
             Small { len, bytes } => &bytes[0..*len as usize],

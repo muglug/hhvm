@@ -778,6 +778,11 @@ fn parameter_modifier_order_error<'a>(modifiers: &[S<'a>]) -> Option<(S<'a>, Err
 }
 
 fn parameter_modifier_errors<'a>(param: S<'a>) -> Vec<(S<'a>, Error)> {
+    // Every node is given here: the nodes that are not parameters have no
+    // modifiers, hence no errors (what the checks below find for them).
+    if parameter_modifier_fields(param).is_none() {
+        return vec![];
+    }
     let modifiers = parameter_modifiers(param);
     if let Some(error) = duplicate_parameter_modifier_error(&modifiers) {
         return vec![error];
@@ -6427,10 +6432,26 @@ impl<'a, State: 'a + Clone> ParserErrors<'a, State> {
     }
 
     fn fold_child_nodes(&mut self, node: S<'a>) {
+        // A token or a missing node has no children: nothing to do (most
+        // nodes are leaves).
+        if matches!(&node.children, Token(_) | Missing) {
+            return;
+        }
         stack_limit::maybe_grow(|| {
             self.parents.push(node);
-            for c in node.iter_children() {
-                self.folder(c);
+            // (The children of a list are its elements: walked without the
+            // generic iterator, which matches on the kind at each step.)
+            match &node.children {
+                SyntaxList(elems) => {
+                    for c in elems.iter() {
+                        self.folder(c);
+                    }
+                }
+                _ => {
+                    for c in node.iter_children() {
+                        self.folder(c);
+                    }
+                }
             }
             assert_eq!(
                 self.parents.pop().map(|x| x as *const _),

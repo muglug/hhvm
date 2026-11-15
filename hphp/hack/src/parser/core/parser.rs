@@ -74,6 +74,25 @@ where
         root
     }
 
+    /// `parse_script` followed by `errors` and `into_sc_state`, for a parser
+    /// that is not used afterwards: the lexer and the smart constructors move
+    /// into the declaration parser instead of being cloned (a clone of smart
+    /// constructors may share their state, which their first change would
+    /// then copy).
+    pub fn parse_script_into_errors_and_sc_state(
+        self,
+    ) -> (<S::Output as NodeType>::Output, Vec<SyntaxError>, S::State) {
+        let mut decl_parser: DeclarationParser<'_, S> =
+            DeclarationParser::make(self.lexer, self.env, Context::empty(), vec![], self.sc);
+        let root = decl_parser.parse_script().extract();
+        let (lexer, _context, mut errors, sc) = decl_parser.into_parts();
+        // As `errors`: the lexer's errors, then the parser's, reversed.
+        let mut res = lexer.errors().to_vec();
+        res.append(&mut errors);
+        res.reverse();
+        (root, res, sc.into_state())
+    }
+
     pub fn errors(&self) -> Vec<SyntaxError> {
         let mut res = vec![];
         res.extend_from_slice(self.lexer.errors());

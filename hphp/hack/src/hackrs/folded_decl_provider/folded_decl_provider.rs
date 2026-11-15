@@ -12,10 +12,18 @@ use ty::decl::FoldedClass;
 use ty::decl::TypedefDecl;
 use ty::reason::Reason;
 
-mod fold;
-mod inherit;
+// c.f. `hphp/hack/src/decl/`: `fold` is `decl_folded_class.ml` (and the part
+// of `decl_init_check.ml` it uses), `inherit` is `decl_inherit.ml`,
+// `decl_requirements` is `decl_requirements.ml`, `provider` is the recursion
+// over the ancestors of `decl_folded_class.ml`, and `subst` is
+// `decl_instantiate.ml`.
+pub mod decl_requirements;
+pub mod fold;
+pub mod inherit;
 mod provider;
 mod subst;
+#[cfg(test)]
+mod tests;
 
 pub use fold::DeclFolder;
 pub use provider::LazyFoldedDeclProvider;

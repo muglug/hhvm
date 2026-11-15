@@ -3,127 +3,132 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the "hack" directory of this source tree.
 
-use bitflags::bitflags;
 use nast::Class_;
 use nast::Contexts;
 use nast::Hint;
 use nast::Hint_;
 use nast::Id;
 use nast::WhereConstraintHint;
+use oxidized::aast_visitor::AstParams;
+use oxidized::aast_visitor::Node;
+use oxidized::aast_visitor::Visitor;
 
 use crate::prelude::*;
 
+/// Port of `Naming_elab_haccess_hint` (the fields are those of
+/// `Naming_phase_env.Elab_haccess_hint`).
 #[derive(Clone, Default)]
 pub struct ElabHintHaccessPass {
     current_class: Option<Rc<Id>>,
-    flags: Flags,
+    in_where_clause: bool,
+    in_generated_where_clause: bool,
+    in_context: bool,
+    in_haccess: bool,
 }
 
-bitflags! {
-    #[derive(Default, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
-    struct Flags: u8 {
-        const IN_CONTEXT = 1 << 0;
-        const IN_HACCESS = 1 << 1;
-        const IN_WHERE_CLAUSE = 1 << 2;
+/// `SN.Coeffects.generated_generic_prefix`
+const GENERATED_GENERIC_PREFIX: &str = "T/";
+
+/// Does the hint mention a generic generated for a polymorphic context?
+struct IsGeneratedHint(bool);
+
+impl<'ast> Visitor<'ast> for IsGeneratedHint {
+    type Params = AstParams<(), ()>;
+
+    fn object(&mut self) -> &mut dyn Visitor<'ast, Params = Self::Params> {
+        self
+    }
+
+    fn visit_hint(&mut self, c: &mut (), hint: &'ast Hint) -> Result<(), ()> {
+        match &*hint.1 {
+            Hint_::Happly(Id(_, name), _)
+                if name.starts_with(GENERATED_GENERIC_PREFIX) =>
+            {
+                self.0 = true;
+                Ok(())
+            }
+            _ => hint.recurse(c, self.object()),
+        }
     }
 }
 
-impl ElabHintHaccessPass {
-    fn set_in_class(&mut self, cls: &Class_) {
-        self.current_class = Some(Rc::new(cls.name.clone()))
-    }
-
-    fn in_context(&self) -> bool {
-        self.flags.contains(Flags::IN_CONTEXT)
-    }
-
-    fn set_in_context(&mut self, value: bool) {
-        self.flags.set(Flags::IN_CONTEXT, value)
-    }
-
-    fn in_haccess(&self) -> bool {
-        self.flags.contains(Flags::IN_HACCESS)
-    }
-
-    fn set_in_haccess(&mut self, value: bool) {
-        self.flags.set(Flags::IN_HACCESS, value)
-    }
-
-    fn in_where_clause(&self) -> bool {
-        self.flags.contains(Flags::IN_WHERE_CLAUSE)
-    }
-
-    fn set_in_where_clause(&mut self, value: bool) {
-        self.flags.set(Flags::IN_WHERE_CLAUSE, value)
-    }
+fn is_generated_hint(hint: &Hint) -> bool {
+    let mut visitor = IsGeneratedHint(false);
+    let _ = visitor.visit_hint(&mut (), hint);
+    visitor.0
 }
 
 impl Pass for ElabHintHaccessPass {
     fn on_ty_hint_top_down(&mut self, env: &Env, elem: &mut Hint) -> ControlFlow<()> {
-        if !self.in_haccess() {
-            return Continue(());
-        }
-        match &mut *elem.1 {
-            Hint_::Happly(id, hints) if id.name() == sn::classes::SELF => {
-                if let Some(class_id) = self.current_class.as_deref() {
-                    *id = class_id.clone();
-                    // TODO[mjt] we appear to be discarding type arguments on `Happly` here?
-                    hints.clear();
-                    Continue(())
-                } else {
-                    env.emit_error(NamingError::SelfOutsideClass(id.0.clone()));
-                    Break(())
+        let res = if self.in_haccess {
+            let Hint(pos, hint_) = elem;
+            match &mut **hint_ {
+                // TODO[mjt] we appear to be discarding type parameters on `Happly` here
+                // - should we change the representation of `Haccess` or handle
+                // erroneous type parameters?
+                Hint_::Happly(id, hints) if id.name() == sn::classes::SELF => {
+                    match self.current_class.as_deref() {
+                        Some(class_id) => {
+                            *id = class_id.clone();
+                            hints.clear();
+                            Ok(())
+                        }
+                        None => Err(NamingError::SelfOutsideClass(id.0.clone())),
+                    }
                 }
-            }
-
-            Hint_::Happly(id, _)
-                if id.name() == sn::classes::STATIC || id.name() == sn::classes::PARENT =>
-            {
-                env.emit_error(NamingError::InvalidTypeAccessRoot {
-                    pos: id.pos().clone(),
-                    id: Some(id.name().to_string()),
-                });
-                Break(())
-            }
-
-            Hint_::Hthis | Hint_::Happly(..) => Continue(()),
-
-            Hint_::Habstr(..) if self.in_where_clause() || self.in_context() => Continue(()),
-
-            // TODO[mjt] I don't understand what this case corresponds to
-            Hint_::Hvar(..) => Continue(()),
-
-            _ => {
-                env.emit_error(NamingError::InvalidTypeAccessRoot {
-                    pos: elem.0.clone(),
+                // TODO[mjt] is this ever exercised? The cases is handles appear to
+                // be a parse errors
+                Hint_::Happly(id, _)
+                    if id.name() == sn::classes::STATIC || id.name() == sn::classes::PARENT =>
+                {
+                    Err(NamingError::InvalidTypeAccessRoot {
+                        pos: id.pos().clone(),
+                        id: Some(id.name().to_string()),
+                    })
+                }
+                Hint_::Hthis | Hint_::Happly(..) => Ok(()),
+                Hint_::Habstr(..) if self.in_generated_where_clause || self.in_context => Ok(()),
+                Hint_::Habstr(..) if self.in_where_clause => {
+                    Err(NamingError::InvalidTypeAccessInWhere(pos.clone()))
+                }
+                // TODO[mjt] why are we allow `Hvar`?
+                Hint_::Hvar(..) => Ok(()),
+                _ => Err(NamingError::InvalidTypeAccessRoot {
+                    pos: pos.clone(),
                     id: None,
-                });
+                }),
+            }
+        } else {
+            Ok(())
+        };
+        self.in_haccess = matches!(&*elem.1, Hint_::Haccess(..));
+        match res {
+            Ok(()) => Continue(()),
+            Err(err) => {
+                env.emit_error(err);
                 Break(())
             }
         }
-    }
-
-    fn on_ty_hint__top_down(&mut self, _: &Env, elem: &mut Hint_) -> ControlFlow<()> {
-        self.set_in_haccess(matches!(elem, Hint_::Haccess(..)));
-        Continue(())
     }
 
     fn on_ty_class__top_down(&mut self, _: &Env, elem: &mut Class_) -> ControlFlow<()> {
-        self.set_in_class(elem);
+        self.current_class = Some(Rc::new(elem.name.clone()));
         Continue(())
     }
 
     fn on_ty_where_constraint_hint_top_down(
         &mut self,
         _: &Env,
-        _: &mut WhereConstraintHint,
+        elem: &mut WhereConstraintHint,
     ) -> ControlFlow<()> {
-        self.set_in_where_clause(true);
+        let WhereConstraintHint(hint1, _, hint2) = elem;
+        self.in_where_clause = true;
+        self.in_generated_where_clause = is_generated_hint(hint1) || is_generated_hint(hint2);
         Continue(())
     }
 
     fn on_ty_contexts_top_down(&mut self, _: &Env, _: &mut Contexts) -> ControlFlow<()> {
-        self.set_in_context(true);
+        self.in_context = true;
         Continue(())
     }
 }
@@ -306,7 +311,7 @@ mod tests {
                 Box::new(Hint_::Haccess(
                     Hint(
                         Pos::default(),
-                        Box::new(Hint_::Habstr("T".to_string(), vec![])),
+                        Box::new(Hint_::Habstr("T".to_string())),
                     ),
                     vec![Id(Pos::default(), "C".to_string())],
                 )),
@@ -323,8 +328,9 @@ mod tests {
     }
 
     #[test]
-    // type access through type parameter is valid inside a where clause
-    fn test_haccess_tparam_in_where_clause_valid() {
+    // type access through type parameter is an error inside a where clause
+    // (unless the where clause is generated for a polymorphic context)
+    fn test_haccess_tparam_in_where_clause_invalid() {
         let env = Env::default();
 
         let mut pass = ElabHintHaccessPass::default();
@@ -334,7 +340,7 @@ mod tests {
                 Box::new(Hint_::Haccess(
                     Hint(
                         Pos::default(),
-                        Box::new(Hint_::Habstr("T".to_string(), vec![])),
+                        Box::new(Hint_::Habstr("T".to_string())),
                     ),
                     vec![Id(Pos::default(), "C".to_string())],
                 )),
@@ -344,7 +350,12 @@ mod tests {
         );
         elem.transform(&env, &mut pass);
 
-        assert!(env.into_errors().is_empty());
+        assert!(matches!(
+            env.into_errors().pop(),
+            Some(NamingPhaseError::Naming(
+                NamingError::InvalidTypeAccessInWhere(_)
+            ))
+        ));
         let WhereConstraintHint(hint, _, _) = elem;
         assert!(matches!(
             hint,
@@ -363,7 +374,7 @@ mod tests {
             Box::new(Hint_::Haccess(
                 Hint(
                     Pos::default(),
-                    Box::new(Hint_::Habstr("T".to_string(), vec![])),
+                    Box::new(Hint_::Habstr("T".to_string())),
                 ),
                 vec![Id(Pos::default(), "C".to_string())],
             )),

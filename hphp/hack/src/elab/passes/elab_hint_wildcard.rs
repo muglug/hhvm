@@ -10,11 +10,14 @@ use nast::Hint_;
 
 use crate::prelude::*;
 
+/// Port of `Naming_elab_wildcard_hint`.
 #[derive(Clone, Copy, Default)]
 pub struct ElabHintWildcardPass {
     depth: usize,
     allow_wildcard: bool,
-    in_context: bool,
+    /// The next hint visited is an element of a context list (OCaml:
+    /// `on_ty_context`).
+    is_context: bool,
 }
 
 impl ElabHintWildcardPass {
@@ -29,34 +32,29 @@ impl ElabHintWildcardPass {
 impl Pass for ElabHintWildcardPass {
     fn on_ty_hint_top_down(&mut self, env: &Env, elem: &mut Hint) -> ControlFlow<()> {
         let Hint(pos, box hint_) = elem;
+        // Wildcard hints are _always_ disallowed in contexts. OCaml defines
+        // this on `context` (an alias of `hint`), whose handler runs before
+        // the one for hints; hints nested in a context are ordinary hints.
+        if std::mem::replace(&mut self.is_context, false) && matches!(hint_, Hint_::Hwildcard) {
+            env.emit_error(NamingError::InvalidWildcardContext(pos.clone()));
+            return Break(());
+        }
         match &hint_ {
             Hint_::Hwildcard => {
+                // prevents 3 as _
                 if self.allow_wildcard && self.depth >= 1 {
-                    // This is valid; continue
                     Continue(())
                 } else {
-                    // Wildcard hints are disallowed here; add an error
-                    let err = if self.in_context {
-                        NamingError::InvalidWildcardContext(pos.clone())
-                    } else {
-                        NamingError::WildcardHintDisallowed(pos.clone())
-                    };
-                    env.emit_error(err);
+                    env.emit_error(NamingError::WildcardHintDisallowed(pos.clone()));
                     Break(())
                 }
             }
-            _ => {
-                // This isn't a wildcard hint; continue
-                Continue(())
-            }
+            _ => Continue(()),
         }
     }
 
-    // Wildcard hints are _always_ disallowed in contexts
-    // TODO: we define this on `context` in OCaml - we need a newtype
-    // to do the same here
     fn on_ty_contexts_top_down(&mut self, _: &Env, _: &mut Contexts) -> ControlFlow<()> {
-        self.in_context = true;
+        self.is_context = true;
         Continue(())
     }
 
@@ -65,6 +63,7 @@ impl Pass for ElabHintWildcardPass {
             Expr_::Cast(..) => self.incr_depth(),
             Expr_::Is(..) | Expr_::As(..) => self.allow_wildcard = true,
             Expr_::Upcast(..) => self.allow_wildcard = false,
+            Expr_::Lfun(..) | Expr_::Efun(..) => self.allow_wildcard = true,
             _ => (),
         }
         Continue(())
@@ -76,6 +75,12 @@ impl Pass for ElabHintWildcardPass {
         _: &mut nast::PatRefinement,
     ) -> ControlFlow<()> {
         self.allow_wildcard = true;
+        Continue(())
+    }
+
+    // Reset flag on entering a lambda body
+    fn on_ty_func_body_top_down(&mut self, _: &Env, _: &mut nast::FuncBody) -> ControlFlow<()> {
+        self.allow_wildcard = false;
         Continue(())
     }
 
@@ -169,7 +174,10 @@ mod tests {
                 Pos::default(),
                 Box::new(Hint_::Htuple(nast::TupleInfo {
                     required: vec![make_wildcard()],
-                    open: false,
+                    extra: nast::TupleExtra::Hextra(nast::TupleExtraInfo {
+                        optional: vec![],
+                        variadic: None,
+                    }),
                 })),
             ),
         )));

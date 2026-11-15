@@ -9,6 +9,7 @@ use nast::FuncBody;
 use nast::Gconst;
 use nast::ModuleDef;
 use nast::Typedef;
+use oxidized::file_info;
 
 use crate::prelude::*;
 
@@ -84,7 +85,7 @@ mod tests {
         assert!(!elem.fb_ast.is_empty());
 
         // Transform when in Mode::Mhhi should result in [fb_ast] being cleared
-        pass.mode = file_info::Mode::Mhhi;
+        pass.mode = oxidized::file_info::Mode::Mhhi;
         elem.transform(&env, &mut pass);
         assert!(elem.fb_ast.is_empty());
     }

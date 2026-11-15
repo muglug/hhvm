@@ -21,9 +21,7 @@ use unwrap_ocaml::UnwrapOcaml;
 
 fn parsed_file_to_file_info(file: oxidized::direct_decl_parser::ParsedFileWithHashes) -> FileInfo {
     let mut info = FileInfo {
-        position_free_decl_hash: file_info::HashType(Some(Int64::from(
-            file.file_decls_hash.as_u64() as i64,
-        ))),
+        position_free_decl_hash: file_info::HashType(Some(file.file_decls_hash.as_u64() as i64)),
         file_mode: file.mode,
         ids: Ids {
             funs: vec![],
@@ -37,7 +35,7 @@ fn parsed_file_to_file_info(file: oxidized::direct_decl_parser::ParsedFileWithHa
     let pos = |p: &oxidized::pos::Pos| file_info::Pos::Full(p.to_owned());
     use oxidized::shallow_decl_defs::Decl;
     for (name, decl, hash) in file.into_iter() {
-        let hash = Int64::from(hash.as_u64() as i64);
+        let hash = hash.as_u64() as i64;
         match decl {
             Decl::Class(x) => info.ids.classes.push(Id {
                 pos: pos(&x.name.0),

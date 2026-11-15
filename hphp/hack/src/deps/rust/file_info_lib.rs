@@ -3,6 +3,11 @@
 // This source code is licensed under the MIT license found in the
 // LICENSE file in the "hack" directory of this source tree.
 
+// `Id` and `HashType` are converted by hand (see `ocamlrep_impls`), so no
+// derive brings their `#[rust_to_ocaml(...)]` attributes into scope.
+#[macro_use]
+extern crate rust_to_ocaml_attr;
+
 pub(crate) use rc_pos as pos;
 
 mod file_info;
@@ -11,7 +16,7 @@ pub use file_info::*;
 pub mod prim_defs;
 
 pub mod decl_hash {
-    pub type DeclHash = ocamlrep_caml_builtins::Int64;
+    pub type DeclHash = i64;
 }
 
 mod s_set {
@@ -142,5 +147,120 @@ impl Ids {
             .chain(consts.iter().map(|id| (NameType::Const, id.clone())))
             .chain(modules.iter().map(|id| (NameType::Module, id.clone())))
             .collect()
+    }
+}
+
+/// The hashes are `Int64.t` in OCaml (a boxed integer) and `i64` here, so the
+/// types that hold one are converted by hand. `ocamlrep_caml_builtins::Int64`
+/// would do it, but that crate links the OCaml runtime (through
+/// `ocamlrep_ocamlpool`), which the binaries built without OCaml cannot have;
+/// the conversion is the same one, and only a binary that converts a hash
+/// refers to `caml_int64_ops`.
+mod ocamlrep_impls {
+    use ocamlrep::Allocator;
+    use ocamlrep::CUSTOM_TAG;
+    use ocamlrep::FromError;
+    use ocamlrep::FromOcamlRep;
+    use ocamlrep::ToOcamlRep;
+    use ocamlrep::Value;
+    use ocamlrep::from;
+
+    use super::*;
+
+    /// The runtime's `struct custom_operations`, only ever taken by address.
+    #[repr(C)]
+    struct CustomOperations {
+        _private: [u8; 0],
+    }
+
+    unsafe extern "C" {
+        static caml_int64_ops: CustomOperations;
+    }
+
+    #[derive(Clone, Copy)]
+    struct Int64(i64);
+
+    impl ToOcamlRep for Int64 {
+        fn to_ocamlrep<'a, A: Allocator>(&'a self, alloc: &'a A) -> Value<'a> {
+            let mut block = alloc.block_with_size_and_tag(2, CUSTOM_TAG);
+            alloc.set_field(&mut block, 0, unsafe {
+                Value::from_bits(std::ptr::addr_of!(caml_int64_ops) as usize)
+            });
+            alloc.set_field(&mut block, 1, unsafe { Value::from_bits(self.0 as usize) });
+            block.build()
+        }
+    }
+
+    impl FromOcamlRep for Int64 {
+        fn from_ocamlrep(value: Value<'_>) -> Result<Self, FromError> {
+            let block = from::expect_block_with_size_and_tag(value, 2, CUSTOM_TAG)?;
+            Ok(Self(block[1].to_bits() as i64))
+        }
+    }
+
+    fn add_hash<'a, A: Allocator>(alloc: &'a A, hash: Option<i64>) -> Value<'a> {
+        alloc.add_copy(hash.map(Int64))
+    }
+
+    fn hash_field(block: ocamlrep::Block<'_>, field: usize) -> Result<Option<i64>, FromError> {
+        let hash: Option<Int64> = from::field(block, field)?;
+        Ok(hash.map(|Int64(hash)| hash))
+    }
+
+    impl ToOcamlRep for HashType {
+        fn to_ocamlrep<'a, A: Allocator>(&'a self, alloc: &'a A) -> Value<'a> {
+            add_hash(alloc, self.0)
+        }
+    }
+
+    impl FromOcamlRep for HashType {
+        fn from_ocamlrep(value: Value<'_>) -> Result<Self, FromError> {
+            let hash = Option::<Int64>::from_ocamlrep(value)?;
+            Ok(HashType(hash.map(|Int64(hash)| hash)))
+        }
+    }
+
+    impl ToOcamlRep for Id {
+        fn to_ocamlrep<'a, A: Allocator>(&'a self, alloc: &'a A) -> Value<'a> {
+            let mut block = alloc.block_with_size(3);
+            alloc.set_field(&mut block, 0, alloc.add(&self.pos));
+            alloc.set_field(&mut block, 1, alloc.add(&self.name));
+            alloc.set_field(&mut block, 2, add_hash(alloc, self.decl_hash));
+            block.build()
+        }
+    }
+
+    impl FromOcamlRep for Id {
+        fn from_ocamlrep(value: Value<'_>) -> Result<Self, FromError> {
+            let block = from::expect_tuple(value, 3)?;
+            Ok(Id {
+                pos: from::field(block, 0)?,
+                name: from::field(block, 1)?,
+                decl_hash: hash_field(block, 2)?,
+            })
+        }
+    }
+
+    impl ToOcamlRep for Change {
+        fn to_ocamlrep<'a, A: Allocator>(&'a self, alloc: &'a A) -> Value<'a> {
+            let mut block = alloc.block_with_size(4);
+            alloc.set_field(&mut block, 0, alloc.add(&self.path));
+            alloc.set_field(&mut block, 1, alloc.add(&self.old_ids));
+            alloc.set_field(&mut block, 2, alloc.add(&self.new_ids));
+            alloc.set_field(&mut block, 3, add_hash(alloc, self.new_pfh_hash));
+            block.build()
+        }
+    }
+
+    impl FromOcamlRep for Change {
+        fn from_ocamlrep(value: Value<'_>) -> Result<Self, FromError> {
+            let block = from::expect_tuple(value, 4)?;
+            Ok(Change {
+                path: from::field(block, 0)?,
+                old_ids: from::field(block, 1)?,
+                new_ids: from::field(block, 2)?,
+                new_pfh_hash: hash_field(block, 3)?,
+            })
+        }
     }
 }

@@ -167,10 +167,7 @@ class SavedStateDir:
         return self.naming_table_blob_file() + "_64bit_dep_graph.zhhdg"
 
     def dep_graph_file(self) -> str:
-        return os.path.join(
-            self.path,
-            "hh_mini_saved_state_64bit_dep_graph_decompressed.hhdg",
-        )
+        return self.naming_table_blob_file() + ".hhdg"
 
     def saved_state_spec(self, changed_files: List[str]) -> str:
         return json.dumps(
@@ -235,7 +232,8 @@ def _create_temporary_directory(category: str, filename: str) -> str:
 def _prepare_repo_root(test: FanoutTest) -> RepoRoot:
     repo_root = RepoRoot(_create_temporary_directory("repo", test.filename))
     logging.debug("Preparing repo root in %s", repo_root.path)
-    os.mknod(repo_root.hhconfig_file())
+    # (`os.mknod` of a regular file needs privileges on macOS.)
+    open(repo_root.hhconfig_file(), "w").close()
     with open(repo_root.watchmanconfig_file(), "w") as f:
         f.write("{}")
     test.prepare_base_php_contents(repo_root.path)
@@ -255,40 +253,26 @@ def _create_saved_state(
         "Generating saved-state for %s in %s", repo_root.path, saved_state_dir.path
     )
 
-    logging.debug("Step 1/3: Generating saved state in %s", saved_state_dir.path)
-    _exec(["mkdir", "-p", saved_state_dir.edges_dir()])
+    # The saved state is made by `hh_server --check --save-state` (the
+    # producer of the OCaml before upstream removed it in favour of Meta's
+    # hh_distc, which this tree's Rust hh_server has): it writes the naming
+    # table (hh_mini_naming.sql), the errors and the dependency graph
+    # (hh_mini.hhdg) that the loader reads.
+    logging.debug("Generating saved state in %s", saved_state_dir.path)
     hh_result = _exec(
         [
-            bins.hh_distc,
-            "--cmd",
-            "worker={}".format(bins.hh_distc_worker),
-            "check",
-            "--use-local-execution",
-            "--trace-store-mode",
-            "local",  # avoid polluting global trace memcache
-            "--root",
-            repo_root.path,
+            bins.hh_server,
+            "--check",
             "--save-state",
             saved_state_dir.naming_table_blob_file(),
-            "--save-64bit",
-            saved_state_dir.edges_dir(),
-            "--write-compressed-depgraph",
-            saved_state_dir.compressed_dep_graph_file(),
+            "--gen-saved-ignore-type-errors",
+            repo_root.path,
         ]
         + DEFAULT_HH_SERVER_FLAGS,
         check=False,
     )
-    if hh_result.returncode not in (0, 2):
+    if hh_result.returncode not in (0, 1, 2):
         hh_result.check_returncode()
-    _exec(
-        [
-            bins.hh_client,
-            "decompress-zhhdg",
-            "--path",
-            saved_state_dir.compressed_dep_graph_file(),
-        ]
-    )
-    _exec(["rm", "-rf", saved_state_dir.edges_dir()])
     return (hh_result, saved_state_dir)
 
 

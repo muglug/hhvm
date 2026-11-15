@@ -14,7 +14,7 @@ use crate::prelude::*;
 pub struct ValidateSupportDynPass;
 
 impl Pass for ValidateSupportDynPass {
-    fn on_ty_hint__bottom_up(&mut self, env: &Env, hint_: &mut Hint_) -> ControlFlow<()> {
+    fn on_ty_hint__top_down(&mut self, env: &Env, hint_: &mut Hint_) -> ControlFlow<()> {
         if env.is_hhi() || env.is_systemlib() || env.supportdynamic_type_hint_enabled() {
             return Continue(());
         }

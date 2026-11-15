@@ -24,3 +24,7 @@ shallow_decl_provider = { path = "../../../shallow_decl_provider/cargo/shallow_d
 special_names = { path = "../../../special_names/cargo/special_names" }
 thiserror = "2.0.21"
 ty = { path = "../../../ty/cargo/ty" }
+
+[dev-dependencies]
+decl_parser = { path = "../../../decl_parser/cargo/decl_parser" }
+file_provider = { path = "../../../file_provider/cargo/file_provider" }

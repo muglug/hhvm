@@ -87,6 +87,17 @@ const MASK: u64 = !(1 << 63);
 const DUMMY: u64 = MASK;
 
 impl PosSpanTiny {
+    /// The packed representation (for `Pos`, which packs it in turn).
+    #[inline]
+    pub(crate) const fn to_bits(self) -> u64 {
+        self.0
+    }
+
+    #[inline]
+    pub(crate) const fn from_bits(bits: u64) -> Self {
+        Self(bits)
+    }
+
     #[inline]
     pub const fn make_dummy() -> Self {
         Self(DUMMY)

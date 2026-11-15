@@ -61,6 +61,7 @@ impl<'a> SourceText<'a> {
         Arc::clone(&self.0.file_path)
     }
 
+    #[inline]
     pub fn text(&self) -> &'a [u8] {
         self.0.text
     }
@@ -69,6 +70,7 @@ impl<'a> SourceText<'a> {
         unsafe { std::str::from_utf8_unchecked(self.0.text) }
     }
 
+    #[inline]
     pub fn length(&self) -> usize {
         self.text().len()
     }
@@ -77,10 +79,12 @@ impl<'a> SourceText<'a> {
         self.0.ocaml_source_text
     }
 
+    #[inline]
     pub fn get(&self, index: usize) -> char {
         self.text().get(index).map_or(INVALID, |x| *x as char)
     }
 
+    #[inline]
     pub fn sub(&self, start: usize, length: usize) -> &'a [u8] {
         let len = self.length();
 

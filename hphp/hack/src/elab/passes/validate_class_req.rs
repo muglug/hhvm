@@ -19,13 +19,17 @@ impl Pass for ValidateClassReqPass {
         let is_trait = cls.kind == ClassishKind::Ctrait;
         let is_interface = cls.kind == ClassishKind::Cinterface;
         let find_req = |kind| cls.reqs.iter().find(|&&ClassReq(_, k)| k == kind);
-        // `require implements` and `require class` are only allowed in traits.
+        // `require implements`, `require class` and `require this as` are only
+        // allowed in traits.
         if !is_trait {
             if let Some(ClassReq(Hint(pos, _), _)) = find_req(RequireKind::RequireImplements) {
                 env.emit_error(NamingError::InvalidRequireImplements(pos.clone()));
             }
             if let Some(ClassReq(Hint(pos, _), _)) = find_req(RequireKind::RequireClass) {
                 env.emit_error(NamingError::InvalidRequireClass(pos.clone()));
+            }
+            if let Some(ClassReq(Hint(pos, _), _)) = find_req(RequireKind::RequireThisAs) {
+                env.emit_error(NamingError::InvalidRequireConstraint(pos.clone()));
             }
         }
         // `require extends` is only allowed in traits and interfaces, so if

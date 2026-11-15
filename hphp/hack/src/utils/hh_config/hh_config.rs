@@ -265,8 +265,11 @@ impl HhConfig {
             )?,
             allowed_decl_fixme_codes: hhconfig
                 .get_int_set_or("allowed_decl_fixme_codes", default.allowed_decl_fixme_codes)?,
-            const_static_props: default.const_static_props,
-            abstract_static_props: default.abstract_static_props,
+            // As `Server_config.load_config`.
+            const_static_props: hhconfig
+                .get_bool_or("const_static_props", default.const_static_props)?,
+            abstract_static_props: hhconfig
+                .get_bool_or("abstract_static_props", default.abstract_static_props)?,
             enable_xhp_class_modifier: hhconfig.get_bool_or(
                 "enable_xhp_class_modifier",
                 default.enable_xhp_class_modifier,
@@ -280,7 +283,7 @@ impl HhConfig {
                 default.disable_xhp_children_declarations,
             )?,
             keep_user_attributes: default.keep_user_attributes,
-            is_systemlib: default.is_systemlib,
+            is_systemlib: hhconfig.get_bool_or("is_systemlib", default.is_systemlib)?,
             interpret_soft_types_as_like_types: hhconfig.get_bool_or(
                 "interpret_soft_types_as_like_types",
                 default.interpret_soft_types_as_like_types,
@@ -413,7 +416,7 @@ impl HhConfig {
 
             tco_disallow_unresolved_type_variables: default.tco_disallow_unresolved_type_variables,
             tco_custom_error_config: custom_error_config,
-            tco_const_attribute: default.tco_const_attribute,
+            tco_const_attribute: hhconfig.get_bool_or("const_attribute", default.tco_const_attribute)?,
             glean_reponame: default.glean_reponame,
             symbol_write_index_inherited_members: default.symbol_write_index_inherited_members,
             symbol_write_ownership: default.symbol_write_ownership,
@@ -471,10 +474,15 @@ impl HhConfig {
                     }
                     allowed_expression_tree_visitors
                 }),
-            tco_typeconst_concrete_concrete_error: default.tco_typeconst_concrete_concrete_error,
+            tco_typeconst_concrete_concrete_error: hhconfig.get_bool_or(
+                "typeconst_concrete_concrete_error",
+                default.tco_typeconst_concrete_concrete_error,
+            )?,
             tco_meth_caller_only_public_visibility: default.tco_meth_caller_only_public_visibility,
-            tco_require_extends_implements_ancestors: default
-                .tco_require_extends_implements_ancestors,
+            tco_require_extends_implements_ancestors: hhconfig.get_bool_or(
+                "require_extends_implements_ancestors",
+                default.tco_require_extends_implements_ancestors,
+            )?,
             tco_implicit_inherit_sdt: default.tco_implicit_inherit_sdt,
             tco_explicit_consistent_constructors: hhconfig.get_int_or(
                 "explicit_consistent_constructors",

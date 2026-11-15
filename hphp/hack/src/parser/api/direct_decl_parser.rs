@@ -65,10 +65,10 @@ fn parse_script<'o, 't>(
     let mode = mode_opt.unwrap_or(file_info::Mode::Mstrict);
     let sc =
         DirectDeclSmartConstructors::new(opts, &source, mode, elaborate_xhp_namespaces_for_facts);
-    let mut parser = Parser::new(&source, env, sc);
-    let decls = parser.parse_script().script_decls(true);
-    let errors = parser.errors();
-    let mut sc_state = parser.into_sc_state().into_inner();
+    let parser = Parser::new(&source, env, sc);
+    let (root, errors, sc_state) = parser.parse_script_into_errors_and_sc_state();
+    let decls = root.script_decls(true);
+    let mut sc_state = sc_state.into_inner();
 
     // Direct decl parser populates state.file_attributes in reverse of
     // syntactic order, so reverse it.

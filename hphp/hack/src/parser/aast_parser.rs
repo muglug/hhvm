@@ -67,17 +67,40 @@ impl<'src> AastParser {
         indexed_source_text: &'src IndexedSourceText<'src>,
         default_unstable_features: HashSet<experimental_features::FeatureName>,
     ) -> Result<ParserResult> {
-        let ns = NamespaceEnv::empty(
-            env.parser_options.auto_namespace_map.clone(),
-            env.mode,
-            env.parser_options.disable_xhp_element_mangling,
-        );
         Self::from_text_with_namespace_env(
             env,
-            Arc::new(ns),
+            Self::empty_namespace_env(env),
             indexed_source_text,
             default_unstable_features,
         )
+    }
+
+    /// `NamespaceEnv::empty` for the options of `env`. It copies the maps of
+    /// the auto-imported names (hundreds of strings): the last one made on
+    /// this thread is kept and given again for the same options (it is
+    /// immutable behind the `Arc`).
+    fn empty_namespace_env(env: &Env) -> Arc<NamespaceEnv> {
+        type Last = (
+            Vec<(String, String)>,
+            NamespaceMode,
+            bool,
+            Arc<NamespaceEnv>,
+        );
+        thread_local! {
+            static LAST: std::cell::RefCell<Option<Last>> = const { std::cell::RefCell::new(None) };
+        }
+        let map = &env.parser_options.auto_namespace_map;
+        let disable = env.parser_options.disable_xhp_element_mangling;
+        LAST.with_borrow_mut(|last| match last {
+            Some((m, mode, d, ns)) if *mode == env.mode && *d == disable && m == map => {
+                Arc::clone(ns)
+            }
+            _ => {
+                let ns = Arc::new(NamespaceEnv::empty(map.clone(), env.mode, disable));
+                *last = Some((map.clone(), env.mode, disable, Arc::clone(&ns)));
+                ns
+            }
+        })
     }
 
     pub fn from_text_with_namespace_env(
